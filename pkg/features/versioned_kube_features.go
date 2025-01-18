@@ -238,12 +238,6 @@ var defaultVersionedKubernetesFeatureGates = map[featuregate.Feature]featuregate
 		{Version: version.MustParse("1.32"), Default: true, PreRelease: featuregate.Beta},
 	},
 
-	genericfeatures.APIListChunking: {
-		{Version: version.MustParse("1.8"), Default: false, PreRelease: featuregate.Alpha},
-		{Version: version.MustParse("1.9"), Default: true, PreRelease: featuregate.Beta},
-		{Version: version.MustParse("1.29"), Default: true, PreRelease: featuregate.GA, LockToDefault: true},
-	},
-
 	genericfeatures.APIResponseCompression: {
 		{Version: version.MustParse("1.8"), Default: false, PreRelease: featuregate.Alpha},
 		{Version: version.MustParse("1.16"), Default: true, PreRelease: featuregate.Beta},
@@ -486,12 +480,6 @@ var defaultVersionedKubernetesFeatureGates = map[featuregate.Feature]featuregate
 	KubeletTracing: {
 		{Version: version.MustParse("1.25"), Default: false, PreRelease: featuregate.Alpha},
 		{Version: version.MustParse("1.27"), Default: true, PreRelease: featuregate.Beta},
-	},
-
-	KubeProxyDrainingTerminatingNodes: {
-		{Version: version.MustParse("1.28"), Default: false, PreRelease: featuregate.Alpha},
-		{Version: version.MustParse("1.30"), Default: true, PreRelease: featuregate.Beta},
-		{Version: version.MustParse("1.31"), Default: true, PreRelease: featuregate.GA, LockToDefault: true}, // GA in 1.31; remove in 1.33
 	},
 
 	LoadBalancerIPMode: {
