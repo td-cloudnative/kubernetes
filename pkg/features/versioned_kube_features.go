@@ -325,6 +325,7 @@ var defaultVersionedKubernetesFeatureGates = map[featuregate.Feature]featuregate
 
 	genericfeatures.SeparateCacheWatchRPC: {
 		{Version: version.MustParse("1.28"), Default: true, PreRelease: featuregate.Beta},
+		{Version: version.MustParse("1.33"), Default: false, PreRelease: featuregate.Deprecated},
 	},
 
 	genericfeatures.StorageVersionAPI: {
@@ -368,6 +369,7 @@ var defaultVersionedKubernetesFeatureGates = map[featuregate.Feature]featuregate
 
 	genericfeatures.WatchFromStorageWithoutResourceVersion: {
 		{Version: version.MustParse("1.27"), Default: false, PreRelease: featuregate.Beta},
+		{Version: version.MustParse("1.33"), Default: false, PreRelease: featuregate.Deprecated, LockToDefault: true},
 	},
 
 	genericfeatures.WatchList: {
