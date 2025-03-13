@@ -377,6 +377,13 @@ const (
 	// separate filesystems.
 	KubeletSeparateDiskGC featuregate.Feature = "KubeletSeparateDiskGC"
 
+	// owner: @aramase
+	// kep: http://kep.k8s.io/4412
+	//
+	// Enable kubelet to send the service account token bound to the pod for which the image
+	// is being pulled to the credential provider plugin.
+	KubeletServiceAccountTokenForCredentialProviders featuregate.Feature = "KubeletServiceAccountTokenForCredentialProviders"
+
 	// owner: @sallyom
 	// kep: https://kep.k8s.io/2832
 	//
@@ -707,6 +714,12 @@ const (
 	// owner: serathius
 	// Allow API server Protobuf encoder to encode collections item by item, instead of all at once.
 	StreamingCollectionEncodingToProtobuf featuregate.Feature = "StreamingCollectionEncodingToProtobuf"
+
+	// owner: @danwinship
+	// kep: https://kep.k8s.io/4858
+	//
+	// Requires stricter validation of IP addresses and CIDR values in API objects.
+	StrictIPCIDRValidation featuregate.Feature = "StrictIPCIDRValidation"
 
 	// owner: @robscott
 	// kep: https://kep.k8s.io/2433
