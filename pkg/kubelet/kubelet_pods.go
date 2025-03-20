@@ -131,6 +131,12 @@ func (kl *Kubelet) getKubeletMappings() (uint32, uint32, error) {
 		return defaultFirstID, defaultLen, nil
 	}
 
+	// We NEED to check for the user because getsubids can be configured to gather the response
+	// with a remote call and we can't distinguish between the remote endpoint not being reachable
+	// and the remote endpoint is reachable but no entry is present for the user.
+	// So we check for the kubelet user first, if it exist and getsubids is present, we expect
+	// to get _some_ configuration. If the user exist and getsubids doesn't give us any
+	// configuration, then we consider the remote down and fail to start the kubelet.
 	_, err := user.Lookup(kubeletUser)
 	if err != nil {
 		var unknownUserErr user.UnknownUserError
@@ -1828,6 +1834,7 @@ func (kl *Kubelet) generateAPIPodStatus(pod *v1.Pod, podStatus *kubecontainer.Po
 	if utilfeature.DefaultFeatureGate.Enabled(features.InPlacePodVerticalScaling) {
 		resizeStatus := kl.determinePodResizeStatus(pod, podIsTerminal)
 		for _, c := range resizeStatus {
+			c.ObservedGeneration = podutil.GetPodObservedGenerationIfEnabledOnCondition(&oldPodStatus, pod.Generation, c.Type)
 			s.Conditions = append(s.Conditions, *c)
 		}
 	}
@@ -1843,15 +1850,16 @@ func (kl *Kubelet) generateAPIPodStatus(pod *v1.Pod, podStatus *kubecontainer.Po
 
 	// set all Kubelet-owned conditions
 	if utilfeature.DefaultFeatureGate.Enabled(features.PodReadyToStartContainersCondition) {
-		s.Conditions = append(s.Conditions, status.GeneratePodReadyToStartContainersCondition(pod, podStatus))
+		s.Conditions = append(s.Conditions, status.GeneratePodReadyToStartContainersCondition(pod, &oldPodStatus, podStatus))
 	}
 	allContainerStatuses := append(s.InitContainerStatuses, s.ContainerStatuses...)
-	s.Conditions = append(s.Conditions, status.GeneratePodInitializedCondition(&pod.Spec, allContainerStatuses, s.Phase))
-	s.Conditions = append(s.Conditions, status.GeneratePodReadyCondition(&pod.Spec, s.Conditions, allContainerStatuses, s.Phase))
-	s.Conditions = append(s.Conditions, status.GenerateContainersReadyCondition(&pod.Spec, allContainerStatuses, s.Phase))
+	s.Conditions = append(s.Conditions, status.GeneratePodInitializedCondition(pod, &oldPodStatus, allContainerStatuses, s.Phase))
+	s.Conditions = append(s.Conditions, status.GeneratePodReadyCondition(pod, &oldPodStatus, s.Conditions, allContainerStatuses, s.Phase))
+	s.Conditions = append(s.Conditions, status.GenerateContainersReadyCondition(pod, &oldPodStatus, allContainerStatuses, s.Phase))
 	s.Conditions = append(s.Conditions, v1.PodCondition{
-		Type:   v1.PodScheduled,
-		Status: v1.ConditionTrue,
+		Type:               v1.PodScheduled,
+		ObservedGeneration: podutil.GetPodObservedGenerationIfEnabledOnCondition(&oldPodStatus, pod.Generation, v1.PodScheduled),
+		Status:             v1.ConditionTrue,
 	})
 	// set HostIP/HostIPs and initialize PodIP/PodIPs for host network pods
 	if kl.kubeClient != nil {

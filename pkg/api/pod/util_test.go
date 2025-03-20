@@ -2271,7 +2271,10 @@ func Test_dropDisabledMatchLabelKeysFieldInPodAffinity(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			featuregatetesting.SetFeatureGateDuringTest(t, utilfeature.DefaultFeatureGate, features.MatchLabelKeysInPodAffinity, test.enabled)
+			if !test.enabled {
+				featuregatetesting.SetFeatureGateEmulationVersionDuringTest(t, utilfeature.DefaultFeatureGate, version.MustParse("1.32"))
+				featuregatetesting.SetFeatureGateDuringTest(t, utilfeature.DefaultFeatureGate, features.MatchLabelKeysInPodAffinity, false)
+			}
 
 			dropDisabledFields(test.podSpec, nil, test.oldPodSpec, nil)
 			if diff := cmp.Diff(test.wantPodSpec, test.podSpec); diff != "" {
@@ -4026,12 +4029,15 @@ func TestValidateAllowSidecarResizePolicy(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			gotOptions := GetValidationOptionsFromPodSpecAndMeta(&api.PodSpec{}, tc.oldPodSpec, nil, nil)
-			if tc.wantOption != gotOptions.AllowSidecarResizePolicy {
-				t.Errorf("Got AllowSidecarResizePolicy=%t, want %t", gotOptions.AllowSidecarResizePolicy, tc.wantOption)
-			}
-		})
+		for _, ippvsEnabled := range []bool{true, false} {
+			t.Run(fmt.Sprintf("%s/%t", tc.name, ippvsEnabled), func(t *testing.T) {
+				featuregatetesting.SetFeatureGateDuringTest(t, utilfeature.DefaultFeatureGate, features.InPlacePodVerticalScaling, ippvsEnabled)
+
+				gotOptions := GetValidationOptionsFromPodSpecAndMeta(&api.PodSpec{}, tc.oldPodSpec, nil, nil)
+				expected := tc.wantOption || ippvsEnabled
+				assert.Equal(t, expected, gotOptions.AllowSidecarResizePolicy, "AllowSidecarResizePolicy")
+			})
+		}
 	}
 }
 

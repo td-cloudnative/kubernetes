@@ -96,14 +96,14 @@ func TestPolicyOptionsAvailable(t *testing.T) {
 		},
 		{
 			option:            DistributeCPUsAcrossNUMAOption,
-			featureGate:       pkgfeatures.CPUManagerPolicyAlphaOptions,
+			featureGate:       pkgfeatures.CPUManagerPolicyBetaOptions,
 			featureGateEnable: true,
 			expectedAvailable: true,
 		},
 		{
 			option:            DistributeCPUsAcrossNUMAOption,
 			featureGate:       pkgfeatures.CPUManagerPolicyBetaOptions,
-			featureGateEnable: true,
+			featureGateEnable: false,
 			expectedAvailable: false,
 		},
 		{
@@ -120,15 +120,15 @@ func TestPolicyOptionsAvailable(t *testing.T) {
 		},
 		{
 			option:            StrictCPUReservationOption,
-			featureGate:       pkgfeatures.CPUManagerPolicyAlphaOptions,
-			featureGateEnable: true,
-			expectedAvailable: true,
+			featureGate:       pkgfeatures.CPUManagerPolicyBetaOptions,
+			featureGateEnable: false,
+			expectedAvailable: false,
 		},
 		{
 			option:            StrictCPUReservationOption,
 			featureGate:       pkgfeatures.CPUManagerPolicyBetaOptions,
 			featureGateEnable: true,
-			expectedAvailable: false,
+			expectedAvailable: true,
 		},
 	}
 	for _, testCase := range testCases {

@@ -40,6 +40,7 @@ import (
 	utilfeature "k8s.io/apiserver/pkg/util/feature"
 	"k8s.io/component-base/featuregate"
 	featuregatetesting "k8s.io/component-base/featuregate/testing"
+	"k8s.io/dynamic-resource-allocation/resourceslice"
 	"k8s.io/klog/v2"
 	kubeschedulerconfigv1 "k8s.io/kube-scheduler/config/v1"
 	kubeapiservertesting "k8s.io/kubernetes/cmd/kube-apiserver/app/testing"
@@ -87,7 +88,7 @@ var (
 // - Non-alpha-numeric characters replaced by hyphen.
 // - Truncated in the middle to make it short enough for GenerateName.
 // - Hyphen plus random suffix added by the apiserver.
-func createTestNamespace(tCtx ktesting.TContext) string {
+func createTestNamespace(tCtx ktesting.TContext, labels map[string]string) string {
 	tCtx.Helper()
 	name := regexp.MustCompile(`[^[:alnum:]_-]`).ReplaceAllString(tCtx.Name(), "-")
 	name = strings.ToLower(name)
@@ -95,6 +96,7 @@ func createTestNamespace(tCtx ktesting.TContext) string {
 		name = name[:30] + "--" + name[len(name)-30:]
 	}
 	ns := &v1.Namespace{ObjectMeta: metav1.ObjectMeta{GenerateName: name + "-"}}
+	ns.Labels = labels
 	ns, err := tCtx.Client().CoreV1().Namespaces().Create(tCtx, ns, metav1.CreateOptions{})
 	tCtx.ExpectNoError(err, "create test namespace")
 	tCtx.CleanupCtx(func(tCtx ktesting.TContext) {
@@ -129,6 +131,7 @@ func TestDRA(t *testing.T) {
 				tCtx.Run("AdminAccess", func(tCtx ktesting.TContext) { testAdminAccess(tCtx, false) })
 				tCtx.Run("PrioritizedList", func(tCtx ktesting.TContext) { testPrioritizedList(tCtx, false) })
 				tCtx.Run("Pod", func(tCtx ktesting.TContext) { testPod(tCtx, true) })
+				tCtx.Run("PublishResourceSlices", func(tCtx ktesting.TContext) { testPublishResourceSlices(tCtx) })
 			},
 		},
 		"all": {
@@ -148,6 +151,7 @@ func TestDRA(t *testing.T) {
 				tCtx.Run("AdminAccess", func(tCtx ktesting.TContext) { testAdminAccess(tCtx, true) })
 				tCtx.Run("Convert", testConvert)
 				tCtx.Run("PrioritizedList", func(tCtx ktesting.TContext) { testPrioritizedList(tCtx, true) })
+				tCtx.Run("PublishResourceSlices", func(tCtx ktesting.TContext) { testPublishResourceSlices(tCtx) })
 			},
 		},
 	} {
@@ -211,7 +215,7 @@ func newDefaultSchedulerComponentConfig(tCtx ktesting.TContext) *config.KubeSche
 // whether that field is or isn't getting dropped.
 func testPod(tCtx ktesting.TContext, draEnabled bool) {
 	tCtx.Parallel()
-	namespace := createTestNamespace(tCtx)
+	namespace := createTestNamespace(tCtx, nil)
 	podWithClaimName := podWithClaimName.DeepCopy()
 	podWithClaimName.Namespace = namespace
 	pod, err := tCtx.Client().CoreV1().Pods(namespace).Create(tCtx, podWithClaimName, metav1.CreateOptions{})
@@ -235,7 +239,7 @@ func testAPIDisabled(tCtx ktesting.TContext) {
 // testConvert creates a claim using a one API version and reads it with another.
 func testConvert(tCtx ktesting.TContext) {
 	tCtx.Parallel()
-	namespace := createTestNamespace(tCtx)
+	namespace := createTestNamespace(tCtx, nil)
 	claim := claim.DeepCopy()
 	claim.Namespace = namespace
 	claim, err := tCtx.Client().ResourceV1beta1().ResourceClaims(namespace).Create(tCtx, claim, metav1.CreateOptions{})
@@ -248,17 +252,34 @@ func testConvert(tCtx ktesting.TContext) {
 
 // testAdminAccess creates a claim with AdminAccess and then checks
 // whether that field is or isn't getting dropped.
+// when the AdminAccess feature is enabled, it also checks that the field
+// is only allowed to be used in namespace with the Resource Admin Access label
 func testAdminAccess(tCtx ktesting.TContext, adminAccessEnabled bool) {
-	tCtx.Parallel()
-	namespace := createTestNamespace(tCtx)
-	claim := claim.DeepCopy()
-	claim.Namespace = namespace
-	claim.Spec.Devices.Requests[0].AdminAccess = ptr.To(true)
-	claim, err := tCtx.Client().ResourceV1beta1().ResourceClaims(namespace).Create(tCtx, claim, metav1.CreateOptions{})
-	tCtx.ExpectNoError(err, "create claim")
+	namespace := createTestNamespace(tCtx, nil)
+	claim1 := claim.DeepCopy()
+	claim1.Namespace = namespace
+	claim1.Spec.Devices.Requests[0].AdminAccess = ptr.To(true)
+	// create claim with AdminAccess in non-admin namespace
+	_, err := tCtx.Client().ResourceV1beta1().ResourceClaims(namespace).Create(tCtx, claim1, metav1.CreateOptions{})
 	if adminAccessEnabled {
-		if !ptr.Deref(claim.Spec.Devices.Requests[0].AdminAccess, false) {
-			tCtx.Fatal("should store AdminAccess in ResourceClaim")
+		if err != nil {
+			// should result in validation error
+			assert.ErrorContains(tCtx, err, "admin access to devices requires the `resource.k8s.io/admin-access: true` label on the containing namespace", "the error message should have contained the expected error message")
+			return
+		} else {
+			tCtx.Fatal("expected validation error(s), got none")
+		}
+
+		// create claim with AdminAccess in admin namespace
+		adminNS := createTestNamespace(tCtx, map[string]string{"resource.k8s.io/admin-access": "true"})
+		claim2 := claim.DeepCopy()
+		claim2.Namespace = adminNS
+		claim2.Name = "claim2"
+		claim2.Spec.Devices.Requests[0].AdminAccess = ptr.To(true)
+		claim2, err := tCtx.Client().ResourceV1beta1().ResourceClaims(adminNS).Create(tCtx, claim2, metav1.CreateOptions{})
+		tCtx.ExpectNoError(err, "create claim")
+		if !ptr.Deref(claim2.Spec.Devices.Requests[0].AdminAccess, true) {
+			tCtx.Fatalf("should store AdminAccess in ResourceClaim %v", claim2)
 		}
 	} else {
 		if claim.Spec.Devices.Requests[0].AdminAccess != nil {
@@ -271,7 +292,7 @@ func testPrioritizedList(tCtx ktesting.TContext, enabled bool) {
 	tCtx.Parallel()
 	_, err := tCtx.Client().ResourceV1beta1().DeviceClasses().Create(tCtx, class, metav1.CreateOptions{})
 	tCtx.ExpectNoError(err, "create class")
-	namespace := createTestNamespace(tCtx)
+	namespace := createTestNamespace(tCtx, nil)
 	claim := claimPrioritizedList.DeepCopy()
 	claim.Namespace = namespace
 	claim, err = tCtx.Client().ResourceV1beta1().ResourceClaims(namespace).Create(tCtx, claim, metav1.CreateOptions{})
@@ -307,4 +328,72 @@ func testPrioritizedList(tCtx ktesting.TContext, enabled bool) {
 			return pod
 		}).WithTimeout(time.Minute).WithPolling(time.Second).Should(schedulingAttempted)
 	})
+}
+
+func testPublishResourceSlices(tCtx ktesting.TContext) {
+	tCtx.Parallel()
+
+	driverName := "dra.example.com"
+	poolName := "global"
+	resources := &resourceslice.DriverResources{
+		Pools: map[string]resourceslice.Pool{
+			poolName: {
+				Slices: []resourceslice.Slice{
+					{
+						Devices: []resourceapi.Device{
+							{
+								Name:  "device-simple",
+								Basic: &resourceapi.BasicDevice{},
+							},
+							// TODO: once https://github.com/kubernetes/kubernetes/pull/130764 is merged,
+							// add tests which detect dropped fields related to it.
+						},
+					},
+					{
+						Devices: []resourceapi.Device{
+							{
+								Name: "device-tainted-default",
+								Basic: &resourceapi.BasicDevice{
+									Taints: []resourceapi.DeviceTaint{{
+										Effect: resourceapi.DeviceTaintEffectNoExecute,
+										// TimeAdded is added by apiserver.
+									}},
+								},
+							},
+							{
+								Name: "device-tainted-time-added",
+								Basic: &resourceapi.BasicDevice{
+									Taints: []resourceapi.DeviceTaint{{
+										Effect:    resourceapi.DeviceTaintEffectNoExecute,
+										TimeAdded: ptr.To(metav1.Now()),
+									}},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+	opts := resourceslice.Options{
+		DriverName: driverName,
+		KubeClient: tCtx.Client(),
+		SyncDelay:  ptr.To(0 * time.Second),
+		Resources:  resources,
+	}
+	controller, err := resourceslice.StartController(tCtx, opts)
+	tCtx.ExpectNoError(err, "start controller")
+	defer controller.Stop()
+
+	// Two create calls should be all that are needed.
+	expectedStats := resourceslice.Stats{
+		NumCreates: 2,
+	}
+	getStats := func(tCtx ktesting.TContext) resourceslice.Stats {
+		return controller.GetStats()
+	}
+	ktesting.Eventually(tCtx, getStats).WithTimeout(10 * time.Second).Should(gomega.Equal(expectedStats))
+
+	// No further changes necessary.
+	ktesting.Consistently(tCtx, getStats).WithTimeout(10 * time.Second).Should(gomega.Equal(expectedStats))
 }
