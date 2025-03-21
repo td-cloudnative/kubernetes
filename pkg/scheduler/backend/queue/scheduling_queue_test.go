@@ -835,18 +835,17 @@ func Test_InFlightPods(t *testing.T) {
 			}
 
 			if test.wantBackoffQPodNames != nil {
-				podInfos := q.backoffQ.list()
+				pods := q.backoffQ.list()
 				var podNames []string
-				for _, pInfo := range podInfos {
-					podNames = append(podNames, pInfo.Pod.Name)
+				for _, pod := range pods {
+					podNames = append(podNames, pod.Name)
 				}
 				if diff := cmp.Diff(test.wantBackoffQPodNames, podNames, sortOpt); diff != "" {
 					t.Fatalf("Unexpected diff of backoffQ pod names (-want, +got):\n%s", diff)
 				}
 
 				wantPodNames := sets.New(test.wantBackoffQPodNames...)
-				for _, podInfo := range podInfos {
-					podGotFromBackoffQ := podInfo.Pod
+				for _, podGotFromBackoffQ := range pods {
 					if !wantPodNames.Has(podGotFromBackoffQ.Name) {
 						t.Fatalf("Pod %v was not expected to be in the backoffQ.", podGotFromBackoffQ.Name)
 					}
@@ -1011,25 +1010,88 @@ func TestPriorityQueue_AddUnschedulableIfNotPresent_Backoff(t *testing.T) {
 	}
 }
 
-func TestPriorityQueue_Pop(t *testing.T) {
-	objs := []runtime.Object{medPriorityPodInfo.Pod}
-	logger, ctx := ktesting.NewTestContext(t)
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
-	q := NewTestQueueWithObjects(ctx, newDefaultQueueSort(), objs)
-	wg := sync.WaitGroup{}
-	wg.Add(1)
+// tryPop tries to pop one pod from the queue and returns it.
+// It waits 5 seconds before timing out, assuming the queue is then empty.
+func tryPop(t *testing.T, logger klog.Logger, q *PriorityQueue) *framework.QueuedPodInfo {
+	t.Helper()
+
+	var gotPod *framework.QueuedPodInfo
+	popped := make(chan struct{}, 1)
 	go func() {
-		defer wg.Done()
-		if p, err := q.Pop(logger); err != nil || p.Pod != medPriorityPodInfo.Pod {
-			t.Errorf("Expected: %v after Pop, but got: %v", medPriorityPodInfo.Pod.Name, p.Pod.Name)
+		pod, err := q.Pop(logger)
+		if err != nil {
+			t.Errorf("Failed to pop pod from scheduling queue: %s", err)
 		}
-		if len(q.nominator.nominatedPods["node1"]) != 1 {
-			t.Errorf("Expected medPriorityPodInfo to be present in nominatedPods: %v", q.nominator.nominatedPods["node1"])
+		if pod != nil {
+			gotPod = pod
 		}
+		popped <- struct{}{}
 	}()
-	q.Add(logger, medPriorityPodInfo.Pod)
-	wg.Wait()
+
+	timer := time.NewTimer(5 * time.Second)
+	select {
+	case <-timer.C:
+		q.Close()
+	case <-popped:
+		timer.Stop()
+	}
+	return gotPod
+}
+
+func TestPriorityQueue_Pop(t *testing.T) {
+	highPriorityPodInfo2 := mustNewPodInfo(
+		st.MakePod().Name("hpp2").Namespace("ns1").UID("hpp2ns1").Priority(highPriority).Obj(),
+	)
+	objs := []runtime.Object{medPriorityPodInfo.Pod, highPriorityPodInfo.Pod, highPriorityPodInfo2.Pod, unschedulablePodInfo.Pod}
+	tests := []struct {
+		name                   string
+		popFromBackoffQEnabled bool
+		wantPods               []string
+	}{
+		{
+			name:                   "Pop pods from both activeQ and backoffQ when PopFromBackoffQ is enabled",
+			popFromBackoffQEnabled: true,
+			wantPods:               []string{medPriorityPodInfo.Pod.Name, highPriorityPodInfo.Pod.Name},
+		},
+		{
+			name:                   "Pop pod only from activeQ when PopFromBackoffQ is disabled",
+			popFromBackoffQEnabled: false,
+			wantPods:               []string{medPriorityPodInfo.Pod.Name},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			featuregatetesting.SetFeatureGateDuringTest(t, utilfeature.DefaultFeatureGate, features.SchedulerPopFromBackoffQ, tt.popFromBackoffQEnabled)
+			logger, ctx := ktesting.NewTestContext(t)
+			ctx, cancel := context.WithCancel(ctx)
+			defer cancel()
+			q := NewTestQueueWithObjects(ctx, newDefaultQueueSort(), objs)
+
+			// Add medium priority pod to the activeQ
+			q.Add(logger, medPriorityPodInfo.Pod)
+			// Add high priority pod to the backoffQ
+			backoffPodInfo := q.newQueuedPodInfo(highPriorityPodInfo.Pod, "plugin")
+			q.backoffQ.add(logger, backoffPodInfo, framework.EventUnscheduledPodAdd.Label())
+			// Add high priority pod to the errorBackoffQ
+			errorBackoffPodInfo := q.newQueuedPodInfo(highPriorityPodInfo2.Pod)
+			q.backoffQ.add(logger, errorBackoffPodInfo, framework.EventUnscheduledPodAdd.Label())
+			// Add pod to the unschedulablePods
+			unschedulablePodInfo := q.newQueuedPodInfo(unschedulablePodInfo.Pod, "plugin")
+			q.unschedulablePods.addOrUpdate(unschedulablePodInfo, framework.EventUnscheduledPodAdd.Label())
+
+			var gotPods []string
+			for i := 0; i < len(tt.wantPods)+1; i++ {
+				gotPod := tryPop(t, logger, q)
+				if gotPod == nil {
+					break
+				}
+				gotPods = append(gotPods, gotPod.Pod.Name)
+			}
+			if diff := cmp.Diff(tt.wantPods, gotPods); diff != "" {
+				t.Errorf("Unexpected popped pods (-want, +got): %s", diff)
+			}
+		})
+	}
 }
 
 func TestPriorityQueue_Update(t *testing.T) {
@@ -1121,9 +1183,9 @@ func TestPriorityQueue_Update(t *testing.T) {
 				q.unschedulablePods.addOrUpdate(attemptQueuedPodInfo(q.newQueuedPodInfo(medPriorityPodInfo.Pod, queuePlugin)), framework.EventUnscheduledPodAdd.Label())
 				updatedPod := medPriorityPodInfo.Pod.DeepCopy()
 				updatedPod.Annotations["foo"] = "test1"
-				// Move clock by podInitialBackoffDuration, so that pods in the unschedulablePods would pass the backing off,
+				// Move clock by podMaxBackoffDuration, so that pods in the unschedulablePods would pass the backing off,
 				// and the pods will be moved into activeQ.
-				c.Step(q.backoffQ.podInitialBackoffDuration())
+				c.Step(q.backoffQ.podMaxBackoffDuration())
 				return medPriorityPodInfo.Pod, updatedPod
 			},
 			schedulingHintsEnablement: []bool{false, true},
@@ -1952,7 +2014,7 @@ func TestPriorityQueue_MoveAllToActiveOrBackoffQueue(t *testing.T) {
 	// pop out the pods in the backoffQ.
 	// This doesn't make them in-flight pods.
 	c.Step(q.backoffQ.podMaxBackoffDuration())
-	q.backoffQ.popEachBackoffCompleted(logger, nil)
+	_ = q.backoffQ.popAllBackoffCompleted(logger)
 	expectInFlightPods(t, q, medPriorityPodInfo.Pod.UID)
 
 	q.Add(logger, unschedulablePodInfo.Pod)
@@ -2000,9 +2062,9 @@ func TestPriorityQueue_MoveAllToActiveOrBackoffQueue(t *testing.T) {
 		t.Errorf("Expected %v in the backoffQ", hpp1.Name)
 	}
 
-	// Move clock by podInitialBackoffDuration, so that pods in the unschedulablePods would pass the backing off,
+	// Move clock by podMaxBackoffDuration, so that pods in the unschedulablePods would pass the backing off,
 	// and the pods will be moved into activeQ.
-	c.Step(q.backoffQ.podInitialBackoffDuration())
+	c.Step(q.backoffQ.podMaxBackoffDuration())
 	q.flushBackoffQCompleted(logger) // flush the completed backoffQ to move hpp1 to activeQ.
 	q.MoveAllToActiveOrBackoffQueue(logger, nodeAdd, nil, nil, nil)
 	if q.activeQ.len() != 4 {
@@ -2075,7 +2137,7 @@ func TestPriorityQueue_MoveAllToActiveOrBackoffQueueWithOutQueueingHint(t *testi
 	// pop out the pods in the backoffQ.
 	// This doesn't make them in-flight pods.
 	c.Step(q.backoffQ.podMaxBackoffDuration())
-	q.backoffQ.popEachBackoffCompleted(logger, nil)
+	_ = q.backoffQ.popAllBackoffCompleted(logger)
 
 	unschedulableQueuedPodInfo := attemptQueuedPodInfo(q.newQueuedPodInfo(unschedulablePodInfo.Pod, "fooPlugin"))
 	highPriorityQueuedPodInfo := attemptQueuedPodInfo(q.newQueuedPodInfo(highPriorityPodInfo.Pod, "fooPlugin"))
@@ -2104,9 +2166,9 @@ func TestPriorityQueue_MoveAllToActiveOrBackoffQueueWithOutQueueingHint(t *testi
 		t.Errorf("Expected %v in the backoffQ", hpp1.Name)
 	}
 
-	// Move clock by podInitialBackoffDuration, so that pods in the unschedulablePods would pass the backing off,
+	// Move clock by podMaxBackoffDuration, so that pods in the unschedulablePods would pass the backing off,
 	// and the pods will be moved into activeQ.
-	c.Step(q.backoffQ.podInitialBackoffDuration())
+	c.Step(q.backoffQ.podMaxBackoffDuration())
 	q.flushBackoffQCompleted(logger) // flush the completed backoffQ to move hpp1 to activeQ.
 	q.MoveAllToActiveOrBackoffQueue(logger, nodeAdd, nil, nil, nil)
 	if q.activeQ.len() != 4 {
@@ -2762,7 +2824,7 @@ func TestRecentlyTriedPodsGoBack(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error from AddUnschedulableIfNotPresent: %v", err)
 	}
-	c.Step(DefaultPodInitialBackoffDuration)
+	c.Step(q.backoffQ.podMaxBackoffDuration())
 	// Move all unschedulable pods to the active queue.
 	q.MoveAllToActiveOrBackoffQueue(logger, framework.EventUnschedulableTimeout, nil, nil, nil)
 	// Simulation is over. Now let's pop all pods. The pod popped first should be
@@ -3130,11 +3192,11 @@ var (
 		queue.MoveAllToActiveOrBackoffQueue(logger, framework.EventUnschedulableTimeout, nil, nil, nil)
 	}
 	flushBackoffQ = func(t *testing.T, logger klog.Logger, queue *PriorityQueue, _ *framework.QueuedPodInfo) {
-		queue.clock.(*testingclock.FakeClock).Step(2 * time.Second)
+		queue.clock.(*testingclock.FakeClock).Step(3 * time.Second)
 		queue.flushBackoffQCompleted(logger)
 	}
 	moveClockForward = func(t *testing.T, logger klog.Logger, queue *PriorityQueue, _ *framework.QueuedPodInfo) {
-		queue.clock.(*testingclock.FakeClock).Step(2 * time.Second)
+		queue.clock.(*testingclock.FakeClock).Step(3 * time.Second)
 	}
 	flushUnscheduledQ = func(t *testing.T, logger klog.Logger, queue *PriorityQueue, _ *framework.QueuedPodInfo) {
 		queue.clock.(*testingclock.FakeClock).Step(queue.podMaxInUnschedulablePodsDuration)
@@ -3731,7 +3793,6 @@ func TestBackOffFlow(t *testing.T) {
 	logger, ctx := ktesting.NewTestContext(t)
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	q := NewTestQueue(ctx, newDefaultQueueSort(), WithClock(cl))
 	steps := []struct {
 		wantBackoff time.Duration
 	}{
@@ -3743,58 +3804,67 @@ func TestBackOffFlow(t *testing.T) {
 		{wantBackoff: 10 * time.Second},
 		{wantBackoff: 10 * time.Second},
 	}
-	pod := st.MakePod().Name("test-pod").Namespace("test-ns").UID("test-uid").Obj()
+	for _, popFromBackoffQEnabled := range []bool{true, false} {
+		featuregatetesting.SetFeatureGateDuringTest(t, utilfeature.DefaultFeatureGate, features.SchedulerPopFromBackoffQ, popFromBackoffQEnabled)
 
-	podID := types.NamespacedName{
-		Namespace: pod.Namespace,
-		Name:      pod.Name,
-	}
-	q.Add(logger, pod)
+		q := NewTestQueue(ctx, newDefaultQueueSort(), WithClock(cl))
 
-	for i, step := range steps {
-		t.Run(fmt.Sprintf("step %d", i), func(t *testing.T) {
-			timestamp := cl.Now()
-			// Simulate schedule attempt.
-			podInfo, err := q.Pop(logger)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if podInfo.Attempts != i+1 {
-				t.Errorf("got attempts %d, want %d", podInfo.Attempts, i+1)
-			}
-			err = q.AddUnschedulableIfNotPresent(logger, podInfo, int64(i))
-			if err != nil {
-				t.Fatalf("unexpected error from AddUnschedulableIfNotPresent: %v", err)
-			}
+		pod := st.MakePod().Name("test-pod").Namespace("test-ns").UID("test-uid").Obj()
+		podID := types.NamespacedName{
+			Namespace: pod.Namespace,
+			Name:      pod.Name,
+		}
+		q.Add(logger, pod)
 
-			// An event happens.
-			q.MoveAllToActiveOrBackoffQueue(logger, framework.EventUnschedulableTimeout, nil, nil, nil)
+		for i, step := range steps {
+			t.Run(fmt.Sprintf("step %d popFromBackoffQEnabled(%v)", i, popFromBackoffQEnabled), func(t *testing.T) {
+				timestamp := cl.Now()
+				// Simulate schedule attempt.
+				podInfo, err := q.Pop(logger)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if podInfo.Attempts != i+1 {
+					t.Errorf("got attempts %d, want %d", podInfo.Attempts, i+1)
+				}
+				err = q.AddUnschedulableIfNotPresent(logger, podInfo, int64(i))
+				if err != nil {
+					t.Fatalf("unexpected error from AddUnschedulableIfNotPresent: %v", err)
+				}
 
-			if !q.backoffQ.has(podInfo) {
-				t.Errorf("pod %v is not in the backoff queue", podID)
-			}
+				// An event happens.
+				q.MoveAllToActiveOrBackoffQueue(logger, framework.EventUnschedulableTimeout, nil, nil, nil)
 
-			// Check backoff duration.
-			deadline := podInfo.BackoffExpiration
-			backoff := deadline.Sub(timestamp)
-			if backoff != step.wantBackoff {
-				t.Errorf("got backoff %s, want %s", backoff, step.wantBackoff)
-			}
+				if !q.backoffQ.has(podInfo) {
+					t.Errorf("pod %v is not in the backoff queue", podID)
+				}
 
-			// Simulate routine that continuously flushes the backoff queue.
-			cl.Step(time.Millisecond)
-			q.flushBackoffQCompleted(logger)
-			// Still in backoff queue after an early flush.
-			if !q.backoffQ.has(podInfo) {
-				t.Errorf("pod %v is not in the backoff queue", podID)
-			}
-			// Moved out of the backoff queue after timeout.
-			cl.Step(backoff)
-			q.flushBackoffQCompleted(logger)
-			if q.backoffQ.has(podInfo) {
-				t.Errorf("pod %v is still in the backoff queue", podID)
-			}
-		})
+				// Check backoff duration.
+				deadline := podInfo.BackoffExpiration
+				backoff := deadline.Sub(timestamp)
+				if popFromBackoffQEnabled {
+					// If popFromBackoffQEnabled, the actual backoff can be calculated by rounding up to the ordering window duration.
+					backoff = backoff.Truncate(backoffQOrderingWindowDuration) + backoffQOrderingWindowDuration
+				}
+				if backoff != step.wantBackoff {
+					t.Errorf("got backoff %s, want %s", backoff, step.wantBackoff)
+				}
+
+				// Simulate routine that continuously flushes the backoff queue.
+				cl.Step(backoffQOrderingWindowDuration)
+				q.flushBackoffQCompleted(logger)
+				// Still in backoff queue after an early flush.
+				if !q.backoffQ.has(podInfo) {
+					t.Errorf("pod %v is not in the backoff queue", podID)
+				}
+				// Moved out of the backoff queue after timeout.
+				cl.Step(backoff)
+				q.flushBackoffQCompleted(logger)
+				if q.backoffQ.has(podInfo) {
+					t.Errorf("pod %v is still in the backoff queue", podID)
+				}
+			})
+		}
 	}
 }
 
@@ -3812,20 +3882,20 @@ func TestMoveAllToActiveOrBackoffQueue_PreEnqueueChecks(t *testing.T) {
 		preEnqueueCheck PreEnqueueCheck
 		podInfos        []*framework.QueuedPodInfo
 		event           framework.ClusterEvent
-		want            []string
+		want            sets.Set[string]
 	}{
 		{
 			name:     "nil PreEnqueueCheck",
 			podInfos: podInfos,
 			event:    framework.EventUnschedulableTimeout,
-			want:     []string{"p0", "p1", "p2", "p3", "p4"},
+			want:     sets.New("p0", "p1", "p2", "p3", "p4"),
 		},
 		{
 			name:            "move Pods with priority greater than 2",
 			podInfos:        podInfos,
 			event:           framework.EventUnschedulableTimeout,
 			preEnqueueCheck: func(pod *v1.Pod) bool { return *pod.Spec.Priority >= 2 },
-			want:            []string{"p2", "p3", "p4"},
+			want:            sets.New("p2", "p3", "p4"),
 		},
 		{
 			name:     "move Pods with even priority and greater than 2",
@@ -3834,7 +3904,7 @@ func TestMoveAllToActiveOrBackoffQueue_PreEnqueueChecks(t *testing.T) {
 			preEnqueueCheck: func(pod *v1.Pod) bool {
 				return *pod.Spec.Priority%2 == 0 && *pod.Spec.Priority >= 2
 			},
-			want: []string{"p2", "p4"},
+			want: sets.New("p2", "p4"),
 		},
 		{
 			name:     "move Pods with even and negative priority",
@@ -3856,12 +3926,12 @@ func TestMoveAllToActiveOrBackoffQueue_PreEnqueueChecks(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			c := testingclock.NewFakeClock(time.Now())
+			c := testingclock.NewFakeClock(time.Now().Truncate(backoffQOrderingWindowDuration))
 			logger, ctx := ktesting.NewTestContext(t)
 			ctx, cancel := context.WithCancel(ctx)
 			defer cancel()
 			q := NewTestQueue(ctx, newDefaultQueueSort(), WithClock(c))
-			for i, podInfo := range tt.podInfos {
+			for _, podInfo := range tt.podInfos {
 				// To simulate the pod is failed in scheduling in the real world, Pop() the pod from activeQ before AddUnschedulableIfNotPresent() below.
 				q.Add(logger, podInfo.Pod)
 				if p, err := q.Pop(logger); err != nil || p.Pod != podInfo.Pod {
@@ -3872,19 +3942,14 @@ func TestMoveAllToActiveOrBackoffQueue_PreEnqueueChecks(t *testing.T) {
 				if err != nil {
 					t.Fatalf("unexpected error from AddUnschedulableIfNotPresent: %v", err)
 				}
-				// NOTE: On Windows, time.Now() is not as precise, 2 consecutive calls may return the same timestamp,
-				// resulting in 0 time delta / latency. This will cause the pods to be backed off in a random
-				// order, which would cause this test to fail, since the expectation is for them to be backed off
-				// in a certain order.
-				// See: https://github.com/golang/go/issues/8687
-				podInfo.Timestamp = podInfo.Timestamp.Add(time.Duration((i - len(tt.podInfos))) * time.Millisecond)
 			}
 			q.MoveAllToActiveOrBackoffQueue(logger, tt.event, nil, nil, tt.preEnqueueCheck)
-			var got []string
+			got := sets.New[string]()
 			c.Step(2 * q.backoffQ.podMaxBackoffDuration())
-			q.backoffQ.popEachBackoffCompleted(logger, func(pInfo *framework.QueuedPodInfo) {
-				got = append(got, pInfo.Pod.Name)
-			})
+			gotPodInfos := q.backoffQ.popAllBackoffCompleted(logger)
+			for _, pInfo := range gotPodInfos {
+				got.Insert(pInfo.Pod.Name)
+			}
 			if diff := cmp.Diff(tt.want, got); diff != "" {
 				t.Errorf("Unexpected diff (-want, +got):\n%s", diff)
 			}

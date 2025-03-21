@@ -67,7 +67,14 @@ var (
 )
 
 func createTestRuntimeManager() (*apitest.FakeRuntimeService, *apitest.FakeImageService, *kubeGenericRuntimeManager, error) {
+	return createTestRuntimeManagerWithErrors(nil)
+}
+
+func createTestRuntimeManagerWithErrors(errors map[string][]error) (*apitest.FakeRuntimeService, *apitest.FakeImageService, *kubeGenericRuntimeManager, error) {
 	fakeRuntimeService := apitest.NewFakeRuntimeService()
+	if errors != nil {
+		fakeRuntimeService.Errors = errors
+	}
 	fakeImageService := apitest.NewFakeImageService()
 	// Only an empty machineInfo is needed here, because in unit test all containers are besteffort,
 	// data in machineInfo is not used. If burstable containers are used in unit test in the future,
@@ -2890,6 +2897,96 @@ func TestComputePodActionsForPodResize(t *testing.T) {
 				return &pa
 			},
 		},
+		"Update container memory (requests only) with RestartContainer policy for memory": {
+			setupFn: func(pod *v1.Pod) {
+				c := &pod.Spec.Containers[2]
+				c.ResizePolicy = []v1.ContainerResizePolicy{cpuPolicyRestartNotRequired, memPolicyRestartRequired}
+				c.Resources = v1.ResourceRequirements{
+					Limits:   v1.ResourceList{v1.ResourceCPU: cpu200m, v1.ResourceMemory: mem200M},
+					Requests: v1.ResourceList{v1.ResourceCPU: cpu100m, v1.ResourceMemory: mem100M},
+				}
+				setupActuatedResources(pod, c, v1.ResourceRequirements{
+					Limits: v1.ResourceList{
+						v1.ResourceCPU:    cpu200m.DeepCopy(),
+						v1.ResourceMemory: mem200M.DeepCopy(),
+					},
+					Requests: v1.ResourceList{
+						v1.ResourceCPU:    cpu100m.DeepCopy(),
+						v1.ResourceMemory: mem200M.DeepCopy(),
+					},
+				})
+			},
+			getExpectedPodActionsFn: func(pod *v1.Pod, podStatus *kubecontainer.PodStatus) *podActions {
+				kcs := podStatus.FindContainerStatusByName(pod.Spec.Containers[2].Name)
+				killMap := make(map[kubecontainer.ContainerID]containerToKillInfo)
+				killMap[kcs.ID] = containerToKillInfo{
+					container: &pod.Spec.Containers[2],
+					name:      pod.Spec.Containers[2].Name,
+				}
+				pa := podActions{
+					SandboxID:          podStatus.SandboxStatuses[0].Id,
+					ContainersToStart:  []int{2},
+					ContainersToKill:   killMap,
+					ContainersToUpdate: map[v1.ResourceName][]containerToUpdateInfo{},
+					UpdatePodResources: true,
+				}
+				return &pa
+			},
+		},
+		"Update container memory (requests only) with RestartNotRequired policy for memory": {
+			setupFn: func(pod *v1.Pod) {
+				c := &pod.Spec.Containers[2]
+				c.ResizePolicy = []v1.ContainerResizePolicy{cpuPolicyRestartNotRequired, memPolicyRestartNotRequired}
+				c.Resources = v1.ResourceRequirements{
+					Limits:   v1.ResourceList{v1.ResourceCPU: cpu200m, v1.ResourceMemory: mem200M},
+					Requests: v1.ResourceList{v1.ResourceCPU: cpu100m, v1.ResourceMemory: mem100M},
+				}
+				setupActuatedResources(pod, c, v1.ResourceRequirements{
+					Limits: v1.ResourceList{
+						v1.ResourceCPU:    cpu200m.DeepCopy(),
+						v1.ResourceMemory: mem200M.DeepCopy(),
+					},
+					Requests: v1.ResourceList{
+						v1.ResourceCPU:    cpu100m.DeepCopy(),
+						v1.ResourceMemory: mem200M.DeepCopy(),
+					},
+				})
+			},
+			getExpectedPodActionsFn: func(pod *v1.Pod, podStatus *kubecontainer.PodStatus) *podActions {
+				kcs := podStatus.FindContainerStatusByName(pod.Spec.Containers[2].Name)
+				killMap := make(map[kubecontainer.ContainerID]containerToKillInfo)
+				killMap[kcs.ID] = containerToKillInfo{
+					container: &pod.Spec.Containers[2],
+					name:      pod.Spec.Containers[2].Name,
+				}
+				pa := podActions{
+					SandboxID:         podStatus.SandboxStatuses[0].Id,
+					ContainersToStart: []int{},
+					ContainersToKill:  getKillMap(pod, podStatus, []int{}),
+					ContainersToUpdate: map[v1.ResourceName][]containerToUpdateInfo{
+						v1.ResourceMemory: {
+							{
+								container:       &pod.Spec.Containers[2],
+								kubeContainerID: kcs.ID,
+								desiredContainerResources: containerResources{
+									memoryLimit:   mem200M.Value(),
+									memoryRequest: mem100M.Value(),
+									cpuLimit:      cpu200m.MilliValue(),
+									cpuRequest:    cpu100m.MilliValue(),
+								},
+								currentContainerResources: &containerResources{
+									memoryLimit:   mem200M.Value(),
+									memoryRequest: mem200M.Value(),
+									cpuLimit:      cpu200m.MilliValue(),
+									cpuRequest:    cpu100m.MilliValue(),
+								},
+							},
+						},
+					},
+				}
+				return &pa
+			},
+		},
 	} {
 		t.Run(desc, func(t *testing.T) {
 			pod, status := makeBasePodAndStatus()
@@ -2919,7 +3016,6 @@ func TestComputePodActionsForPodResize(t *testing.T) {
 
 func TestUpdatePodContainerResources(t *testing.T) {
 	featuregatetesting.SetFeatureGateDuringTest(t, utilfeature.DefaultFeatureGate, features.InPlacePodVerticalScaling, true)
-	featuregatetesting.SetFeatureGateDuringTest(t, utilfeature.DefaultFeatureGate, features.SidecarContainers, true)
 	fakeRuntime, _, m, err := createTestRuntimeManager()
 	m.machineInfo.MemoryCapacity = 17179860387 // 16GB
 	assert.NoError(t, err)
@@ -3186,9 +3282,6 @@ func TestDoPodResizeAction(t *testing.T) {
 	}
 
 	featuregatetesting.SetFeatureGateDuringTest(t, utilfeature.DefaultFeatureGate, features.InPlacePodVerticalScaling, true)
-	_, _, m, err := createTestRuntimeManager()
-	require.NoError(t, err)
-	m.cpuCFSQuota = true // Enforce CPU Limits
 
 	for _, tc := range []struct {
 		testName                  string
@@ -3196,7 +3289,9 @@ func TestDoPodResizeAction(t *testing.T) {
 		desiredResources          containerResources
 		updatedResources          []v1.ResourceName
 		otherContainersHaveLimits bool
+		runtimeErrors             map[string][]error
 		expectedError             string
+		expectedErrorMessage      string
 		expectPodCgroupUpdates    int
 	}{
 		{
@@ -3212,6 +3307,23 @@ func TestDoPodResizeAction(t *testing.T) {
 			otherContainersHaveLimits: true,
 			updatedResources:          []v1.ResourceName{v1.ResourceCPU, v1.ResourceMemory},
 			expectPodCgroupUpdates:    3, // cpu req, cpu lim, mem lim
+		},
+		{
+			testName: "Increase cpu and memory requests and limits, with computed pod limits and set a runtime error",
+			currentResources: containerResources{
+				cpuRequest: 100, cpuLimit: 100,
+				memoryRequest: 100, memoryLimit: 100,
+			},
+			desiredResources: containerResources{
+				cpuRequest: 200, cpuLimit: 200,
+				memoryRequest: 200, memoryLimit: 200,
+			},
+			otherContainersHaveLimits: true,
+			updatedResources:          []v1.ResourceName{v1.ResourceCPU, v1.ResourceMemory},
+			expectPodCgroupUpdates:    1,
+			runtimeErrors:             map[string][]error{"UpdateContainerResources": {fmt.Errorf("error updating container resources")}},
+			expectedError:             "ResizePodInPlaceError",
+			expectedErrorMessage:      "error updating container resources",
 		},
 		{
 			testName: "Increase cpu and memory requests and limits, without computed pod limits",
@@ -3296,6 +3408,10 @@ func TestDoPodResizeAction(t *testing.T) {
 		},
 	} {
 		t.Run(tc.testName, func(t *testing.T) {
+			_, _, m, err := createTestRuntimeManagerWithErrors(tc.runtimeErrors)
+			require.NoError(t, err)
+			m.cpuCFSQuota = true // Enforce CPU Limits
+
 			mockCM := cmtesting.NewMockContainerManager(t)
 			mockCM.EXPECT().PodHasExclusiveCPUs(mock.Anything).Return(false).Maybe()
 			mockCM.EXPECT().ContainerHasExclusiveCPUs(mock.Anything, mock.Anything).Return(false).Maybe()
@@ -3358,17 +3474,17 @@ func TestDoPodResizeAction(t *testing.T) {
 				containersToUpdate[r] = []containerToUpdateInfo{updateInfo}
 			}
 
-			syncResult := &kubecontainer.PodSyncResult{}
 			actions := podActions{
 				ContainersToUpdate: containersToUpdate,
 			}
-			m.doPodResizeAction(pod, actions, syncResult)
+			resizeResult := m.doPodResizeAction(pod, actions)
 
 			if tc.expectedError != "" {
-				require.Error(t, syncResult.Error())
-				require.EqualError(t, syncResult.Error(), tc.expectedError)
+				require.Error(t, resizeResult.Error)
+				require.EqualError(t, resizeResult.Error, tc.expectedError)
+				require.Equal(t, tc.expectedErrorMessage, resizeResult.Message)
 			} else {
-				require.NoError(t, syncResult.Error())
+				require.NoError(t, resizeResult.Error)
 			}
 
 			mock.AssertExpectationsForObjects(t, mockPCM)

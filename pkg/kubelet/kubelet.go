@@ -245,6 +245,7 @@ var (
 		lifecycle.PodOSNotSupported,
 		lifecycle.InvalidNodeInfo,
 		lifecycle.InitContainerRestartPolicyForbidden,
+		lifecycle.SupplementalGroupsPolicyNotSupported,
 		lifecycle.UnexpectedAdmissionError,
 		lifecycle.UnknownReason,
 		lifecycle.UnexpectedPredicateFailureType,
@@ -2066,20 +2067,19 @@ func (kl *Kubelet) SyncPod(ctx context.Context, updateType kubetypes.SyncPodType
 	sctx := context.WithoutCancel(ctx)
 	result := kl.containerRuntime.SyncPod(sctx, pod, podStatus, pullSecrets, kl.crashLoopBackOff)
 	kl.reasonCache.Update(pod.UID, result)
-	if err := result.Error(); err != nil {
-		// Do not return error if the only failures were pods in backoff
-		for _, r := range result.SyncResults {
-			if r.Error != kubecontainer.ErrCrashLoopBackOff && r.Error != images.ErrImagePullBackOff {
-				// Do not record an event here, as we keep all event logging for sync pod failures
-				// local to container runtime, so we get better errors.
-				return false, err
+
+	for _, r := range result.SyncResults {
+		if r.Action == kubecontainer.ResizePodInPlace {
+			if r.Error == nil {
+				// The pod was resized successfully, clear any pod resize errors in the PodResizeInProgress condition.
+				kl.statusManager.SetPodResizeInProgressCondition(pod.UID, "", "", true)
+			} else {
+				kl.statusManager.SetPodResizeInProgressCondition(pod.UID, v1.PodReasonError, r.Message, false)
 			}
 		}
-
-		return false, nil
 	}
 
-	return false, nil
+	return false, result.Error()
 }
 
 // SyncTerminatingPod is expected to terminate all running containers in a pod. Once this method
@@ -2932,7 +2932,7 @@ func (kl *Kubelet) handlePodResourcesResize(pod *v1.Pod, podStatus *kubecontaine
 		}
 		if kl.isPodResizeInProgress(allocatedPod, podStatus) {
 			// If a resize is in progress, make sure the cache has the correct state in case the Kubelet restarted.
-			kl.statusManager.SetPodResizeInProgressCondition(pod.UID, "", "")
+			kl.statusManager.SetPodResizeInProgressCondition(pod.UID, "", "", false)
 		} else {
 			// (Allocated == Actual) => clear the resize in-progress status.
 			kl.statusManager.ClearPodResizeInProgressCondition(pod.UID)
@@ -2961,6 +2961,11 @@ func (kl *Kubelet) handlePodResourcesResize(pod *v1.Pod, podStatus *kubecontaine
 			return nil, err
 		}
 		kl.statusManager.ClearPodResizePendingCondition(pod.UID)
+
+		// Clear any errors that may have been surfaced from a previous resize. The condition will be
+		// added back as needed in the defer block, but this prevents old errors from being preserved.
+		kl.statusManager.ClearPodResizeInProgressCondition(pod.UID)
+
 		for i, container := range pod.Spec.Containers {
 			if !apiequality.Semantic.DeepEqual(container.Resources, podFromAllocation.Spec.Containers[i].Resources) {
 				key := kuberuntime.GetStableKey(pod, &container)
@@ -2989,7 +2994,6 @@ func (kl *Kubelet) handlePodResourcesResize(pod *v1.Pod, podStatus *kubecontaine
 // for any running containers. Specifically, the following differences are ignored:
 // - Non-resizable containers: non-restartable init containers, ephemeral containers
 // - Non-resizable resources: only CPU & memory are resizable
-// - Non-actuated resources: memory requests are not actuated
 // - Non-running containers: they will be sized correctly when (re)started
 func (kl *Kubelet) isPodResizeInProgress(allocatedPod *v1.Pod, podStatus *kubecontainer.PodStatus) bool {
 	return !podutil.VisitContainers(&allocatedPod.Spec, podutil.InitContainers|podutil.Containers,
@@ -3007,9 +3011,9 @@ func (kl *Kubelet) isPodResizeInProgress(allocatedPod *v1.Pod, podStatus *kubeco
 			actuatedResources, _ := kl.allocationManager.GetActuatedResources(allocatedPod.UID, allocatedContainer.Name)
 			allocatedResources := allocatedContainer.Resources
 
-			// Memory requests are excluded since they don't need to be actuated.
 			return allocatedResources.Requests[v1.ResourceCPU].Equal(actuatedResources.Requests[v1.ResourceCPU]) &&
 				allocatedResources.Limits[v1.ResourceCPU].Equal(actuatedResources.Limits[v1.ResourceCPU]) &&
+				allocatedResources.Requests[v1.ResourceMemory].Equal(actuatedResources.Requests[v1.ResourceMemory]) &&
 				allocatedResources.Limits[v1.ResourceMemory].Equal(actuatedResources.Limits[v1.ResourceMemory])
 		})
 }

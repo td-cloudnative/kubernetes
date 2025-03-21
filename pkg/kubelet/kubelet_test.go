@@ -2617,7 +2617,6 @@ func TestHandlePodResourcesResize(t *testing.T) {
 		t.Skip("InPlacePodVerticalScaling is not currently supported for Windows")
 	}
 	featuregatetesting.SetFeatureGateDuringTest(t, utilfeature.DefaultFeatureGate, features.InPlacePodVerticalScaling, true)
-	featuregatetesting.SetFeatureGateDuringTest(t, utilfeature.DefaultFeatureGate, features.SidecarContainers, true)
 	testKubelet := newTestKubelet(t, false)
 	defer testKubelet.Cleanup()
 	kubelet := testKubelet.kubelet
@@ -3660,6 +3659,15 @@ func TestRecordAdmissionRejection(t *testing.T) {
             `,
 		},
 		{
+			name:   "SupplementalGroupsPolicyNotSupported",
+			reason: lifecycle.SupplementalGroupsPolicyNotSupported,
+			wants: `
+                # HELP kubelet_admission_rejections_total [ALPHA] Cumulative number pod admission rejections by the Kubelet.
+                # TYPE kubelet_admission_rejections_total counter
+                kubelet_admission_rejections_total{reason="SupplementalGroupsPolicyNotSupported"} 1
+            `,
+		},
+		{
 			name:   "UnexpectedAdmissionError",
 			reason: lifecycle.UnexpectedAdmissionError,
 			wants: `
@@ -3857,8 +3865,7 @@ func TestIsPodResizeInProgress(t *testing.T) {
 			actuated:  &testResources{100, 200, 150, 200},
 			isRunning: true,
 		}},
-		// Memory requests aren't actuated and should be ignored.
-		expectHasResize: false,
+		expectHasResize: true,
 	}, {
 		name: "simple resized container/cpu+mem req",
 		containers: []testContainer{{
@@ -4138,5 +4145,112 @@ func TestCrashLoopBackOffConfiguration(t *testing.T) {
 			assert.Equalf(t, tc.expectedInitial, resultInitial, "wrong base calculated, want: %v, got %v", tc.expectedInitial, resultInitial)
 		})
 	}
+}
 
+func TestSyncPodWithErrorsDuringInPlacePodResize(t *testing.T) {
+	testKubelet := newTestKubelet(t, false /* controllerAttachDetachEnabled */)
+	defer testKubelet.Cleanup()
+	kubelet := testKubelet.kubelet
+
+	pod := podWithUIDNameNsSpec("12345678", "foo", "new", v1.PodSpec{
+		Containers: []v1.Container{
+			{Name: "bar"},
+		},
+	})
+
+	testCases := []struct {
+		name                     string
+		syncResults              *kubecontainer.PodSyncResult
+		expectedErr              string
+		expectedResizeConditions []*v1.PodCondition
+	}{
+		{
+			name: "pod resize error returned from the runtime",
+			syncResults: &kubecontainer.PodSyncResult{
+				SyncResults: []*kubecontainer.SyncResult{{
+					Action:  kubecontainer.ResizePodInPlace,
+					Target:  pod.UID,
+					Error:   kubecontainer.ErrResizePodInPlace,
+					Message: "could not resize pod",
+				}},
+			},
+			expectedErr: "failed to \"ResizePodInPlace\" for \"12345678\" with ResizePodInPlaceError: \"could not resize pod\"",
+			expectedResizeConditions: []*v1.PodCondition{{
+				Type:    v1.PodResizeInProgress,
+				Status:  v1.ConditionTrue,
+				Reason:  v1.PodReasonError,
+				Message: "could not resize pod",
+			}},
+		},
+		{
+			name: "pod resize error cleared upon successful run",
+			syncResults: &kubecontainer.PodSyncResult{
+				SyncResults: []*kubecontainer.SyncResult{{
+					Action: kubecontainer.ResizePodInPlace,
+					Target: pod.UID,
+				}},
+			},
+			expectedResizeConditions: []*v1.PodCondition{{
+				Type:   v1.PodResizeInProgress,
+				Status: v1.ConditionTrue,
+			}},
+		},
+		{
+			name: "sync results have a non-resize error",
+			syncResults: &kubecontainer.PodSyncResult{
+				SyncResults: []*kubecontainer.SyncResult{{
+					Action:  kubecontainer.CreatePodSandbox,
+					Target:  pod.UID,
+					Error:   kubecontainer.ErrCreatePodSandbox,
+					Message: "could not create pod sandbox",
+				}},
+			},
+			expectedErr:              "failed to \"CreatePodSandbox\" for \"12345678\" with CreatePodSandboxError: \"could not create pod sandbox\"",
+			expectedResizeConditions: nil,
+		},
+		{
+			name: "sync results have a non-resize error and a successful pod resize action",
+			syncResults: &kubecontainer.PodSyncResult{
+				SyncResults: []*kubecontainer.SyncResult{
+					{
+						Action:  kubecontainer.CreatePodSandbox,
+						Target:  pod.UID,
+						Error:   kubecontainer.ErrCreatePodSandbox,
+						Message: "could not create pod sandbox",
+					},
+					{
+						Action: kubecontainer.ResizePodInPlace,
+						Target: pod.UID,
+					},
+				},
+			},
+			expectedErr: "failed to \"CreatePodSandbox\" for \"12345678\" with CreatePodSandboxError: \"could not create pod sandbox\"",
+			expectedResizeConditions: []*v1.PodCondition{{
+				Type:   v1.PodResizeInProgress,
+				Status: v1.ConditionTrue,
+			}},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			testKubelet.fakeRuntime.SyncResults = tc.syncResults
+			kubelet.podManager.SetPods([]*v1.Pod{pod})
+			isTerminal, err := kubelet.SyncPod(context.Background(), kubetypes.SyncPodUpdate, pod, nil, &kubecontainer.PodStatus{})
+			require.False(t, isTerminal)
+			if tc.expectedErr == "" {
+				require.NoError(t, err)
+			} else {
+				require.Error(t, err)
+				require.Equal(t, tc.expectedErr, err.Error())
+			}
+			gotResizeConditions := kubelet.statusManager.GetPodResizeConditions(pod.UID)
+			for _, c := range gotResizeConditions {
+				// ignore last probe and transition times for comparison
+				c.LastProbeTime = metav1.Time{}
+				c.LastTransitionTime = metav1.Time{}
+			}
+			require.Equal(t, tc.expectedResizeConditions, gotResizeConditions)
+		})
+	}
 }
