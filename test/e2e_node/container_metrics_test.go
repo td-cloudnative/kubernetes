@@ -26,6 +26,7 @@ import (
 	"github.com/onsi/gomega/gstruct"
 	"github.com/onsi/gomega/types"
 
+	"k8s.io/kubernetes/pkg/cluster/ports"
 	"k8s.io/kubernetes/test/e2e/framework"
 	e2emetrics "k8s.io/kubernetes/test/e2e/framework/metrics"
 	e2evolume "k8s.io/kubernetes/test/e2e/framework/volume"
@@ -73,7 +74,7 @@ var _ = SIGDescribe("ContainerMetrics", "[LinuxOnly]", framework.WithNodeConform
 				"container_spec_cpu_shares":                     preciseSample(2),
 				"container_spec_memory_limit_bytes":             preciseSample(79998976),
 				"container_spec_memory_reservation_limit_bytes": preciseSample(0),
-				"container_spec_memory_swap_limit_bytes":        preciseSample(0),
+				"container_spec_memory_swap_limit_bytes":        boundedSample(0, 80*e2evolume.Mb),
 				"container_start_time_seconds":                  boundedSample(time.Now().Add(-maxStatsAge).Unix(), time.Now().Add(2*time.Minute).Unix()),
 				"container_tasks_state":                         preciseSample(0),
 				"container_threads":                             boundedSample(0, 10),
@@ -125,7 +126,7 @@ var _ = SIGDescribe("ContainerMetrics", "[LinuxOnly]", framework.WithNodeConform
 
 func getContainerMetrics(ctx context.Context) (e2emetrics.KubeletMetrics, error) {
 	ginkgo.By("getting container metrics from cadvisor")
-	return e2emetrics.GrabKubeletMetricsWithoutProxy(ctx, framework.TestContext.NodeName+":10255", "/metrics/cadvisor")
+	return e2emetrics.GrabKubeletMetricsWithoutProxy(ctx, fmt.Sprintf("%s:%d", nodeNameOrIP(), ports.KubeletReadOnlyPort), "/metrics/cadvisor")
 }
 
 func preciseSample(value interface{}) types.GomegaMatcher {
