@@ -74,7 +74,7 @@ func TestDeleteResourceAuditLogRequestObject(t *testing.T) {
 
 	ctx := audit.WithAuditContext(context.TODO())
 	ac := audit.AuditContextFrom(ctx)
-	ac.Event.Level = auditapis.LevelRequestResponse
+	ac.SetEventLevel(auditapis.LevelRequestResponse)
 
 	policy := metav1.DeletePropagationBackground
 	deleteOption := &metav1.DeleteOptions{
@@ -237,7 +237,7 @@ func TestDeleteCollectionWithNoContextDeadlineEnforced(t *testing.T) {
 	}
 	handler := DeleteCollection(fakeCollectionDeleterFunc(fakeDeleterFn), false, scope, nil)
 
-	request, err := http.NewRequest("GET", "/test", nil)
+	request, err := http.NewRequest(request.MethodGet, "/test", nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
