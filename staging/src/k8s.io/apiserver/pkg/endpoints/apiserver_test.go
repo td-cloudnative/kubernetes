@@ -24,7 +24,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"math/rand"
 	"net/http"
 	"net/http/httptest"
@@ -39,6 +38,7 @@ import (
 
 	"github.com/emicklei/go-restful/v3"
 	"github.com/google/go-cmp/cmp"
+	"github.com/stretchr/testify/require"
 
 	"k8s.io/apimachinery/pkg/api/apitesting/fuzzer"
 	apiequality "k8s.io/apimachinery/pkg/api/equality"
@@ -703,7 +703,7 @@ func (storage *SimpleTypedStorage) GetSingularName() string {
 
 func bodyOrDie(response *http.Response) string {
 	defer response.Body.Close()
-	body, err := ioutil.ReadAll(response.Body)
+	body, err := io.ReadAll(response.Body)
 	if err != nil {
 		panic(err)
 	}
@@ -716,7 +716,7 @@ func extractBody(response *http.Response, object runtime.Object) (string, error)
 
 func extractBodyDecoder(response *http.Response, object runtime.Object, decoder runtime.Decoder) (string, error) {
 	defer response.Body.Close()
-	body, err := ioutil.ReadAll(response.Body)
+	body, err := io.ReadAll(response.Body)
 	if err != nil {
 		return string(body), err
 	}
@@ -725,7 +725,7 @@ func extractBodyDecoder(response *http.Response, object runtime.Object, decoder 
 
 func extractBodyObject(response *http.Response, decoder runtime.Decoder) (runtime.Object, string, error) {
 	defer response.Body.Close()
-	body, err := ioutil.ReadAll(response.Body)
+	body, err := io.ReadAll(response.Body)
 	if err != nil {
 		return nil, string(body), err
 	}
@@ -808,7 +808,8 @@ func TestNotFound(t *testing.T) {
 	defer server.Close()
 	client := http.Client{}
 	for k, v := range cases {
-		request, err := http.NewRequest(v.Method, server.URL+v.Path, nil)
+		ctx := t.Context()
+		request, err := http.NewRequestWithContext(ctx, v.Method, server.URL+v.Path, nil)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -878,7 +879,8 @@ func TestUnimplementedRESTStorage(t *testing.T) {
 	defer server.Close()
 	client := http.Client{}
 	for k, v := range cases {
-		request, err := http.NewRequest(v.Method, server.URL+v.Path, bytes.NewReader([]byte(`{"kind":"Simple","apiVersion":"version"}`)))
+		ctx := t.Context()
+		request, err := http.NewRequestWithContext(ctx, v.Method, server.URL+v.Path, bytes.NewReader([]byte(`{"kind":"Simple","apiVersion":"version"}`)))
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -888,7 +890,7 @@ func TestUnimplementedRESTStorage(t *testing.T) {
 			t.Fatalf("unexpected error: %v", err)
 		}
 		defer response.Body.Close()
-		data, err := ioutil.ReadAll(response.Body)
+		data, err := io.ReadAll(response.Body)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -947,7 +949,8 @@ func TestSomeUnimplementedRESTStorage(t *testing.T) {
 	defer server.Close()
 	client := http.Client{}
 	for k, v := range cases {
-		request, err := http.NewRequest(v.Method, server.URL+v.Path, bytes.NewReader([]byte(`{"kind":"Simple","apiVersion":"version"}`)))
+		ctx := t.Context()
+		request, err := http.NewRequestWithContext(ctx, v.Method, server.URL+v.Path, bytes.NewReader([]byte(`{"kind":"Simple","apiVersion":"version"}`)))
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -957,7 +960,7 @@ func TestSomeUnimplementedRESTStorage(t *testing.T) {
 			t.Fatalf("unexpected error: %v", err)
 		}
 		defer response.Body.Close()
-		data, err := ioutil.ReadAll(response.Body)
+		data, err := io.ReadAll(response.Body)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -1107,6 +1110,7 @@ func TestList(t *testing.T) {
 		},
 	}
 	for i, testCase := range testCases {
+		ctx := t.Context()
 		storage := map[string]rest.Storage{}
 		simpleStorage := SimpleRESTStorage{expectedResourceNamespace: testCase.namespace}
 		storage["simple"] = &simpleStorage
@@ -1114,7 +1118,10 @@ func TestList(t *testing.T) {
 		server := httptest.NewServer(handler)
 		defer server.Close()
 
-		resp, err := http.Get(server.URL + testCase.url)
+		url := server.URL + testCase.url
+		req, err := http.NewRequestWithContext(ctx, request.MethodGet, url, nil)
+		require.NoError(t, err)
+		resp, err := http.DefaultClient.Do(req)
 		if err != nil {
 			t.Errorf("%d: unexpected error: %v", i, err)
 			continue
@@ -1122,7 +1129,7 @@ func TestList(t *testing.T) {
 		defer resp.Body.Close()
 		if resp.StatusCode != http.StatusOK {
 			t.Errorf("%d: unexpected status: %d from url %s, Expected: %d, %#v", i, resp.StatusCode, testCase.url, http.StatusOK, resp)
-			body, err := ioutil.ReadAll(resp.Body)
+			body, err := io.ReadAll(resp.Body)
 			if err != nil {
 				t.Errorf("%d: unexpected error: %v", i, err)
 				continue
@@ -1165,9 +1172,10 @@ func TestRequestsWithInvalidQuery(t *testing.T) {
 		// {"/simple/foo?resourceVersion=<invalid>", request.MethodGet}, TODO: there is no invalid resourceVersion. Should we be more strict?
 		// {"/withoptions?labelSelector=<invalid>", request.MethodGet}, TODO: SimpleGetOptions is always valid. Add more validation that can fail.
 	} {
+		ctx := t.Context()
 		baseURL := server.URL + "/" + grouplessPrefix + "/" + grouplessGroupVersion.Version + "/namespaces/default"
 		url := baseURL + test.postfix
-		r, err := http.NewRequest(test.method, url, nil)
+		r, err := http.NewRequestWithContext(ctx, test.method, url, nil)
 		if err != nil {
 			t.Errorf("%d: unexpected error: %v", i, err)
 			continue
@@ -1180,7 +1188,7 @@ func TestRequestsWithInvalidQuery(t *testing.T) {
 		defer resp.Body.Close()
 		if resp.StatusCode != http.StatusBadRequest {
 			t.Errorf("%d: unexpected status: %d from url %s, Expected: %d, %#v", i, resp.StatusCode, url, http.StatusBadRequest, resp)
-			body, err := ioutil.ReadAll(resp.Body)
+			body, err := io.ReadAll(resp.Body)
 			if err != nil {
 				t.Errorf("%d: unexpected error: %v", i, err)
 				continue
@@ -1212,6 +1220,7 @@ func TestListCompression(t *testing.T) {
 		},
 	}
 	for i, testCase := range testCases {
+		ctx := t.Context()
 		storage := map[string]rest.Storage{}
 		simpleStorage := SimpleRESTStorage{
 			expectedResourceNamespace: testCase.namespace,
@@ -1228,7 +1237,7 @@ func TestListCompression(t *testing.T) {
 
 		defer server.Close()
 
-		req, err := http.NewRequest(request.MethodGet, server.URL+testCase.url, nil)
+		req, err := http.NewRequestWithContext(ctx, request.MethodGet, server.URL+testCase.url, nil)
 		if err != nil {
 			t.Errorf("%d: unexpected error: %v", i, err)
 			continue
@@ -1245,7 +1254,7 @@ func TestListCompression(t *testing.T) {
 		defer resp.Body.Close()
 		if resp.StatusCode != http.StatusOK {
 			t.Errorf("%d: unexpected status: %d from url %s, Expected: %d, %#v", i, resp.StatusCode, testCase.url, http.StatusOK, resp)
-			body, err := ioutil.ReadAll(resp.Body)
+			body, err := io.ReadAll(resp.Body)
 			if err != nil {
 				t.Errorf("%d: unexpected error: %v", i, err)
 				continue
@@ -1284,12 +1293,13 @@ func TestListCompression(t *testing.T) {
 }
 
 func TestLogs(t *testing.T) {
+	ctx := t.Context()
 	handler := handle(map[string]rest.Storage{})
 	server := httptest.NewServer(handler)
 	defer server.Close()
 	client := http.Client{}
 
-	request, err := http.NewRequest(request.MethodGet, server.URL+"/logs", nil)
+	request, err := http.NewRequestWithContext(ctx, request.MethodGet, server.URL+"/logs", nil)
 	if err != nil {
 		t.Errorf("unexpected error: %v", err)
 	}
@@ -1299,7 +1309,7 @@ func TestLogs(t *testing.T) {
 		t.Errorf("unexpected error: %v", err)
 	}
 
-	body, err := ioutil.ReadAll(response.Body)
+	body, err := io.ReadAll(response.Body)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1307,6 +1317,7 @@ func TestLogs(t *testing.T) {
 }
 
 func TestErrorList(t *testing.T) {
+	ctx := t.Context()
 	storage := map[string]rest.Storage{}
 	simpleStorage := SimpleRESTStorage{
 		errors: map[string]error{"list": fmt.Errorf("test Error")},
@@ -1316,7 +1327,10 @@ func TestErrorList(t *testing.T) {
 	server := httptest.NewServer(handler)
 	defer server.Close()
 
-	resp, err := http.Get(server.URL + "/" + prefix + "/" + testGroupVersion.Group + "/" + testGroupVersion.Version + "/simple")
+	url := server.URL + "/" + prefix + "/" + testGroupVersion.Group + "/" + testGroupVersion.Version + "/simple"
+	req, err := http.NewRequestWithContext(ctx, request.MethodGet, url, nil)
+	require.NoError(t, err)
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1327,6 +1341,7 @@ func TestErrorList(t *testing.T) {
 }
 
 func TestNonEmptyList(t *testing.T) {
+	ctx := t.Context()
 	storage := map[string]rest.Storage{}
 	simpleStorage := SimpleRESTStorage{
 		list: []genericapitesting.Simple{
@@ -1341,14 +1356,17 @@ func TestNonEmptyList(t *testing.T) {
 	server := httptest.NewServer(handler)
 	defer server.Close()
 
-	resp, err := http.Get(server.URL + "/" + prefix + "/" + testGroupVersion.Group + "/" + testGroupVersion.Version + "/simple")
+	url := server.URL + "/" + prefix + "/" + testGroupVersion.Group + "/" + testGroupVersion.Version + "/simple"
+	req, err := http.NewRequestWithContext(ctx, request.MethodGet, url, nil)
+	require.NoError(t, err)
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
 	if resp.StatusCode != http.StatusOK {
 		t.Errorf("Unexpected status: %d, Expected: %d, %#v", resp.StatusCode, http.StatusOK, resp)
-		body, err := ioutil.ReadAll(resp.Body)
+		body, err := io.ReadAll(resp.Body)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -1409,6 +1427,7 @@ func TestMetadata(t *testing.T) {
 }
 
 func TestGet(t *testing.T) {
+	ctx := t.Context()
 	storage := map[string]rest.Storage{}
 	simpleStorage := SimpleRESTStorage{
 		item: genericapitesting.Simple{
@@ -1420,7 +1439,10 @@ func TestGet(t *testing.T) {
 	server := httptest.NewServer(handler)
 	defer server.Close()
 
-	resp, err := http.Get(server.URL + "/" + prefix + "/" + testGroupVersion.Group + "/" + testGroupVersion.Version + "/namespaces/default/simple/id")
+	url := server.URL + "/" + prefix + "/" + testGroupVersion.Group + "/" + testGroupVersion.Version + "/namespaces/default/simple/id"
+	req, err := http.NewRequestWithContext(ctx, request.MethodGet, url, nil)
+	require.NoError(t, err)
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1439,6 +1461,7 @@ func TestGet(t *testing.T) {
 }
 
 func BenchmarkGet(b *testing.B) {
+	ctx := b.Context()
 	storage := map[string]rest.Storage{}
 	simpleStorage := SimpleRESTStorage{
 		item: genericapitesting.Simple{
@@ -1450,18 +1473,20 @@ func BenchmarkGet(b *testing.B) {
 	server := httptest.NewServer(handler)
 	defer server.Close()
 
-	u := server.URL + "/" + prefix + "/" + testGroupVersion.Group + "/" + testGroupVersion.Version + "/namespaces/default/simple/id"
+	url := server.URL + "/" + prefix + "/" + testGroupVersion.Group + "/" + testGroupVersion.Version + "/namespaces/default/simple/id"
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		resp, err := http.Get(u)
+		req, err := http.NewRequestWithContext(ctx, request.MethodGet, url, nil)
+		require.NoError(b, err)
+		resp, err := http.DefaultClient.Do(req)
 		if err != nil {
 			b.Fatalf("unexpected error: %v", err)
 		}
 		if resp.StatusCode != http.StatusOK {
 			b.Fatalf("unexpected response: %#v", resp)
 		}
-		if _, err := io.Copy(ioutil.Discard, resp.Body); err != nil {
+		if _, err := io.Copy(io.Discard, resp.Body); err != nil {
 			b.Fatalf("unable to read body")
 		}
 	}
@@ -1497,7 +1522,7 @@ func BenchmarkGetNoCompression(b *testing.B) {
 		if resp.StatusCode != http.StatusOK {
 			b.Fatalf("unexpected response: %#v", resp)
 		}
-		if _, err := io.Copy(ioutil.Discard, resp.Body); err != nil {
+		if _, err := io.Copy(io.Discard, resp.Body); err != nil {
 			b.Fatalf("unable to read body")
 		}
 	}
@@ -1526,7 +1551,8 @@ func TestGetCompression(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		req, err := http.NewRequest(request.MethodGet, server.URL+"/"+prefix+"/"+testGroupVersion.Group+"/"+testGroupVersion.Version+"/namespaces/default/simple/id", nil)
+		ctx := t.Context()
+		req, err := http.NewRequestWithContext(ctx, request.MethodGet, server.URL+"/"+prefix+"/"+testGroupVersion.Group+"/"+testGroupVersion.Version+"/namespaces/default/simple/id", nil)
 		if err != nil {
 			t.Fatalf("unexpected error creating request: %v", err)
 		}
@@ -1556,7 +1582,7 @@ func TestGetCompression(t *testing.T) {
 		if err != nil {
 			t.Errorf("unexpected error: %v", err)
 		}
-		body, err := ioutil.ReadAll(resp.Body)
+		body, err := io.ReadAll(resp.Body)
 		if err != nil {
 			t.Errorf("unexpected error reading body: %v", err)
 		}
@@ -2043,12 +2069,12 @@ func TestWatchTable(t *testing.T) {
 				test.send(simpleStorage.fakeWatch)
 			}()
 
-			body, err := ioutil.ReadAll(resp.Body)
+			body, err := io.ReadAll(resp.Body)
 			if err != nil {
 				t.Fatal(err)
 			}
 			t.Logf("Body:\n%s", string(body))
-			d := watcher(resp.Header.Get("Content-Type"), ioutil.NopCloser(bytes.NewReader(body)))
+			d := watcher(resp.Header.Get("Content-Type"), io.NopCloser(bytes.NewReader(body)))
 			var actual []*metav1.WatchEvent
 			for {
 				var event metav1.WatchEvent
@@ -2244,7 +2270,7 @@ func TestGetPartialObjectMetadata(t *testing.T) {
 			}
 			body = d
 		} else {
-			d, err := ioutil.ReadAll(resp.Body)
+			d, err := io.ReadAll(resp.Body)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -2261,6 +2287,7 @@ func TestGetPartialObjectMetadata(t *testing.T) {
 }
 
 func TestGetBinary(t *testing.T) {
+	ctx := t.Context()
 	simpleStorage := SimpleRESTStorage{
 		stream: &SimpleStream{
 			contentType: "text/plain",
@@ -2271,7 +2298,7 @@ func TestGetBinary(t *testing.T) {
 	server := httptest.NewServer(handle(map[string]rest.Storage{"simple": &simpleStorage}))
 	defer server.Close()
 
-	req, err := http.NewRequest(request.MethodGet, server.URL+"/"+prefix+"/"+testGroupVersion.Group+"/"+testGroupVersion.Version+"/namespaces/default/simple/binary", nil)
+	req, err := http.NewRequestWithContext(ctx, request.MethodGet, server.URL+"/"+prefix+"/"+testGroupVersion.Group+"/"+testGroupVersion.Version+"/namespaces/default/simple/binary", nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -2283,7 +2310,7 @@ func TestGetBinary(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("unexpected response: %#v", resp)
 	}
-	body, err := ioutil.ReadAll(resp.Body)
+	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		t.Errorf("unexpected error: %v", err)
 	}
@@ -2388,6 +2415,7 @@ func TestGetWithOptions(t *testing.T) {
 	}
 
 	for _, test := range tests {
+		ctx := t.Context()
 		simpleStorage := GetWithOptionsRESTStorage{
 			SimpleRESTStorage: &SimpleRESTStorage{
 				item: genericapitesting.Simple{
@@ -2418,7 +2446,10 @@ func TestGetWithOptions(t *testing.T) {
 		server := httptest.NewServer(handler)
 		defer server.Close()
 
-		resp, err := http.Get(server.URL + "/" + prefix + "/" + testGroupVersion.Group + "/" + testGroupVersion.Version + test.requestURL)
+		url := server.URL + "/" + prefix + "/" + testGroupVersion.Group + "/" + testGroupVersion.Version + test.requestURL
+		req, err := http.NewRequestWithContext(ctx, request.MethodGet, url, nil)
+		require.NoError(t, err)
+		resp, err := http.DefaultClient.Do(req)
 		if err != nil {
 			t.Errorf("%s: %v", test.name, err)
 			continue
@@ -2472,6 +2503,7 @@ func TestGetWithOptions(t *testing.T) {
 }
 
 func TestGetMissing(t *testing.T) {
+	ctx := t.Context()
 	storage := map[string]rest.Storage{}
 	simpleStorage := SimpleRESTStorage{
 		errors: map[string]error{"get": apierrors.NewNotFound(schema.GroupResource{Resource: "simples"}, "id")},
@@ -2481,7 +2513,10 @@ func TestGetMissing(t *testing.T) {
 	server := httptest.NewServer(handler)
 	defer server.Close()
 
-	resp, err := http.Get(server.URL + "/" + prefix + "/" + testGroupVersion.Group + "/" + testGroupVersion.Version + "/namespaces/default/simple/id")
+	url := server.URL + "/" + prefix + "/" + testGroupVersion.Group + "/" + testGroupVersion.Version + "/namespaces/default/simple/id"
+	req, err := http.NewRequestWithContext(ctx, request.MethodGet, url, nil)
+	require.NoError(t, err)
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Errorf("unexpected error: %v", err)
 	}
@@ -2492,6 +2527,7 @@ func TestGetMissing(t *testing.T) {
 }
 
 func TestGetRetryAfter(t *testing.T) {
+	ctx := t.Context()
 	storage := map[string]rest.Storage{}
 	simpleStorage := SimpleRESTStorage{
 		errors: map[string]error{"get": apierrors.NewServerTimeout(schema.GroupResource{Resource: "simples"}, "id", 2)},
@@ -2501,7 +2537,10 @@ func TestGetRetryAfter(t *testing.T) {
 	server := httptest.NewServer(handler)
 	defer server.Close()
 
-	resp, err := http.Get(server.URL + "/" + prefix + "/" + testGroupVersion.Group + "/" + testGroupVersion.Version + "/namespaces/default/simple/id")
+	url := server.URL + "/" + prefix + "/" + testGroupVersion.Group + "/" + testGroupVersion.Version + "/namespaces/default/simple/id"
+	req, err := http.NewRequestWithContext(ctx, request.MethodGet, url, nil)
+	require.NoError(t, err)
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Errorf("unexpected error: %v", err)
 	}
@@ -2514,6 +2553,7 @@ func TestGetRetryAfter(t *testing.T) {
 }
 
 func TestConnect(t *testing.T) {
+	ctx := t.Context()
 	responseText := "Hello World"
 	itemID := "theID"
 	connectStorage := &ConnecterRESTStorage{
@@ -2529,8 +2569,10 @@ func TestConnect(t *testing.T) {
 	server := httptest.NewServer(handler)
 	defer server.Close()
 
-	resp, err := http.Get(server.URL + "/" + prefix + "/" + testGroupVersion.Group + "/" + testGroupVersion.Version + "/namespaces/default/simple/" + itemID + "/connect")
-
+	url := server.URL + "/" + prefix + "/" + testGroupVersion.Group + "/" + testGroupVersion.Version + "/namespaces/default/simple/" + itemID + "/connect"
+	req, err := http.NewRequestWithContext(ctx, request.MethodGet, url, nil)
+	require.NoError(t, err)
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Errorf("unexpected error: %v", err)
 	}
@@ -2538,7 +2580,7 @@ func TestConnect(t *testing.T) {
 		t.Errorf("unexpected response: %#v", resp)
 	}
 	defer resp.Body.Close()
-	body, err := ioutil.ReadAll(resp.Body)
+	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		t.Fatalf("Unexpected error: %v", err)
 	}
@@ -2551,6 +2593,7 @@ func TestConnect(t *testing.T) {
 }
 
 func TestConnectResponderObject(t *testing.T) {
+	ctx := t.Context()
 	itemID := "theID"
 	simple := &genericapitesting.Simple{Other: "foo"}
 	connectStorage := &ConnecterRESTStorage{}
@@ -2567,8 +2610,10 @@ func TestConnectResponderObject(t *testing.T) {
 	server := httptest.NewServer(handler)
 	defer server.Close()
 
-	resp, err := http.Get(server.URL + "/" + prefix + "/" + testGroupVersion.Group + "/" + testGroupVersion.Version + "/namespaces/default/simple/" + itemID + "/connect")
-
+	url := server.URL + "/" + prefix + "/" + testGroupVersion.Group + "/" + testGroupVersion.Version + "/namespaces/default/simple/" + itemID + "/connect"
+	req, err := http.NewRequestWithContext(ctx, request.MethodGet, url, nil)
+	require.NoError(t, err)
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Errorf("unexpected error: %v", err)
 	}
@@ -2576,7 +2621,7 @@ func TestConnectResponderObject(t *testing.T) {
 		t.Errorf("unexpected response: %#v", resp)
 	}
 	defer resp.Body.Close()
-	body, err := ioutil.ReadAll(resp.Body)
+	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		t.Fatalf("Unexpected error: %v", err)
 	}
@@ -2593,6 +2638,7 @@ func TestConnectResponderObject(t *testing.T) {
 }
 
 func TestConnectResponderError(t *testing.T) {
+	ctx := t.Context()
 	itemID := "theID"
 	connectStorage := &ConnecterRESTStorage{}
 	connectStorage.handlerFunc = func() http.Handler {
@@ -2608,8 +2654,10 @@ func TestConnectResponderError(t *testing.T) {
 	server := httptest.NewServer(handler)
 	defer server.Close()
 
-	resp, err := http.Get(server.URL + "/" + prefix + "/" + testGroupVersion.Group + "/" + testGroupVersion.Version + "/namespaces/default/simple/" + itemID + "/connect")
-
+	url := server.URL + "/" + prefix + "/" + testGroupVersion.Group + "/" + testGroupVersion.Version + "/namespaces/default/simple/" + itemID + "/connect"
+	req, err := http.NewRequestWithContext(ctx, request.MethodGet, url, nil)
+	require.NoError(t, err)
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Errorf("unexpected error: %v", err)
 	}
@@ -2617,7 +2665,7 @@ func TestConnectResponderError(t *testing.T) {
 		t.Errorf("unexpected response: %#v", resp)
 	}
 	defer resp.Body.Close()
-	body, err := ioutil.ReadAll(resp.Body)
+	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		t.Fatalf("Unexpected error: %v", err)
 	}
@@ -2661,6 +2709,7 @@ func TestConnectWithOptionsRouteParams(t *testing.T) {
 }
 
 func TestConnectWithOptions(t *testing.T) {
+	ctx := t.Context()
 	responseText := "Hello World"
 	itemID := "theID"
 	connectStorage := &ConnecterRESTStorage{
@@ -2677,8 +2726,10 @@ func TestConnectWithOptions(t *testing.T) {
 	server := httptest.NewServer(handler)
 	defer server.Close()
 
-	resp, err := http.Get(server.URL + "/" + prefix + "/" + testGroupVersion.Group + "/" + testGroupVersion.Version + "/namespaces/default/simple/" + itemID + "/connect?param1=value1&param2=value2")
-
+	url := server.URL + "/" + prefix + "/" + testGroupVersion.Group + "/" + testGroupVersion.Version + "/namespaces/default/simple/" + itemID + "/connect?param1=value1&param2=value2"
+	req, err := http.NewRequestWithContext(ctx, request.MethodGet, url, nil)
+	require.NoError(t, err)
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Errorf("unexpected error: %v", err)
 	}
@@ -2686,7 +2737,7 @@ func TestConnectWithOptions(t *testing.T) {
 		t.Errorf("unexpected response: %#v", resp)
 	}
 	defer resp.Body.Close()
-	body, err := ioutil.ReadAll(resp.Body)
+	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		t.Fatalf("Unexpected error: %v", err)
 	}
@@ -2709,6 +2760,7 @@ func TestConnectWithOptions(t *testing.T) {
 }
 
 func TestConnectWithOptionsAndPath(t *testing.T) {
+	ctx := t.Context()
 	responseText := "Hello World"
 	itemID := "theID"
 	testPath := "/a/b/c/def"
@@ -2727,8 +2779,10 @@ func TestConnectWithOptionsAndPath(t *testing.T) {
 	server := httptest.NewServer(handler)
 	defer server.Close()
 
-	resp, err := http.Get(server.URL + "/" + prefix + "/" + testGroupVersion.Group + "/" + testGroupVersion.Version + "/namespaces/default/simple/" + itemID + "/connect" + testPath + "?param1=value1&param2=value2")
-
+	url := server.URL + "/" + prefix + "/" + testGroupVersion.Group + "/" + testGroupVersion.Version + "/namespaces/default/simple/" + itemID + "/connect" + testPath + "?param1=value1&param2=value2"
+	req, err := http.NewRequestWithContext(ctx, request.MethodGet, url, nil)
+	require.NoError(t, err)
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Errorf("unexpected error: %v", err)
 	}
@@ -2736,7 +2790,7 @@ func TestConnectWithOptionsAndPath(t *testing.T) {
 		t.Errorf("unexpected response: %#v", resp)
 	}
 	defer resp.Body.Close()
-	body, err := ioutil.ReadAll(resp.Body)
+	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		t.Fatalf("Unexpected error: %v", err)
 	}
@@ -2759,6 +2813,7 @@ func TestConnectWithOptionsAndPath(t *testing.T) {
 }
 
 func TestDelete(t *testing.T) {
+	ctx := t.Context()
 	storage := map[string]rest.Storage{}
 	simpleStorage := SimpleRESTStorage{}
 	ID := "id"
@@ -2768,7 +2823,7 @@ func TestDelete(t *testing.T) {
 	defer server.Close()
 
 	client := http.Client{}
-	request, err := http.NewRequest(request.MethodDelete, server.URL+"/"+prefix+"/"+testGroupVersion.Group+"/"+testGroupVersion.Version+"/namespaces/default/simple/"+ID, nil)
+	request, err := http.NewRequestWithContext(ctx, request.MethodDelete, server.URL+"/"+prefix+"/"+testGroupVersion.Group+"/"+testGroupVersion.Version+"/namespaces/default/simple/"+ID, nil)
 	if err != nil {
 		t.Errorf("unexpected error: %v", err)
 	}
@@ -2785,6 +2840,7 @@ func TestDelete(t *testing.T) {
 }
 
 func TestDeleteWithOptions(t *testing.T) {
+	ctx := t.Context()
 	storage := map[string]rest.Storage{}
 	simpleStorage := SimpleRESTStorage{}
 	ID := "id"
@@ -2803,7 +2859,7 @@ func TestDeleteWithOptions(t *testing.T) {
 	}
 
 	client := http.Client{}
-	request, err := http.NewRequest(request.MethodDelete, server.URL+"/"+prefix+"/"+testGroupVersion.Group+"/"+testGroupVersion.Version+"/namespaces/default/simple/"+ID, bytes.NewReader(body))
+	request, err := http.NewRequestWithContext(ctx, request.MethodDelete, server.URL+"/"+prefix+"/"+testGroupVersion.Group+"/"+testGroupVersion.Version+"/namespaces/default/simple/"+ID, bytes.NewReader(body))
 	if err != nil {
 		t.Errorf("unexpected error: %v", err)
 	}
@@ -2813,7 +2869,7 @@ func TestDeleteWithOptions(t *testing.T) {
 	}
 	if res.StatusCode != http.StatusOK {
 		t.Errorf("unexpected response: %s %#v", request.URL, res)
-		s, err := ioutil.ReadAll(res.Body)
+		s, err := io.ReadAll(res.Body)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -2829,6 +2885,7 @@ func TestDeleteWithOptions(t *testing.T) {
 }
 
 func TestDeleteWithOptionsQuery(t *testing.T) {
+	ctx := t.Context()
 	storage := map[string]rest.Storage{}
 	simpleStorage := SimpleRESTStorage{}
 	ID := "id"
@@ -2843,7 +2900,7 @@ func TestDeleteWithOptionsQuery(t *testing.T) {
 	}
 
 	client := http.Client{}
-	request, err := http.NewRequest(request.MethodDelete, server.URL+"/"+prefix+"/"+testGroupVersion.Group+"/"+testGroupVersion.Version+"/namespaces/default/simple/"+ID+"?gracePeriodSeconds="+strconv.FormatInt(grace, 10), nil)
+	request, err := http.NewRequestWithContext(ctx, request.MethodDelete, server.URL+"/"+prefix+"/"+testGroupVersion.Group+"/"+testGroupVersion.Version+"/namespaces/default/simple/"+ID+"?gracePeriodSeconds="+strconv.FormatInt(grace, 10), nil)
 	if err != nil {
 		t.Errorf("unexpected error: %v", err)
 	}
@@ -2853,7 +2910,7 @@ func TestDeleteWithOptionsQuery(t *testing.T) {
 	}
 	if res.StatusCode != http.StatusOK {
 		t.Errorf("unexpected response: %s %#v", request.URL, res)
-		s, err := ioutil.ReadAll(res.Body)
+		s, err := io.ReadAll(res.Body)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -2869,6 +2926,7 @@ func TestDeleteWithOptionsQuery(t *testing.T) {
 }
 
 func TestDeleteWithOptionsQueryAndBody(t *testing.T) {
+	ctx := t.Context()
 	storage := map[string]rest.Storage{}
 	simpleStorage := SimpleRESTStorage{}
 	ID := "id"
@@ -2886,7 +2944,7 @@ func TestDeleteWithOptionsQueryAndBody(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	client := http.Client{}
-	request, err := http.NewRequest(request.MethodDelete, server.URL+"/"+prefix+"/"+testGroupVersion.Group+"/"+testGroupVersion.Version+"/namespaces/default/simple/"+ID+"?gracePeriodSeconds="+strconv.FormatInt(grace+10, 10), bytes.NewReader(body))
+	request, err := http.NewRequestWithContext(ctx, request.MethodDelete, server.URL+"/"+prefix+"/"+testGroupVersion.Group+"/"+testGroupVersion.Version+"/namespaces/default/simple/"+ID+"?gracePeriodSeconds="+strconv.FormatInt(grace+10, 10), bytes.NewReader(body))
 	if err != nil {
 		t.Errorf("unexpected error: %v", err)
 	}
@@ -2896,7 +2954,7 @@ func TestDeleteWithOptionsQueryAndBody(t *testing.T) {
 	}
 	if res.StatusCode != http.StatusOK {
 		t.Errorf("unexpected response: %s %#v", request.URL, res)
-		s, err := ioutil.ReadAll(res.Body)
+		s, err := io.ReadAll(res.Body)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -2915,6 +2973,7 @@ func TestDeleteInvokesAdmissionControl(t *testing.T) {
 	// TODO: remove mutating deny when we removed it from the endpoint implementation and ported all plugins
 	for _, admit := range []admission.Interface{alwaysMutatingDeny{}, alwaysValidatingDeny{}} {
 		t.Logf("Testing %T", admit)
+		ctx := t.Context()
 
 		storage := map[string]rest.Storage{}
 		simpleStorage := SimpleRESTStorage{}
@@ -2925,7 +2984,7 @@ func TestDeleteInvokesAdmissionControl(t *testing.T) {
 		defer server.Close()
 
 		client := http.Client{}
-		request, err := http.NewRequest(request.MethodDelete, server.URL+"/"+prefix+"/"+testGroupVersion.Group+"/"+testGroupVersion.Version+"/namespaces/default/simple/"+ID, nil)
+		request, err := http.NewRequestWithContext(ctx, request.MethodDelete, server.URL+"/"+prefix+"/"+testGroupVersion.Group+"/"+testGroupVersion.Version+"/namespaces/default/simple/"+ID, nil)
 		if err != nil {
 			t.Errorf("unexpected error: %v", err)
 		}
@@ -2940,6 +2999,7 @@ func TestDeleteInvokesAdmissionControl(t *testing.T) {
 }
 
 func TestDeleteMissing(t *testing.T) {
+	ctx := t.Context()
 	storage := map[string]rest.Storage{}
 	ID := "id"
 	simpleStorage := SimpleRESTStorage{
@@ -2951,7 +3011,7 @@ func TestDeleteMissing(t *testing.T) {
 	defer server.Close()
 
 	client := http.Client{}
-	request, err := http.NewRequest(request.MethodDelete, server.URL+"/"+prefix+"/"+testGroupVersion.Group+"/"+testGroupVersion.Version+"/namespaces/default/simple/"+ID, nil)
+	request, err := http.NewRequestWithContext(ctx, request.MethodDelete, server.URL+"/"+prefix+"/"+testGroupVersion.Group+"/"+testGroupVersion.Version+"/namespaces/default/simple/"+ID, nil)
 	if err != nil {
 		t.Errorf("unexpected error: %v", err)
 	}
@@ -2966,6 +3026,7 @@ func TestDeleteMissing(t *testing.T) {
 }
 
 func TestUpdate(t *testing.T) {
+	ctx := t.Context()
 	storage := map[string]rest.Storage{}
 	simpleStorage := SimpleRESTStorage{}
 	ID := "id"
@@ -2988,7 +3049,7 @@ func TestUpdate(t *testing.T) {
 	}
 
 	client := http.Client{}
-	request, err := http.NewRequest(request.MethodPut, server.URL+"/"+prefix+"/"+testGroupVersion.Group+"/"+testGroupVersion.Version+"/namespaces/default/simple/"+ID, bytes.NewReader(body))
+	request, err := http.NewRequestWithContext(ctx, request.MethodPut, server.URL+"/"+prefix+"/"+testGroupVersion.Group+"/"+testGroupVersion.Version+"/namespaces/default/simple/"+ID, bytes.NewReader(body))
 	if err != nil {
 		t.Errorf("unexpected error: %v", err)
 	}
@@ -3007,6 +3068,7 @@ func TestUpdate(t *testing.T) {
 func TestUpdateInvokesAdmissionControl(t *testing.T) {
 	for _, admit := range []admission.Interface{alwaysMutatingDeny{}, alwaysValidatingDeny{}} {
 		t.Logf("Testing %T", admit)
+		ctx := t.Context()
 
 		storage := map[string]rest.Storage{}
 		simpleStorage := SimpleRESTStorage{}
@@ -3030,7 +3092,7 @@ func TestUpdateInvokesAdmissionControl(t *testing.T) {
 		}
 
 		client := http.Client{}
-		request, err := http.NewRequest(request.MethodPut, server.URL+"/"+prefix+"/"+testGroupVersion.Group+"/"+testGroupVersion.Version+"/namespaces/default/simple/"+ID, bytes.NewReader(body))
+		request, err := http.NewRequestWithContext(ctx, request.MethodPut, server.URL+"/"+prefix+"/"+testGroupVersion.Group+"/"+testGroupVersion.Version+"/namespaces/default/simple/"+ID, bytes.NewReader(body))
 		if err != nil {
 			t.Errorf("unexpected error: %v", err)
 		}
@@ -3048,6 +3110,7 @@ func TestUpdateInvokesAdmissionControl(t *testing.T) {
 }
 
 func TestUpdateRequiresMatchingName(t *testing.T) {
+	ctx := t.Context()
 	storage := map[string]rest.Storage{}
 	simpleStorage := SimpleRESTStorage{}
 	ID := "id"
@@ -3066,7 +3129,7 @@ func TestUpdateRequiresMatchingName(t *testing.T) {
 	}
 
 	client := http.Client{}
-	request, err := http.NewRequest(request.MethodPut, server.URL+"/"+prefix+"/"+testGroupVersion.Group+"/"+testGroupVersion.Version+"/namespaces/default/simple/"+ID, bytes.NewReader(body))
+	request, err := http.NewRequestWithContext(ctx, request.MethodPut, server.URL+"/"+prefix+"/"+testGroupVersion.Group+"/"+testGroupVersion.Version+"/namespaces/default/simple/"+ID, bytes.NewReader(body))
 	if err != nil {
 		t.Errorf("unexpected error: %v", err)
 	}
@@ -3082,6 +3145,7 @@ func TestUpdateRequiresMatchingName(t *testing.T) {
 }
 
 func TestUpdateAllowsMissingNamespace(t *testing.T) {
+	ctx := t.Context()
 	storage := map[string]rest.Storage{}
 	simpleStorage := SimpleRESTStorage{}
 	ID := "id"
@@ -3103,7 +3167,7 @@ func TestUpdateAllowsMissingNamespace(t *testing.T) {
 	}
 
 	client := http.Client{}
-	request, err := http.NewRequest(request.MethodPut, server.URL+"/"+prefix+"/"+testGroupVersion.Group+"/"+testGroupVersion.Version+"/namespaces/default/simple/"+ID, bytes.NewReader(body))
+	request, err := http.NewRequestWithContext(ctx, request.MethodPut, server.URL+"/"+prefix+"/"+testGroupVersion.Group+"/"+testGroupVersion.Version+"/namespaces/default/simple/"+ID, bytes.NewReader(body))
 	if err != nil {
 		t.Errorf("unexpected error: %v", err)
 	}
@@ -3121,6 +3185,7 @@ func TestUpdateAllowsMissingNamespace(t *testing.T) {
 
 // when the object name and namespace can't be retrieved, don't update.  It isn't safe.
 func TestUpdateDisallowsMismatchedNamespaceOnError(t *testing.T) {
+	ctx := t.Context()
 	storage := map[string]rest.Storage{}
 	simpleStorage := SimpleRESTStorage{}
 	ID := "id"
@@ -3143,7 +3208,7 @@ func TestUpdateDisallowsMismatchedNamespaceOnError(t *testing.T) {
 	}
 
 	client := http.Client{}
-	request, err := http.NewRequest(request.MethodPut, server.URL+"/"+prefix+"/"+testGroupVersion.Group+"/"+testGroupVersion.Version+"/namespaces/default/simple/"+ID, bytes.NewReader(body))
+	request, err := http.NewRequestWithContext(ctx, request.MethodPut, server.URL+"/"+prefix+"/"+testGroupVersion.Group+"/"+testGroupVersion.Version+"/namespaces/default/simple/"+ID, bytes.NewReader(body))
 	if err != nil {
 		t.Errorf("unexpected error: %v", err)
 	}
@@ -3160,6 +3225,7 @@ func TestUpdateDisallowsMismatchedNamespaceOnError(t *testing.T) {
 }
 
 func TestUpdatePreventsMismatchedNamespace(t *testing.T) {
+	ctx := t.Context()
 	storage := map[string]rest.Storage{}
 	simpleStorage := SimpleRESTStorage{}
 	ID := "id"
@@ -3182,7 +3248,7 @@ func TestUpdatePreventsMismatchedNamespace(t *testing.T) {
 	}
 
 	client := http.Client{}
-	request, err := http.NewRequest(request.MethodPut, server.URL+"/"+prefix+"/"+testGroupVersion.Group+"/"+testGroupVersion.Version+"/namespaces/default/simple/"+ID, bytes.NewReader(body))
+	request, err := http.NewRequestWithContext(ctx, request.MethodPut, server.URL+"/"+prefix+"/"+testGroupVersion.Group+"/"+testGroupVersion.Version+"/namespaces/default/simple/"+ID, bytes.NewReader(body))
 	if err != nil {
 		t.Errorf("unexpected error: %v", err)
 	}
@@ -3196,6 +3262,7 @@ func TestUpdatePreventsMismatchedNamespace(t *testing.T) {
 }
 
 func TestUpdateMissing(t *testing.T) {
+	ctx := t.Context()
 	storage := map[string]rest.Storage{}
 	ID := "id"
 	simpleStorage := SimpleRESTStorage{
@@ -3219,7 +3286,7 @@ func TestUpdateMissing(t *testing.T) {
 	}
 
 	client := http.Client{}
-	request, err := http.NewRequest(request.MethodPut, server.URL+"/"+prefix+"/"+testGroupVersion.Group+"/"+testGroupVersion.Version+"/namespaces/default/simple/"+ID, bytes.NewReader(body))
+	request, err := http.NewRequestWithContext(ctx, request.MethodPut, server.URL+"/"+prefix+"/"+testGroupVersion.Group+"/"+testGroupVersion.Version+"/namespaces/default/simple/"+ID, bytes.NewReader(body))
 	if err != nil {
 		t.Errorf("unexpected error: %v", err)
 	}
@@ -3233,6 +3300,7 @@ func TestUpdateMissing(t *testing.T) {
 }
 
 func TestCreateNotFound(t *testing.T) {
+	ctx := t.Context()
 	handler := handle(map[string]rest.Storage{
 		"simple": &SimpleRESTStorage{
 			// storage.Create can fail with not found error in theory.
@@ -3249,7 +3317,7 @@ func TestCreateNotFound(t *testing.T) {
 	if err != nil {
 		t.Errorf("unexpected error: %v", err)
 	}
-	request, err := http.NewRequest(request.MethodPost, server.URL+"/"+prefix+"/"+testGroupVersion.Group+"/"+testGroupVersion.Version+"/namespaces/default/simple", bytes.NewBuffer(data))
+	request, err := http.NewRequestWithContext(ctx, request.MethodPost, server.URL+"/"+prefix+"/"+testGroupVersion.Group+"/"+testGroupVersion.Version+"/namespaces/default/simple", bytes.NewBuffer(data))
 	if err != nil {
 		t.Errorf("unexpected error: %v", err)
 	}
@@ -3265,6 +3333,7 @@ func TestCreateNotFound(t *testing.T) {
 }
 
 func TestCreateChecksDecode(t *testing.T) {
+	ctx := t.Context()
 	handler := handle(map[string]rest.Storage{"simple": &SimpleRESTStorage{}})
 	server := httptest.NewServer(handler)
 	defer server.Close()
@@ -3275,7 +3344,7 @@ func TestCreateChecksDecode(t *testing.T) {
 	if err != nil {
 		t.Errorf("unexpected error: %v", err)
 	}
-	request, err := http.NewRequest(request.MethodPost, server.URL+"/"+prefix+"/"+testGroupVersion.Group+"/"+testGroupVersion.Version+"/namespaces/default/simple", bytes.NewBuffer(data))
+	request, err := http.NewRequestWithContext(ctx, request.MethodPost, server.URL+"/"+prefix+"/"+testGroupVersion.Group+"/"+testGroupVersion.Version+"/namespaces/default/simple", bytes.NewBuffer(data))
 	if err != nil {
 		t.Errorf("unexpected error: %v", err)
 	}
@@ -3286,7 +3355,7 @@ func TestCreateChecksDecode(t *testing.T) {
 	if response.StatusCode != http.StatusBadRequest {
 		t.Errorf("Unexpected response %#v", response)
 	}
-	b, err := ioutil.ReadAll(response.Body)
+	b, err := io.ReadAll(response.Body)
 	if err != nil {
 		t.Errorf("unexpected error: %v", err)
 	} else if !strings.Contains(string(b), "cannot be handled as a Simple") {
@@ -3380,6 +3449,7 @@ func TestParentResourceIsRequired(t *testing.T) {
 }
 
 func TestNamedCreaterWithName(t *testing.T) {
+	ctx := t.Context()
 	pathName := "helloworld"
 	storage := &NamedCreaterRESTStorage{SimpleRESTStorage: &SimpleRESTStorage{}}
 	handler := handle(map[string]rest.Storage{
@@ -3395,7 +3465,7 @@ func TestNamedCreaterWithName(t *testing.T) {
 	if err != nil {
 		t.Errorf("unexpected error: %v", err)
 	}
-	request, err := http.NewRequest(request.MethodPost, server.URL+"/"+prefix+"/"+testGroupVersion.Group+"/"+testGroupVersion.Version+"/namespaces/default/simple/"+pathName+"/sub", bytes.NewBuffer(data))
+	request, err := http.NewRequestWithContext(ctx, request.MethodPost, server.URL+"/"+prefix+"/"+testGroupVersion.Group+"/"+testGroupVersion.Version+"/namespaces/default/simple/"+pathName+"/sub", bytes.NewBuffer(data))
 	if err != nil {
 		t.Errorf("unexpected error: %v", err)
 	}
@@ -3412,6 +3482,7 @@ func TestNamedCreaterWithName(t *testing.T) {
 }
 
 func TestNamedCreaterWithoutName(t *testing.T) {
+	ctx := t.Context()
 	storage := &NamedCreaterRESTStorage{
 		SimpleRESTStorage: &SimpleRESTStorage{
 			injectedFunction: func(obj runtime.Object) (runtime.Object, error) {
@@ -3433,7 +3504,7 @@ func TestNamedCreaterWithoutName(t *testing.T) {
 	if err != nil {
 		t.Errorf("unexpected error: %v", err)
 	}
-	request, err := http.NewRequest(request.MethodPost, server.URL+"/"+prefix+"/"+testGroupVersion.Group+"/"+testGroupVersion.Version+"/namespaces/default/foo", bytes.NewBuffer(data))
+	request, err := http.NewRequestWithContext(ctx, request.MethodPost, server.URL+"/"+prefix+"/"+testGroupVersion.Group+"/"+testGroupVersion.Version+"/namespaces/default/foo", bytes.NewBuffer(data))
 	if err != nil {
 		t.Errorf("unexpected error: %v", err)
 	}
@@ -3474,6 +3545,7 @@ func (npac *namePopulatorAdmissionControl) Handles(operation admission.Operation
 var _ admission.ValidationInterface = &namePopulatorAdmissionControl{}
 
 func TestNamedCreaterWithGenerateName(t *testing.T) {
+	ctx := t.Context()
 	populateName := "bar"
 	storage := &SimpleRESTStorage{
 		injectedFunction: func(obj runtime.Object) (runtime.Object, error) {
@@ -3507,7 +3579,7 @@ func TestNamedCreaterWithGenerateName(t *testing.T) {
 	if err != nil {
 		t.Errorf("unexpected error: %v", err)
 	}
-	request, err := http.NewRequest(request.MethodPost, server.URL+"/"+prefix+"/"+testGroupVersion.Group+"/"+testGroupVersion.Version+"/namespaces/default/foo", bytes.NewBuffer(data))
+	request, err := http.NewRequestWithContext(ctx, request.MethodPost, server.URL+"/"+prefix+"/"+testGroupVersion.Group+"/"+testGroupVersion.Version+"/namespaces/default/foo", bytes.NewBuffer(data))
 	if err != nil {
 		t.Errorf("unexpected error: %v", err)
 	}
@@ -3544,6 +3616,7 @@ func TestNamedCreaterWithGenerateName(t *testing.T) {
 }
 
 func TestUpdateChecksDecode(t *testing.T) {
+	ctx := t.Context()
 	handler := handle(map[string]rest.Storage{"simple": &SimpleRESTStorage{}})
 	server := httptest.NewServer(handler)
 	defer server.Close()
@@ -3554,7 +3627,7 @@ func TestUpdateChecksDecode(t *testing.T) {
 	if err != nil {
 		t.Errorf("unexpected error: %v", err)
 	}
-	request, err := http.NewRequest(request.MethodPut, server.URL+"/"+prefix+"/"+testGroupVersion.Group+"/"+testGroupVersion.Version+"/namespaces/default/simple/bar", bytes.NewBuffer(data))
+	request, err := http.NewRequestWithContext(ctx, request.MethodPut, server.URL+"/"+prefix+"/"+testGroupVersion.Group+"/"+testGroupVersion.Version+"/namespaces/default/simple/bar", bytes.NewBuffer(data))
 	if err != nil {
 		t.Errorf("unexpected error: %v", err)
 	}
@@ -3565,7 +3638,7 @@ func TestUpdateChecksDecode(t *testing.T) {
 	if response.StatusCode != http.StatusBadRequest {
 		t.Errorf("Unexpected response %#v\n%s", response, readBodyOrDie(response.Body))
 	}
-	b, err := ioutil.ReadAll(response.Body)
+	b, err := io.ReadAll(response.Body)
 	if err != nil {
 		t.Errorf("unexpected error: %v", err)
 	} else if !strings.Contains(string(b), "cannot be handled as a Simple") {
@@ -3574,6 +3647,7 @@ func TestUpdateChecksDecode(t *testing.T) {
 }
 
 func TestCreate(t *testing.T) {
+	ctx := t.Context()
 	storage := SimpleRESTStorage{
 		injectedFunction: func(obj runtime.Object) (runtime.Object, error) {
 			time.Sleep(5 * time.Millisecond)
@@ -3592,7 +3666,7 @@ func TestCreate(t *testing.T) {
 	if err != nil {
 		t.Errorf("unexpected error: %v", err)
 	}
-	request, err := http.NewRequest(request.MethodPost, server.URL+"/"+prefix+"/"+testGroupVersion.Group+"/"+testGroupVersion.Version+"/namespaces/default/foo", bytes.NewBuffer(data))
+	request, err := http.NewRequestWithContext(ctx, request.MethodPost, server.URL+"/"+prefix+"/"+testGroupVersion.Group+"/"+testGroupVersion.Version+"/namespaces/default/foo", bytes.NewBuffer(data))
 	if err != nil {
 		t.Errorf("unexpected error: %v", err)
 	}
@@ -3628,6 +3702,7 @@ func TestCreate(t *testing.T) {
 }
 
 func TestCreateYAML(t *testing.T) {
+	ctx := t.Context()
 	storage := SimpleRESTStorage{
 		injectedFunction: func(obj runtime.Object) (runtime.Object, error) {
 			time.Sleep(5 * time.Millisecond)
@@ -3654,7 +3729,7 @@ func TestCreateYAML(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	request, err := http.NewRequest(request.MethodPost, server.URL+"/"+prefix+"/"+testGroupVersion.Group+"/"+testGroupVersion.Version+"/namespaces/default/foo", bytes.NewBuffer(data))
+	request, err := http.NewRequestWithContext(ctx, request.MethodPost, server.URL+"/"+prefix+"/"+testGroupVersion.Group+"/"+testGroupVersion.Version+"/namespaces/default/foo", bytes.NewBuffer(data))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -3692,6 +3767,7 @@ func TestCreateYAML(t *testing.T) {
 }
 
 func TestCreateInNamespace(t *testing.T) {
+	ctx := t.Context()
 	storage := SimpleRESTStorage{
 		injectedFunction: func(obj runtime.Object) (runtime.Object, error) {
 			time.Sleep(5 * time.Millisecond)
@@ -3710,7 +3786,7 @@ func TestCreateInNamespace(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	request, err := http.NewRequest(request.MethodPost, server.URL+"/"+prefix+"/"+testGroupVersion.Group+"/"+testGroupVersion.Version+"/namespaces/other/foo", bytes.NewBuffer(data))
+	request, err := http.NewRequestWithContext(ctx, request.MethodPost, server.URL+"/"+prefix+"/"+testGroupVersion.Group+"/"+testGroupVersion.Version+"/namespaces/other/foo", bytes.NewBuffer(data))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -3748,6 +3824,7 @@ func TestCreateInNamespace(t *testing.T) {
 func TestCreateInvokeAdmissionControl(t *testing.T) {
 	for _, admit := range []admission.Interface{alwaysMutatingDeny{}, alwaysValidatingDeny{}} {
 		t.Logf("Testing %T", admit)
+		ctx := t.Context()
 
 		storage := SimpleRESTStorage{
 			injectedFunction: func(obj runtime.Object) (runtime.Object, error) {
@@ -3767,7 +3844,7 @@ func TestCreateInvokeAdmissionControl(t *testing.T) {
 		if err != nil {
 			t.Errorf("unexpected error: %v", err)
 		}
-		request, err := http.NewRequest(request.MethodPost, server.URL+"/"+prefix+"/"+testGroupVersion.Group+"/"+testGroupVersion.Version+"/namespaces/other/foo", bytes.NewBuffer(data))
+		request, err := http.NewRequestWithContext(ctx, request.MethodPost, server.URL+"/"+prefix+"/"+testGroupVersion.Group+"/"+testGroupVersion.Version+"/namespaces/other/foo", bytes.NewBuffer(data))
 		if err != nil {
 			t.Errorf("unexpected error: %v", err)
 		}
@@ -3785,8 +3862,9 @@ func TestCreateInvokeAdmissionControl(t *testing.T) {
 
 func expectAPIStatus(t *testing.T, method, url string, data []byte, code int) *metav1.Status {
 	t.Helper()
+	ctx := t.Context()
 	client := http.Client{}
-	request, err := http.NewRequest(method, url, bytes.NewBuffer(data))
+	request, err := http.NewRequestWithContext(ctx, method, url, bytes.NewBuffer(data))
 	if err != nil {
 		t.Fatalf("unexpected error %#v", err)
 		return nil
@@ -3910,6 +3988,7 @@ func TestCreateTimeout(t *testing.T) {
 }
 
 func TestCreateChecksAPIVersion(t *testing.T) {
+	ctx := t.Context()
 	handler := handle(map[string]rest.Storage{"simple": &SimpleRESTStorage{}})
 	server := httptest.NewServer(handler)
 	defer server.Close()
@@ -3921,7 +4000,7 @@ func TestCreateChecksAPIVersion(t *testing.T) {
 	if err != nil {
 		t.Errorf("unexpected error: %v", err)
 	}
-	request, err := http.NewRequest(request.MethodPost, server.URL+"/"+prefix+"/"+testGroupVersion.Group+"/"+testGroupVersion.Version+"/namespaces/default/simple", bytes.NewBuffer(data))
+	request, err := http.NewRequestWithContext(ctx, request.MethodPost, server.URL+"/"+prefix+"/"+testGroupVersion.Group+"/"+testGroupVersion.Version+"/namespaces/default/simple", bytes.NewBuffer(data))
 	if err != nil {
 		t.Errorf("unexpected error: %v", err)
 	}
@@ -3932,7 +4011,7 @@ func TestCreateChecksAPIVersion(t *testing.T) {
 	if response.StatusCode != http.StatusBadRequest {
 		t.Errorf("Unexpected response %#v", response)
 	}
-	b, err := ioutil.ReadAll(response.Body)
+	b, err := io.ReadAll(response.Body)
 	if err != nil {
 		t.Errorf("unexpected error: %v", err)
 	} else if !strings.Contains(string(b), "does not match the expected API version") {
@@ -3941,6 +4020,7 @@ func TestCreateChecksAPIVersion(t *testing.T) {
 }
 
 func TestCreateDefaultsAPIVersion(t *testing.T) {
+	ctx := t.Context()
 	handler := handle(map[string]rest.Storage{"simple": &SimpleRESTStorage{}})
 	server := httptest.NewServer(handler)
 	defer server.Close()
@@ -3962,7 +4042,7 @@ func TestCreateDefaultsAPIVersion(t *testing.T) {
 		t.Errorf("unexpected error: %v", err)
 	}
 
-	request, err := http.NewRequest(request.MethodPost, server.URL+"/"+prefix+"/"+testGroupVersion.Group+"/"+testGroupVersion.Version+"/namespaces/default/simple", bytes.NewBuffer(data))
+	request, err := http.NewRequestWithContext(ctx, request.MethodPost, server.URL+"/"+prefix+"/"+testGroupVersion.Group+"/"+testGroupVersion.Version+"/namespaces/default/simple", bytes.NewBuffer(data))
 	if err != nil {
 		t.Errorf("unexpected error: %v", err)
 	}
@@ -3976,6 +4056,7 @@ func TestCreateDefaultsAPIVersion(t *testing.T) {
 }
 
 func TestUpdateChecksAPIVersion(t *testing.T) {
+	ctx := t.Context()
 	handler := handle(map[string]rest.Storage{"simple": &SimpleRESTStorage{}})
 	server := httptest.NewServer(handler)
 	defer server.Close()
@@ -3986,7 +4067,7 @@ func TestUpdateChecksAPIVersion(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	request, err := http.NewRequest(request.MethodPut, server.URL+"/"+prefix+"/"+testGroupVersion.Group+"/"+testGroupVersion.Version+"/namespaces/default/simple/bar", bytes.NewBuffer(data))
+	request, err := http.NewRequestWithContext(ctx, request.MethodPut, server.URL+"/"+prefix+"/"+testGroupVersion.Group+"/"+testGroupVersion.Version+"/namespaces/default/simple/bar", bytes.NewBuffer(data))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -3997,7 +4078,7 @@ func TestUpdateChecksAPIVersion(t *testing.T) {
 	if response.StatusCode != http.StatusBadRequest {
 		t.Errorf("Unexpected response %#v", response)
 	}
-	b, err := ioutil.ReadAll(response.Body)
+	b, err := io.ReadAll(response.Body)
 	if err != nil {
 		t.Errorf("unexpected error: %v", err)
 	} else if !strings.Contains(string(b), "does not match the expected API version") {
@@ -4008,7 +4089,8 @@ func TestUpdateChecksAPIVersion(t *testing.T) {
 // runRequest is used by TestDryRun since it runs the test twice in a
 // row with a slightly different URL (one has ?dryRun, one doesn't).
 func runRequest(t testing.TB, path, verb string, data []byte, contentType string) *http.Response {
-	request, err := http.NewRequest(verb, path, bytes.NewBuffer(data))
+	ctx := t.Context()
+	request, err := http.NewRequestWithContext(ctx, verb, path, bytes.NewBuffer(data))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -4308,6 +4390,7 @@ func (storage *SimpleXGSubresourceRESTStorage) GetSingularName() string {
 }
 
 func TestXGSubresource(t *testing.T) {
+	ctx := t.Context()
 	container := restful.NewContainer()
 	container.Router(restful.CurlyRouter{})
 	mux := container.ServeMux
@@ -4354,7 +4437,10 @@ func TestXGSubresource(t *testing.T) {
 	server := newTestServer(defaultAPIServer{mux, container})
 	defer server.Close()
 
-	resp, err := http.Get(server.URL + "/" + prefix + "/" + testGroupVersion.Group + "/" + testGroupVersion.Version + "/namespaces/default/simple/" + itemID + "/subsimple")
+	url := server.URL + "/" + prefix + "/" + testGroupVersion.Group + "/" + testGroupVersion.Version + "/namespaces/default/simple/" + itemID + "/subsimple"
+	req, err := http.NewRequestWithContext(ctx, request.MethodGet, url, nil)
+	require.NoError(t, err)
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -4391,7 +4477,7 @@ func TestXGSubresource(t *testing.T) {
 }
 
 func readBodyOrDie(r io.Reader) []byte {
-	body, err := ioutil.ReadAll(r)
+	body, err := io.ReadAll(r)
 	if err != nil {
 		panic(err)
 	}
@@ -4400,6 +4486,7 @@ func readBodyOrDie(r io.Reader) []byte {
 
 // BenchmarkUpdateProtobuf measures the cost of processing an update on the server in proto
 func BenchmarkUpdateProtobuf(b *testing.B) {
+	ctx := b.Context()
 	items := benchmarkItems(b)
 
 	simpleStorage := &SimpleRESTStorage{}
@@ -4421,7 +4508,7 @@ func BenchmarkUpdateProtobuf(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		request, err := http.NewRequest(request.MethodPut, dest.String(), bytes.NewReader(data))
+		request, err := http.NewRequestWithContext(ctx, request.MethodPut, dest.String(), bytes.NewReader(data))
 		if err != nil {
 			b.Fatalf("unexpected error: %v", err)
 		}
@@ -4432,10 +4519,10 @@ func BenchmarkUpdateProtobuf(b *testing.B) {
 			b.Fatalf("unexpected error: %v", err)
 		}
 		if response.StatusCode != http.StatusBadRequest {
-			body, _ := ioutil.ReadAll(response.Body)
+			body, _ := io.ReadAll(response.Body)
 			b.Fatalf("Unexpected response %#v\n%s", response, body)
 		}
-		_, _ = ioutil.ReadAll(response.Body)
+		_, _ = io.ReadAll(response.Body)
 		response.Body.Close()
 	}
 	b.StopTimer()

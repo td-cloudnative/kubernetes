@@ -21,7 +21,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -31,7 +30,9 @@ import (
 	"time"
 
 	"github.com/google/go-cmp/cmp"
+	"github.com/stretchr/testify/require"
 	"golang.org/x/net/websocket"
+
 	apiequality "k8s.io/apimachinery/pkg/api/equality"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
@@ -210,6 +211,7 @@ func TestWatchWebsocketClientClose(t *testing.T) {
 }
 
 func TestWatchClientClose(t *testing.T) {
+	ctx := t.Context()
 	simpleStorage := &SimpleRESTStorage{}
 	_ = rest.Watcher(simpleStorage) // Give compile error if this doesn't work.
 	handler := handle(map[string]rest.Storage{"simples": simpleStorage})
@@ -220,7 +222,7 @@ func TestWatchClientClose(t *testing.T) {
 	dest.Path = "/" + prefix + "/" + testGroupVersion.Group + "/" + testGroupVersion.Version + "/simples"
 	dest.RawQuery = "watch=1"
 
-	request, err := http.NewRequest(request.MethodGet, dest.String(), nil)
+	request, err := http.NewRequestWithContext(ctx, request.MethodGet, dest.String(), nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -232,7 +234,7 @@ func TestWatchClientClose(t *testing.T) {
 	}
 
 	if response.StatusCode != http.StatusOK {
-		b, _ := ioutil.ReadAll(response.Body)
+		b, _ := io.ReadAll(response.Body)
 		t.Fatalf("Unexpected response: %#v\n%s", response, string(b))
 	}
 
@@ -252,6 +254,7 @@ func TestWatchClientClose(t *testing.T) {
 }
 
 func TestWatchRead(t *testing.T) {
+	ctx := t.Context()
 	simpleStorage := &SimpleRESTStorage{}
 	_ = rest.Watcher(simpleStorage) // Give compile error if this doesn't work.
 	handler := handle(map[string]rest.Storage{"simples": simpleStorage})
@@ -264,7 +267,7 @@ func TestWatchRead(t *testing.T) {
 
 	connectHTTP := func(accept string) (io.ReadCloser, string) {
 		client := http.Client{}
-		request, err := http.NewRequest(request.MethodGet, dest.String(), nil)
+		request, err := http.NewRequestWithContext(ctx, request.MethodGet, dest.String(), nil)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -276,7 +279,7 @@ func TestWatchRead(t *testing.T) {
 		}
 
 		if response.StatusCode != http.StatusOK {
-			b, _ := ioutil.ReadAll(response.Body)
+			b, _ := io.ReadAll(response.Body)
 			t.Fatalf("Unexpected response for accept: %q: %#v\n%s", accept, response, string(b))
 		}
 		return response.Body, response.Header.Get("Content-Type")
@@ -406,6 +409,7 @@ func TestWatchRead(t *testing.T) {
 }
 
 func TestWatchHTTPAccept(t *testing.T) {
+	ctx := t.Context()
 	simpleStorage := &SimpleRESTStorage{}
 	handler := handle(map[string]rest.Storage{"simples": simpleStorage})
 	server := httptest.NewServer(handler)
@@ -416,7 +420,7 @@ func TestWatchHTTPAccept(t *testing.T) {
 	dest.Path = "/" + prefix + "/" + testGroupVersion.Group + "/" + testGroupVersion.Version + "/watch/simples"
 	dest.RawQuery = ""
 
-	request, err := http.NewRequest(request.MethodGet, dest.String(), nil)
+	request, err := http.NewRequestWithContext(ctx, request.MethodGet, dest.String(), nil)
 	if err != nil {
 		t.Errorf("unexpected error: %v", err)
 	}
@@ -516,13 +520,17 @@ func TestWatchParamParsing(t *testing.T) {
 	}
 
 	for _, item := range table {
+		ctx := t.Context()
 		simpleStorage.requestedLabelSelector = labels.Everything()
 		simpleStorage.requestedFieldSelector = fields.Everything()
 		simpleStorage.requestedResourceVersion = "5" // Prove this is set in all cases
 		simpleStorage.requestedResourceNamespace = ""
 		dest.Path = item.path
 		dest.RawQuery = item.rawQuery
-		resp, err := http.Get(dest.String())
+
+		req, err := http.NewRequestWithContext(ctx, request.MethodGet, dest.String(), nil)
+		require.NoError(t, err)
+		resp, err := http.DefaultClient.Do(req)
 		if err != nil {
 			t.Errorf("%v: unexpected error: %v", item.rawQuery, err)
 			continue
@@ -566,7 +574,8 @@ func TestWatchProtocolSelection(t *testing.T) {
 	}
 
 	for _, item := range table {
-		request, err := http.NewRequest(request.MethodGet, dest.String(), nil)
+		ctx := t.Context()
+		request, err := http.NewRequestWithContext(ctx, request.MethodGet, dest.String(), nil)
 		if err != nil {
 			t.Errorf("unexpected error: %v", err)
 		}
@@ -628,6 +637,7 @@ func toObjectSlice(in []example.Pod) []runtime.Object {
 }
 
 func runWatchHTTPBenchmark(b *testing.B, items []runtime.Object, contentType string) {
+	ctx := b.Context()
 	simpleStorage := &SimpleRESTStorage{}
 	handler := handle(map[string]rest.Storage{"simples": simpleStorage})
 	server := httptest.NewServer(handler)
@@ -638,7 +648,7 @@ func runWatchHTTPBenchmark(b *testing.B, items []runtime.Object, contentType str
 	dest.Path = "/" + prefix + "/" + newGroupVersion.Group + "/" + newGroupVersion.Version + "/watch/simples"
 	dest.RawQuery = ""
 
-	req, err := http.NewRequest(request.MethodGet, dest.String(), nil)
+	req, err := http.NewRequestWithContext(ctx, request.MethodGet, dest.String(), nil)
 	if err != nil {
 		b.Fatalf("unexpected error: %v", err)
 	}
@@ -656,7 +666,7 @@ func runWatchHTTPBenchmark(b *testing.B, items []runtime.Object, contentType str
 	wg.Add(1)
 	go func() {
 		defer response.Body.Close()
-		if _, err := io.Copy(ioutil.Discard, response.Body); err != nil {
+		if _, err := io.Copy(io.Discard, response.Body); err != nil {
 			b.Error(err)
 		}
 		wg.Done()
@@ -696,7 +706,7 @@ func BenchmarkWatchWebsocket(b *testing.B) {
 	wg.Add(1)
 	go func() {
 		defer ws.Close()
-		if _, err := io.Copy(ioutil.Discard, ws); err != nil {
+		if _, err := io.Copy(io.Discard, ws); err != nil {
 			b.Error(err)
 		}
 		wg.Done()
