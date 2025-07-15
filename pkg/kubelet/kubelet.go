@@ -391,17 +391,11 @@ func PreInitRuntimeService(kubeCfg *kubeletconfiginternal.KubeletConfiguration, 
 		remoteImageEndpoint = kubeCfg.ContainerRuntimeEndpoint
 	}
 	var err error
-
-	var tp trace.TracerProvider
-	if utilfeature.DefaultFeatureGate.Enabled(features.KubeletTracing) {
-		tp = kubeDeps.TracerProvider
-	}
-
 	logger := klog.Background()
-	if kubeDeps.RemoteRuntimeService, err = remote.NewRemoteRuntimeService(kubeCfg.ContainerRuntimeEndpoint, kubeCfg.RuntimeRequestTimeout.Duration, tp, &logger); err != nil {
+	if kubeDeps.RemoteRuntimeService, err = remote.NewRemoteRuntimeService(kubeCfg.ContainerRuntimeEndpoint, kubeCfg.RuntimeRequestTimeout.Duration, kubeDeps.TracerProvider, &logger); err != nil {
 		return err
 	}
-	if kubeDeps.RemoteImageService, err = remote.NewRemoteImageService(remoteImageEndpoint, kubeCfg.RuntimeRequestTimeout.Duration, tp, &logger); err != nil {
+	if kubeDeps.RemoteImageService, err = remote.NewRemoteImageService(remoteImageEndpoint, kubeCfg.RuntimeRequestTimeout.Duration, kubeDeps.TracerProvider, &logger); err != nil {
 		return err
 	}
 
@@ -2892,6 +2886,22 @@ func (kl *Kubelet) ListenAndServeReadOnly(address net.IP, port uint, tp trace.Tr
 	server.ListenAndServeKubeletReadOnlyServer(kl, kl.resourceAnalyzer, kl.containerManager.GetHealthCheckers(), kl.flagz, address, port, tp)
 }
 
+type kubeletPodsProvider struct {
+	kl *Kubelet
+}
+
+func (pp *kubeletPodsProvider) GetActivePods() []*v1.Pod {
+	return pp.kl.GetActivePods()
+}
+
+func (pp *kubeletPodsProvider) GetPods() []*v1.Pod {
+	return pp.kl.podManager.GetPods()
+}
+
+func (pp *kubeletPodsProvider) GetPodByName(namespace, name string) (*v1.Pod, bool) {
+	return pp.kl.podManager.GetPodByName(namespace, name)
+}
+
 // ListenAndServePodResources runs the kubelet podresources grpc service
 func (kl *Kubelet) ListenAndServePodResources() {
 	endpoint, err := util.LocalEndpoint(kl.getPodResourcesDir(), podresources.Socket)
@@ -2901,7 +2911,7 @@ func (kl *Kubelet) ListenAndServePodResources() {
 	}
 
 	providers := podresources.PodResourcesProviders{
-		Pods:             kl.podManager,
+		Pods:             &kubeletPodsProvider{kl: kl},
 		Devices:          kl.containerManager,
 		Cpus:             kl.containerManager,
 		Memory:           kl.containerManager,
