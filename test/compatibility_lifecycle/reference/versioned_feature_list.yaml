@@ -629,6 +629,12 @@
     lockToDefault: false
     preRelease: Alpha
     version: "1.32"
+- name: InPlacePodVerticalScalingExclusiveMemory
+  versionedSpecs:
+  - default: false
+    lockToDefault: false
+    preRelease: Alpha
+    version: "1.34"
 - name: InTreePluginPortworxUnregister
   versionedSpecs:
   - default: false
@@ -807,16 +813,6 @@
     lockToDefault: true
     preRelease: GA
     version: "1.34"
-- name: LegacySidecarContainers
-  versionedSpecs:
-  - default: true
-    lockToDefault: false
-    preRelease: GA
-    version: "1.0"
-  - default: false
-    lockToDefault: false
-    preRelease: Deprecated
-    version: "1.33"
 - name: ListFromCacheSnapshot
   versionedSpecs:
   - default: false
@@ -1095,6 +1091,10 @@
     lockToDefault: false
     preRelease: Beta
     version: "1.30"
+  - default: true
+    lockToDefault: true
+    preRelease: GA
+    version: "1.34"
 - name: PodLifecycleSleepActionAllowZero
   versionedSpecs:
   - default: false
@@ -1105,6 +1105,10 @@
     lockToDefault: false
     preRelease: Beta
     version: "1.33"
+  - default: true
+    lockToDefault: true
+    preRelease: GA
+    version: "1.34"
 - name: PodLogsQuerySplitStreams
   versionedSpecs:
   - default: false

@@ -41,6 +41,8 @@ import (
 	"k8s.io/kubernetes/pkg/features"
 	"k8s.io/kubernetes/pkg/kubelet/allocation/state"
 	"k8s.io/kubernetes/pkg/kubelet/cm"
+	"k8s.io/kubernetes/pkg/kubelet/cm/cpumanager"
+	"k8s.io/kubernetes/pkg/kubelet/cm/memorymanager"
 	"k8s.io/kubernetes/pkg/kubelet/config"
 	kubecontainer "k8s.io/kubernetes/pkg/kubelet/container"
 	"k8s.io/kubernetes/pkg/kubelet/events"
@@ -115,6 +117,9 @@ type Manager interface {
 
 	// PushPendingResize queues a pod with a pending resize request for later reevaluation.
 	PushPendingResize(uid types.UID)
+
+	// HasPendingResizes returns whether there are currently any pending resizes.
+	HasPendingResizes() bool
 
 	// RetryPendingResizes retries all pending resizes.
 	RetryPendingResizes(trigger string)
@@ -449,6 +454,13 @@ func (m *manager) isResizeIncreasingRequests(pod *v1.Pod) bool {
 		newRequest.Cpu().Cmp(*oldRequest.Cpu()) > 0
 }
 
+func (m *manager) HasPendingResizes() bool {
+	m.allocationMutex.Lock()
+	defer m.allocationMutex.Unlock()
+
+	return len(m.podsWithPendingResizes) > 0
+}
+
 // GetContainerResourceAllocation returns the last checkpointed AllocatedResources values
 // If checkpoint manager has not been initialized, it returns nil, false
 func (m *manager) GetContainerResourceAllocation(podUID types.UID, containerName string) (v1.ResourceRequirements, bool) {
@@ -702,20 +714,23 @@ func (m *manager) canAdmitPod(allocatedPods []*v1.Pod, pod *v1.Pod) (bool, strin
 func (m *manager) canResizePod(allocatedPods []*v1.Pod, pod *v1.Pod) (bool, string, string) {
 	// TODO: Move this logic into a PodAdmitHandler by introducing an operation field to
 	// lifecycle.PodAdmitAttributes, and combine canResizePod with canAdmitPod.
-	if v1qos.GetPodQOS(pod) == v1.PodQOSGuaranteed && !utilfeature.DefaultFeatureGate.Enabled(features.InPlacePodVerticalScalingExclusiveCPUs) {
-		if m.containerManager.GetNodeConfig().CPUManagerPolicy == "static" {
-			msg := "Resize is infeasible for Guaranteed Pods alongside CPU Manager static policy"
+	if v1qos.GetPodQOS(pod) == v1.PodQOSGuaranteed {
+		if !utilfeature.DefaultFeatureGate.Enabled(features.InPlacePodVerticalScalingExclusiveCPUs) &&
+			m.containerManager.GetNodeConfig().CPUManagerPolicy == string(cpumanager.PolicyStatic) &&
+			m.guaranteedPodResourceResizeRequired(pod, v1.ResourceCPU) {
+			msg := fmt.Sprintf("Resize is infeasible for Guaranteed Pods alongside CPU Manager policy \"%s\"", string(cpumanager.PolicyStatic))
 			klog.V(3).InfoS(msg, "pod", format.Pod(pod))
 			metrics.PodInfeasibleResizes.WithLabelValues("guaranteed_pod_cpu_manager_static_policy").Inc()
 			return false, v1.PodReasonInfeasible, msg
 		}
-		if utilfeature.DefaultFeatureGate.Enabled(features.MemoryManager) {
-			if m.containerManager.GetNodeConfig().MemoryManagerPolicy == "Static" {
-				msg := "Resize is infeasible for Guaranteed Pods alongside Memory Manager static policy"
-				klog.V(3).InfoS(msg, "pod", format.Pod(pod))
-				metrics.PodInfeasibleResizes.WithLabelValues("guaranteed_pod_memory_manager_static_policy").Inc()
-				return false, v1.PodReasonInfeasible, msg
-			}
+		if utilfeature.DefaultFeatureGate.Enabled(features.MemoryManager) &&
+			!utilfeature.DefaultFeatureGate.Enabled(features.InPlacePodVerticalScalingExclusiveMemory) &&
+			m.containerManager.GetNodeConfig().MemoryManagerPolicy == string(memorymanager.PolicyTypeStatic) &&
+			m.guaranteedPodResourceResizeRequired(pod, v1.ResourceMemory) {
+			msg := fmt.Sprintf("Resize is infeasible for Guaranteed Pods alongside Memory Manager policy \"%s\"", string(memorymanager.PolicyTypeStatic))
+			klog.V(3).InfoS(msg, "pod", format.Pod(pod))
+			metrics.PodInfeasibleResizes.WithLabelValues("guaranteed_pod_memory_manager_static_policy").Inc()
+			return false, v1.PodReasonInfeasible, msg
 		}
 	}
 
@@ -735,18 +750,6 @@ func (m *manager) canResizePod(allocatedPods []*v1.Pod, pod *v1.Pod) (bool, stri
 		klog.V(3).InfoS(msg, "pod", klog.KObj(pod))
 		metrics.PodInfeasibleResizes.WithLabelValues("insufficient_node_allocatable").Inc()
 		return false, v1.PodReasonInfeasible, msg
-	}
-
-	for i := range allocatedPods {
-		for j, c := range allocatedPods[i].Status.ContainerStatuses {
-			actuatedResources, exists := m.GetActuatedResources(allocatedPods[i].UID, c.Name)
-			if exists {
-				// Overwrite the actual resources in the status with the actuated resources.
-				// This lets us reuse the existing scheduler libraries without having to wait
-				// for the actual resources in the status to be updated.
-				allocatedPods[i].Status.ContainerStatuses[j].Resources = &actuatedResources
-			}
-		}
 	}
 
 	if ok, failReason, failMessage := m.canAdmitPod(allocatedPods, pod); !ok {
@@ -770,8 +773,6 @@ func (m *manager) CheckPodResizeInProgress(allocatedPod *v1.Pod, podStatus *kube
 		if m.recorder != nil {
 			m.recorder.Eventf(allocatedPod, v1.EventTypeNormal, events.ResizeCompleted, podResizeCompletedEventMsg)
 		}
-		// TODO(natasha41575): We only need to make this call if any of the resources were decreased.
-		m.RetryPendingResizes(TriggerReasonPodResized)
 	}
 }
 
@@ -801,6 +802,21 @@ func (m *manager) isPodResizeInProgress(allocatedPod *v1.Pod, podStatus *kubecon
 				allocatedResources.Requests[v1.ResourceMemory].Equal(actuatedResources.Requests[v1.ResourceMemory]) &&
 				allocatedResources.Limits[v1.ResourceMemory].Equal(actuatedResources.Limits[v1.ResourceMemory])
 		})
+}
+
+func (m *manager) guaranteedPodResourceResizeRequired(pod *v1.Pod, resourceName v1.ResourceName) bool {
+	for container, containerType := range podutil.ContainerIter(&pod.Spec, podutil.InitContainers|podutil.Containers) {
+		if !IsResizableContainer(container, containerType) {
+			continue
+		}
+		requestedResources := container.Resources
+		allocatedresources, _ := m.GetContainerResourceAllocation(pod.UID, container.Name)
+		// For Guaranteed pods, requests must equal limits, so checking requests is sufficient.
+		if !requestedResources.Requests[resourceName].Equal(allocatedresources.Requests[resourceName]) {
+			return true
+		}
+	}
+	return false
 }
 
 func (m *manager) getAllocatedPods(activePods []*v1.Pod) []*v1.Pod {
