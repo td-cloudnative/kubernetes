@@ -136,6 +136,13 @@ const (
 	// Enables container Checkpoint support in the kubelet
 	ContainerCheckpoint featuregate.Feature = "ContainerCheckpoint"
 
+	// onwer: @yuanwang04
+	// kep: https://kep.k8s.io/5307
+	//
+	// Supports container restart policy and container restart policy rules to override the pod restart policy.
+	// Enable a single container to restart even if the pod has restart policy "Never".
+	ContainerRestartRules featuregate.Feature = "ContainerRestartRules"
+
 	// owner: @sreeram-venkitesh
 	//
 	// Enables configuring custom stop signals for containers from container lifecycle
@@ -159,16 +166,13 @@ const (
 	// Enable usage of Provision of PVCs from snapshots in other namespaces
 	CrossNamespaceVolumeDataSource featuregate.Feature = "CrossNamespaceVolumeDataSource"
 
-	// owner: @pohly
-	// kep: http://kep.k8s.io/4381
+	// owner: @ritazh
+	// kep: http://kep.k8s.io/5018
 	//
 	// Enables support for requesting admin access in a ResourceClaim.
 	// Admin access is granted even if a device is already in use and,
 	// depending on the DRA driver, may enable additional permissions
 	// when a container uses the allocated device.
-	//
-	// This feature gate is currently defined in KEP #4381. The intent
-	// is to move it into a separate KEP.
 	DRAAdminAccess featuregate.Feature = "DRAAdminAccess"
 
 	// owner: @pohly
@@ -716,6 +720,12 @@ const (
 	// Denies pod admission if static pods reference other API objects.
 	PreventStaticPodAPIReferences featuregate.Feature = "PreventStaticPodAPIReferences"
 
+	// owner: @tssurya
+	// kep: https://kep.k8s.io/4559
+	//
+	// Enables probe host enforcement for Pod Security Standards.
+	ProbeHostPodSecurityStandards featuregate.Feature = "ProbeHostPodSecurityStandards"
+
 	// owner: @jessfraz
 	//
 	// Enables control over ProcMountType for containers.
@@ -1134,6 +1144,10 @@ var defaultVersionedKubernetesFeatureGates = map[featuregate.Feature]featuregate
 		{Version: version.MustParse("1.30"), Default: true, PreRelease: featuregate.Beta},
 	},
 
+	ContainerRestartRules: {
+		{Version: version.MustParse("1.34"), Default: false, PreRelease: featuregate.Alpha},
+	},
+
 	ContainerStopSignals: {
 		{Version: version.MustParse("1.33"), Default: false, PreRelease: featuregate.Alpha},
 	},
@@ -1149,6 +1163,7 @@ var defaultVersionedKubernetesFeatureGates = map[featuregate.Feature]featuregate
 
 	DRAAdminAccess: {
 		{Version: version.MustParse("1.32"), Default: false, PreRelease: featuregate.Alpha},
+		{Version: version.MustParse("1.34"), Default: true, PreRelease: featuregate.Beta},
 	},
 
 	DRADeviceTaints: {
@@ -1161,6 +1176,7 @@ var defaultVersionedKubernetesFeatureGates = map[featuregate.Feature]featuregate
 
 	DRAPrioritizedList: {
 		{Version: version.MustParse("1.33"), Default: false, PreRelease: featuregate.Alpha},
+		{Version: version.MustParse("1.34"), Default: true, PreRelease: featuregate.Beta},
 	},
 
 	DRAResourceClaimDeviceStatus: {
@@ -1203,6 +1219,7 @@ var defaultVersionedKubernetesFeatureGates = map[featuregate.Feature]featuregate
 	DynamicResourceAllocation: {
 		{Version: version.MustParse("1.26"), Default: false, PreRelease: featuregate.Alpha},
 		{Version: version.MustParse("1.32"), Default: false, PreRelease: featuregate.Beta},
+		{Version: version.MustParse("1.34"), Default: true, PreRelease: featuregate.GA}, // lock to default in 1.35
 	},
 	EnvFiles: {
 		{Version: version.MustParse("1.34"), Default: false, PreRelease: featuregate.Alpha},
@@ -1311,6 +1328,7 @@ var defaultVersionedKubernetesFeatureGates = map[featuregate.Feature]featuregate
 	KubeletCgroupDriverFromCRI: {
 		{Version: version.MustParse("1.28"), Default: false, PreRelease: featuregate.Alpha},
 		{Version: version.MustParse("1.31"), Default: true, PreRelease: featuregate.Beta},
+		{Version: version.MustParse("1.34"), Default: true, PreRelease: featuregate.GA, LockToDefault: true}, // remove in 1.37
 	},
 
 	KubeletCrashLoopBackOffMax: {
@@ -1336,10 +1354,12 @@ var defaultVersionedKubernetesFeatureGates = map[featuregate.Feature]featuregate
 
 	KubeletPodResourcesDynamicResources: {
 		{Version: version.MustParse("1.27"), Default: false, PreRelease: featuregate.Alpha},
+		{Version: version.MustParse("1.34"), Default: true, PreRelease: featuregate.Beta},
 	},
 
 	KubeletPodResourcesGet: {
 		{Version: version.MustParse("1.27"), Default: false, PreRelease: featuregate.Alpha},
+		{Version: version.MustParse("1.34"), Default: true, PreRelease: featuregate.Beta},
 	},
 
 	KubeletPodResourcesListUseActivePods: {
@@ -1530,6 +1550,11 @@ var defaultVersionedKubernetesFeatureGates = map[featuregate.Feature]featuregate
 
 	PreventStaticPodAPIReferences: {
 		{Version: version.MustParse("1.34"), Default: true, PreRelease: featuregate.Beta},
+	},
+
+	// Policy is GA in first release, this gate only exists to disable the enforcement when emulating older minors
+	ProbeHostPodSecurityStandards: {
+		{Version: version.MustParse("1.34"), Default: true, PreRelease: featuregate.GA, LockToDefault: true},
 	},
 
 	ProcMountType: {
@@ -1764,6 +1789,7 @@ var defaultVersionedKubernetesFeatureGates = map[featuregate.Feature]featuregate
 	VolumeAttributesClass: {
 		{Version: version.MustParse("1.29"), Default: false, PreRelease: featuregate.Alpha},
 		{Version: version.MustParse("1.31"), Default: false, PreRelease: featuregate.Beta},
+		{Version: version.MustParse("1.34"), Default: true, PreRelease: featuregate.GA},
 	},
 
 	WinDSR: {
@@ -1784,6 +1810,7 @@ var defaultVersionedKubernetesFeatureGates = map[featuregate.Feature]featuregate
 
 	WindowsGracefulNodeShutdown: {
 		{Version: version.MustParse("1.32"), Default: false, PreRelease: featuregate.Alpha},
+		{Version: version.MustParse("1.34"), Default: true, PreRelease: featuregate.Beta},
 	},
 
 	WindowsHostNetwork: {
