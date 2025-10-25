@@ -56,12 +56,6 @@ const (
 	// Allow spec.terminationGracePeriodSeconds to be overridden by MaxPodGracePeriodSeconds in soft evictions.
 	AllowOverwriteTerminationGracePeriodSeconds featuregate.Feature = "AllowOverwriteTerminationGracePeriodSeconds"
 
-	// owner: @thockin
-	//
-	// Enables Service.status.ingress.loadBanace to be set on
-	// services of types other than LoadBalancer.
-	AllowServiceLBStatusOnNonLB featuregate.Feature = "AllowServiceLBStatusOnNonLB"
-
 	// owner: @bswartz
 	//
 	// Enables usage of any object for volume data source in PVCs
@@ -121,6 +115,13 @@ const (
 	//
 	// Enables the Portworx in-tree driver to Portworx migration feature.
 	CSIMigrationPortworx featuregate.Feature = "CSIMigrationPortworx"
+
+	// owner: @aramase
+	// kep:  http://kep.k8s.io/5538
+	//
+	// Enables CSI drivers to opt-in for receiving service account tokens from kubelet
+	// through the dedicated secrets field in NodePublishVolumeRequest instead of the volume_context field.
+	CSIServiceAccountTokenSecrets featuregate.Feature = "CSIServiceAccountTokenSecrets"
 
 	// owner: @fengzixu
 	//
@@ -523,11 +524,6 @@ const (
 	//
 	// Add support for distributed tracing in the kubelet
 	KubeletTracing featuregate.Feature = "KubeletTracing"
-
-	// owner: @Sh4d1,@RyanAoh,@rikatz
-	// kep: http://kep.k8s.io/1860
-	// LoadBalancerIPMode enables the IPMode field in the LoadBalancerIngress status of a Service
-	LoadBalancerIPMode featuregate.Feature = "LoadBalancerIPMode"
 
 	// owner: @RobertKrawitz
 	//
@@ -1067,12 +1063,6 @@ var defaultVersionedKubernetesFeatureGates = map[featuregate.Feature]featuregate
 		{Version: version.MustParse("1.35"), Default: false, PreRelease: featuregate.Deprecated, LockToDefault: true}, // remove in 1.38
 	},
 
-	AllowServiceLBStatusOnNonLB: {
-		{Version: version.MustParse("1.0"), Default: true, PreRelease: featuregate.GA},
-		{Version: version.MustParse("1.29"), Default: false, PreRelease: featuregate.Deprecated},
-		{Version: version.MustParse("1.32"), Default: false, PreRelease: featuregate.Deprecated, LockToDefault: true}, // remove in 1.35
-	},
-
 	AnyVolumeDataSource: {
 		{Version: version.MustParse("1.18"), Default: false, PreRelease: featuregate.Alpha},
 		{Version: version.MustParse("1.24"), Default: true, PreRelease: featuregate.Beta},
@@ -1112,6 +1102,10 @@ var defaultVersionedKubernetesFeatureGates = map[featuregate.Feature]featuregate
 		{Version: version.MustParse("1.25"), Default: false, PreRelease: featuregate.Beta},
 		{Version: version.MustParse("1.31"), Default: true, PreRelease: featuregate.Beta},                    // On by default (requires Portworx CSI driver)
 		{Version: version.MustParse("1.33"), Default: true, PreRelease: featuregate.GA, LockToDefault: true}, // remove in 1.36
+	},
+
+	CSIServiceAccountTokenSecrets: {
+		{Version: version.MustParse("1.35"), Default: true, PreRelease: featuregate.Beta},
 	},
 
 	CSIVolumeHealth: {
@@ -1384,12 +1378,6 @@ var defaultVersionedKubernetesFeatureGates = map[featuregate.Feature]featuregate
 		{Version: version.MustParse("1.25"), Default: false, PreRelease: featuregate.Alpha},
 		{Version: version.MustParse("1.27"), Default: true, PreRelease: featuregate.Beta},
 		{Version: version.MustParse("1.34"), Default: true, PreRelease: featuregate.GA, LockToDefault: true}, // remove in 1.37
-	},
-
-	LoadBalancerIPMode: {
-		{Version: version.MustParse("1.29"), Default: false, PreRelease: featuregate.Alpha},
-		{Version: version.MustParse("1.30"), Default: true, PreRelease: featuregate.Beta},
-		{Version: version.MustParse("1.32"), Default: true, PreRelease: featuregate.GA, LockToDefault: true},
 	},
 
 	LocalStorageCapacityIsolationFSQuotaMonitoring: {
@@ -2023,8 +2011,6 @@ var defaultKubernetesFeatureGateDependencies = map[featuregate.Feature][]feature
 
 	AllowOverwriteTerminationGracePeriodSeconds: {},
 
-	AllowServiceLBStatusOnNonLB: {},
-
 	AnyVolumeDataSource: {},
 
 	AuthorizeNodeWithSelectors: {genericfeatures.AuthorizeWithSelectors},
@@ -2040,6 +2026,8 @@ var defaultKubernetesFeatureGateDependencies = map[featuregate.Feature][]feature
 	CPUManagerPolicyOptions: {},
 
 	CSIMigrationPortworx: {},
+
+	CSIServiceAccountTokenSecrets: {},
 
 	CSIVolumeHealth: {},
 
@@ -2156,8 +2144,6 @@ var defaultKubernetesFeatureGateDependencies = map[featuregate.Feature][]feature
 	KubeletServiceAccountTokenForCredentialProviders: {},
 
 	KubeletTracing: {},
-
-	LoadBalancerIPMode: {},
 
 	LocalStorageCapacityIsolationFSQuotaMonitoring: {},
 
