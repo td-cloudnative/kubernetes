@@ -88,6 +88,7 @@ const (
 	claim1      = "claim-1"
 	slice1      = "slice-1"
 	slice2      = "slice-2"
+	device0     = "device-0"
 	device1     = "device-1"
 	device2     = "device-2"
 	device3     = "device-3"
@@ -2040,12 +2041,51 @@ func TestAllocator(t *testing.T,
 			node:             node(node1, region1),
 
 			expectResults: []any{
-				allocationResultWithConfig(
+				allocationResultWithConfigs(
 					localNodeSelector(node1),
-					driverA,
-					resourceapi.AllocationConfigSourceClass,
-					"classAttribute",
-					deviceAllocationResult(req0, driverA, pool1, device1, false),
+					objects(deviceAllocationResult(req0, driverA, pool1, device1, false)),
+					[]resourceapi.DeviceAllocationConfiguration{
+						{
+							Source:              resourceapi.AllocationConfigSourceClass,
+							Requests:            []string{req0},
+							DeviceConfiguration: deviceConfiguration(driverA, "classAttribute"),
+						},
+					},
+				),
+			},
+		},
+		"with-class-device-config-with-multiple-request-and-configs": {
+			claimsToAllocate: objects(claimWithRequests(claim0, []resourceapi.DeviceConstraint{}, request(req0, classA, 1), request(req1, classA, 1), request(req2, classB, 1))),
+			classes: objects(
+				classWithConfig(classA, driverA, "classAttribute-A"),
+				classWithConfig(classB, driverB, "classAttribute-B"),
+			),
+			slices: unwrap(
+				sliceWithMultipleDevices(slice1, node1, pool1, driverA, 2),
+				sliceWithOneDevice(slice2, node1, pool1, driverB),
+			),
+			node: node(node1, region1),
+
+			expectResults: []any{
+				allocationResultWithConfigs(
+					localNodeSelector(node1),
+					objects(
+						deviceAllocationResult(req0, driverA, pool1, device0, false),
+						deviceAllocationResult(req1, driverA, pool1, device1, false),
+						deviceAllocationResult(req2, driverB, pool1, device1, false),
+					),
+					[]resourceapi.DeviceAllocationConfiguration{
+						{
+							Source:              resourceapi.AllocationConfigSourceClass,
+							Requests:            []string{req0, req1},
+							DeviceConfiguration: deviceConfiguration(driverA, "classAttribute-A"),
+						},
+						{
+							Source:              resourceapi.AllocationConfigSourceClass,
+							Requests:            []string{req2},
+							DeviceConfiguration: deviceConfiguration(driverB, "classAttribute-B"),
+						},
+					},
 				),
 			},
 		},
@@ -2300,7 +2340,7 @@ func TestAllocator(t *testing.T,
 				[]resourceapi.DeviceAllocationConfiguration{
 					{
 						Source:              resourceapi.AllocationConfigSourceClass,
-						Requests:            nil,
+						Requests:            []string{req0SubReq1},
 						DeviceConfiguration: deviceConfiguration(driverB, "bar"),
 					},
 				},
@@ -5240,6 +5280,7 @@ func TestAllocator(t *testing.T,
 				),
 			},
 		},
+
 		"allocation-mode-all-with-multi-host-resource-pool": {
 			claimsToAllocate: objects(claimWithRequests(claim0, nil, resourceapi.DeviceRequest{
 				Name: req0,
@@ -5261,6 +5302,232 @@ func TestAllocator(t *testing.T,
 					s := slice(slice2, node2, pool1, driverA,
 						device(device2, nil, nil),
 					)
+					s.Spec.Pool.ResourceSliceCount = 2
+					return s
+				}(),
+			),
+			node: node(node1, region1),
+
+			expectResults: []any{
+				allocationResult(
+					localNodeSelector(node1),
+					deviceAllocationResult(req0, driverA, pool1, device1, false),
+				),
+			},
+		},
+
+		"multi-host-resource-pool-with-stale-slice-for-current-node": {
+			claimsToAllocate: objects(claimWithRequest(claim0, req0, classA)),
+			classes:          objects(class(classA, driverA)),
+			slices: unwrap(
+				func() wrapResourceSlice {
+					s := slice(slice1, node1, pool1, driverA,
+						device(device1, nil, nil),
+					)
+					s.Spec.Pool.Generation = 1
+					s.Spec.Pool.ResourceSliceCount = 2
+					return s
+				}(),
+				func() wrapResourceSlice {
+					s := slice(slice2, node2, pool1, driverA,
+						device(device2, nil, nil),
+					)
+					s.Spec.Pool.Generation = 2
+					s.Spec.Pool.ResourceSliceCount = 2
+					return s
+				}(),
+			),
+			node: node(node1, region1),
+		},
+
+		// update-from-node-1-to-node-2 and vice-versa is dangerous,
+		// DRA drivers should not do this: there is no guarantee that
+		// the scheduler sees the change and then might allocate a
+		// device for a node where it is no longer available.
+		//
+		// We do not have to support such a change exactly as expected
+		// by these test cases if it makes the implementation too
+		// expensive because of additional checks.
+		//
+		// The support for allocation from incomplete pools is also under
+		// debate. It's currently done because without scoring it makes
+		// no difference how many slices are available, as long as one
+		// device can be found.
+
+		"multi-host-resource-pool-complete-update-from-node-1-to-node-2": {
+			claimsToAllocate: objects(claimWithRequest(claim0, req0, classA)),
+			classes:          objects(class(classA, driverA)),
+			slices: unwrap(
+				// Node 1, generation 1.
+				func() wrapResourceSlice {
+					s := slice(slice1, node1, pool1, driverA,
+						device(device1, nil, nil),
+					)
+					s.Spec.Pool.Generation = 1
+					s.Spec.Pool.ResourceSliceCount = 2
+					return s
+				}(),
+				func() wrapResourceSlice {
+					s := slice(slice1, node1, pool1, driverA,
+						device(device2, nil, nil),
+					)
+					s.Spec.Pool.Generation = 1
+					s.Spec.Pool.ResourceSliceCount = 2
+					return s
+				}(),
+				// Node 2, generation 2.
+				func() wrapResourceSlice {
+					s := slice(slice2, node2, pool1, driverA,
+						device(device1, nil, nil),
+					)
+					s.Spec.Pool.Generation = 2
+					s.Spec.Pool.ResourceSliceCount = 2
+					return s
+				}(),
+				func() wrapResourceSlice {
+					s := slice(slice2, node2, pool1, driverA,
+						device(device2, nil, nil),
+					)
+					s.Spec.Pool.Generation = 2
+					s.Spec.Pool.ResourceSliceCount = 2
+					return s
+				}(),
+			),
+			node: node(node1, region1),
+
+			// We'd like this to *not* be allocated, but the current implementation ignores
+			// the updated slices. Allocating from the old pool is also what would happen
+			// if the scheduler hadn't received the update yet, so DRA drivers shouldn't
+			// depend on better handling of this situation.
+			expectResults: []any{
+				allocationResult(
+					localNodeSelector(node1),
+					deviceAllocationResult(req0, driverA, pool1, device1, false),
+				),
+			},
+		},
+
+		"multi-host-resource-pool-complete-update-from-node-2-to-node-1": {
+			claimsToAllocate: objects(claimWithRequest(claim0, req0, classA)),
+			classes:          objects(class(classA, driverA)),
+			slices: unwrap(
+				// Node 2, generation 1.
+				func() wrapResourceSlice {
+					s := slice(slice1, node2, pool1, driverA,
+						device(device1, nil, nil),
+					)
+					s.Spec.Pool.Generation = 1
+					s.Spec.Pool.ResourceSliceCount = 2
+					return s
+				}(),
+				func() wrapResourceSlice {
+					s := slice(slice1, node2, pool1, driverA,
+						device(device2, nil, nil),
+					)
+					s.Spec.Pool.Generation = 1
+					s.Spec.Pool.ResourceSliceCount = 2
+					return s
+				}(),
+				// Node 1, generation 2.
+				func() wrapResourceSlice {
+					s := slice(slice2, node1, pool1, driverA,
+						device(device1, nil, nil),
+					)
+					s.Spec.Pool.Generation = 2
+					s.Spec.Pool.ResourceSliceCount = 2
+					return s
+				}(),
+				func() wrapResourceSlice {
+					s := slice(slice2, node1, pool1, driverA,
+						device(device2, nil, nil),
+					)
+					s.Spec.Pool.Generation = 2
+					s.Spec.Pool.ResourceSliceCount = 2
+					return s
+				}(),
+			),
+			node: node(node1, region1),
+
+			expectResults: []any{
+				allocationResult(
+					localNodeSelector(node1),
+					deviceAllocationResult(req0, driverA, pool1, device1, false),
+				),
+			},
+		},
+
+		"multi-host-resource-pool-incomplete-update-from-node-1-to-node-2": {
+			claimsToAllocate: objects(claimWithRequest(claim0, req0, classA)),
+			classes:          objects(class(classA, driverA)),
+			slices: unwrap(
+				// Node 1, generation 1.
+				func() wrapResourceSlice {
+					s := slice(slice1, node1, pool1, driverA,
+						device(device1, nil, nil),
+					)
+					s.Spec.Pool.Generation = 1
+					s.Spec.Pool.ResourceSliceCount = 2
+					return s
+				}(),
+				func() wrapResourceSlice {
+					s := slice(slice1, node1, pool1, driverA,
+						device(device2, nil, nil),
+					)
+					s.Spec.Pool.Generation = 1
+					s.Spec.Pool.ResourceSliceCount = 2
+					return s
+				}(),
+				// Node 2, generation 2.
+				func() wrapResourceSlice {
+					s := slice(slice2, node2, pool1, driverA,
+						device(device1, nil, nil),
+					)
+					s.Spec.Pool.Generation = 2
+					s.Spec.Pool.ResourceSliceCount = 2
+					return s
+				}(),
+			),
+			node: node(node1, region1),
+
+			// We'd like this to *not* be allocated, but the current implementation ignores
+			// the updated slices. Allocating from the old pool is also what would happen
+			// if the scheduler hadn't received the update yet, so DRA drivers shouldn't
+			// depend on better handling of this situation.
+			expectResults: []any{
+				allocationResult(
+					localNodeSelector(node1),
+					deviceAllocationResult(req0, driverA, pool1, device1, false),
+				),
+			},
+		},
+
+		"multi-host-resource-pool-incomplete-update-from-node-2-to-node-1": {
+			claimsToAllocate: objects(claimWithRequest(claim0, req0, classA)),
+			classes:          objects(class(classA, driverA)),
+			slices: unwrap(
+				// Node 2, generation 1.
+				func() wrapResourceSlice {
+					s := slice(slice1, node2, pool1, driverA,
+						device(device1, nil, nil),
+					)
+					s.Spec.Pool.Generation = 1
+					s.Spec.Pool.ResourceSliceCount = 2
+					return s
+				}(),
+				func() wrapResourceSlice {
+					s := slice(slice1, node2, pool1, driverA,
+						device(device2, nil, nil),
+					)
+					s.Spec.Pool.Generation = 1
+					s.Spec.Pool.ResourceSliceCount = 2
+					return s
+				}(),
+				// Node 1, generation 2.
+				func() wrapResourceSlice {
+					s := slice(slice2, node1, pool1, driverA,
+						device(device1, nil, nil),
+					)
+					s.Spec.Pool.Generation = 2
 					s.Spec.Pool.ResourceSliceCount = 2
 					return s
 				}(),
