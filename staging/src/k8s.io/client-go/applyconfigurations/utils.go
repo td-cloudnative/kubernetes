@@ -630,12 +630,6 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &applyconfigurationscertificatesv1alpha1.ClusterTrustBundleApplyConfiguration{}
 	case certificatesv1alpha1.SchemeGroupVersion.WithKind("ClusterTrustBundleSpec"):
 		return &applyconfigurationscertificatesv1alpha1.ClusterTrustBundleSpecApplyConfiguration{}
-	case certificatesv1alpha1.SchemeGroupVersion.WithKind("PodCertificateRequest"):
-		return &applyconfigurationscertificatesv1alpha1.PodCertificateRequestApplyConfiguration{}
-	case certificatesv1alpha1.SchemeGroupVersion.WithKind("PodCertificateRequestSpec"):
-		return &applyconfigurationscertificatesv1alpha1.PodCertificateRequestSpecApplyConfiguration{}
-	case certificatesv1alpha1.SchemeGroupVersion.WithKind("PodCertificateRequestStatus"):
-		return &applyconfigurationscertificatesv1alpha1.PodCertificateRequestStatusApplyConfiguration{}
 
 		// Group=certificates.k8s.io, Version=v1beta1
 	case certificatesv1beta1.SchemeGroupVersion.WithKind("CertificateSigningRequest"):
@@ -650,6 +644,12 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &applyconfigurationscertificatesv1beta1.ClusterTrustBundleApplyConfiguration{}
 	case certificatesv1beta1.SchemeGroupVersion.WithKind("ClusterTrustBundleSpec"):
 		return &applyconfigurationscertificatesv1beta1.ClusterTrustBundleSpecApplyConfiguration{}
+	case certificatesv1beta1.SchemeGroupVersion.WithKind("PodCertificateRequest"):
+		return &applyconfigurationscertificatesv1beta1.PodCertificateRequestApplyConfiguration{}
+	case certificatesv1beta1.SchemeGroupVersion.WithKind("PodCertificateRequestSpec"):
+		return &applyconfigurationscertificatesv1beta1.PodCertificateRequestSpecApplyConfiguration{}
+	case certificatesv1beta1.SchemeGroupVersion.WithKind("PodCertificateRequestStatus"):
+		return &applyconfigurationscertificatesv1beta1.PodCertificateRequestStatusApplyConfiguration{}
 
 		// Group=coordination.k8s.io, Version=v1
 	case coordinationv1.SchemeGroupVersion.WithKind("Lease"):
@@ -1710,16 +1710,14 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &applyconfigurationsresourcev1.ResourceSliceSpecApplyConfiguration{}
 
 		// Group=resource.k8s.io, Version=v1alpha3
-	case v1alpha3.SchemeGroupVersion.WithKind("CELDeviceSelector"):
-		return &resourcev1alpha3.CELDeviceSelectorApplyConfiguration{}
-	case v1alpha3.SchemeGroupVersion.WithKind("DeviceSelector"):
-		return &resourcev1alpha3.DeviceSelectorApplyConfiguration{}
 	case v1alpha3.SchemeGroupVersion.WithKind("DeviceTaint"):
 		return &resourcev1alpha3.DeviceTaintApplyConfiguration{}
 	case v1alpha3.SchemeGroupVersion.WithKind("DeviceTaintRule"):
 		return &resourcev1alpha3.DeviceTaintRuleApplyConfiguration{}
 	case v1alpha3.SchemeGroupVersion.WithKind("DeviceTaintRuleSpec"):
 		return &resourcev1alpha3.DeviceTaintRuleSpecApplyConfiguration{}
+	case v1alpha3.SchemeGroupVersion.WithKind("DeviceTaintRuleStatus"):
+		return &resourcev1alpha3.DeviceTaintRuleStatusApplyConfiguration{}
 	case v1alpha3.SchemeGroupVersion.WithKind("DeviceTaintSelector"):
 		return &resourcev1alpha3.DeviceTaintSelectorApplyConfiguration{}
 

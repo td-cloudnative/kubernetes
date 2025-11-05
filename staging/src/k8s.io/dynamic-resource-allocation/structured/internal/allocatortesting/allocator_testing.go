@@ -869,6 +869,11 @@ func TestAllocator(t *testing.T,
 	taintKey := "taint-key"
 	taintValue := "taint-value"
 	taintValue2 := "taint-value-2"
+	taintNone := resourceapi.DeviceTaint{
+		Key:    taintKey,
+		Value:  taintValue,
+		Effect: resourceapi.DeviceTaintEffectNone,
+	}
 	taintNoSchedule := resourceapi.DeviceTaint{
 		Key:    taintKey,
 		Value:  taintValue,
@@ -3565,6 +3570,21 @@ func TestAllocator(t *testing.T,
 				deviceAllocationResult(req0SubReq1, driverA, pool1, device2, false, tolerationNoExecute), // Only second device's taints are tolerated.
 			)},
 		},
+		"tainted-no-effect": {
+			features: Features{
+				DeviceTaints: true,
+			},
+			claimsToAllocate: objects(claimWithRequest(claim0, req0, classA)),
+			classes:          objects(class(classA, driverA)),
+			slices: unwrap(slice(slice1, node1, pool1, driverA,
+				device(device1, nil, nil).withTaints(taintNone),
+			)),
+			node: node(node1, region1),
+			expectResults: []any{allocationResult(
+				localNodeSelector(node1),
+				deviceAllocationResult(req0, driverA, pool1, device1, false),
+			)},
+		},
 		"tainted-one-device-two-taints-both-tolerated": {
 			features: Features{
 				DeviceTaints: true,
@@ -3954,6 +3974,32 @@ func TestAllocator(t *testing.T,
 							deviceRequestAllocationResultWithBindingConditions(req0, driverA, pool1, device1, []string{"IsPrepare"}, []string{"BindingFailed"}),
 							deviceRequestAllocationResultWithBindingConditions(req0, driverA, pool1, device2, []string{"IsPrepare2"}, []string{"BindingFailed2"}),
 							deviceRequestAllocationResultWithBindingConditions(req1, driverA, pool1, device3, []string{"IsPrepare3"}, []string{"BindingFailed3"}),
+						},
+					},
+					NodeSelector: localNodeSelector(node1),
+				},
+			},
+		},
+		"binding-conditions-with-and-without": {
+			features: Features{
+				DeviceBindingAndStatus: true,
+			},
+			claimsToAllocate: objects(
+				claimWithRequests(claim0, nil,
+					request(req0, classA, 1),
+					request(req1, classA, 1))),
+			classes: objects(class(classA, driverA)),
+			slices: unwrap(slice(slice1, node1, pool1, driverA,
+				device(device1, nil, nil),
+				device(device2, nil, nil).withBindingConditions([]string{"IsPrepare"}, []string{"BindingFailed"}),
+			)),
+			node: node(node1, region1),
+			expectResults: []any{
+				resourceapi.AllocationResult{
+					Devices: resourceapi.DeviceAllocationResult{
+						Results: []resourceapi.DeviceRequestAllocationResult{
+							deviceAllocationResult(req0, driverA, pool1, device1, false),
+							deviceRequestAllocationResultWithBindingConditions(req1, driverA, pool1, device2, []string{"IsPrepare"}, []string{"BindingFailed"}),
 						},
 					},
 					NodeSelector: localNodeSelector(node1),
