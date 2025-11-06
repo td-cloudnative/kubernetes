@@ -59,6 +59,7 @@ import (
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/wait"
+	"k8s.io/apiserver/pkg/server/flagz"
 	utilfeature "k8s.io/apiserver/pkg/util/feature"
 	coreinformersv1 "k8s.io/client-go/informers/core/v1"
 	clientset "k8s.io/client-go/kubernetes"
@@ -69,7 +70,6 @@ import (
 	"k8s.io/client-go/util/certificate"
 	"k8s.io/client-go/util/flowcontrol"
 	cloudprovider "k8s.io/cloud-provider"
-	"k8s.io/component-base/zpages/flagz"
 	"k8s.io/component-helpers/apimachinery/lease"
 	resourcehelper "k8s.io/component-helpers/resource"
 	internalapi "k8s.io/cri-api/pkg/apis"
@@ -1948,12 +1948,10 @@ func (kl *Kubelet) SyncPod(ctx context.Context, updateType kubetypes.SyncPodType
 		// Check whether a resize is in progress so we can set the PodResizeInProgressCondition accordingly.
 		if kl.containerRuntime.IsPodResizeInProgress(pod, podStatus) {
 			kl.statusManager.SetPodResizeInProgressCondition(pod.UID, "", "", pod.Generation)
-		} else if kl.statusManager.ClearPodResizeInProgressCondition(pod.UID) {
+		} else if generation, cleared := kl.statusManager.ClearPodResizeInProgressCondition(pod.UID); cleared {
 			// (Allocated == Actual) => clear the resize in-progress status.
-			if kl.recorder != nil {
-				msg := events.PodResizeCompletedMsg(pod)
-				kl.recorder.Eventf(pod, v1.EventTypeNormal, events.ResizeCompleted, msg)
-			}
+			msg := events.PodResizeCompletedMsg(pod, generation)
+			kl.recorder.Eventf(pod, v1.EventTypeNormal, events.ResizeCompleted, msg)
 		}
 		// TODO(natasha41575): There is a race condition here, where the goroutine in the
 		// allocation manager may allocate a new resize and unconditionally set the
@@ -2115,7 +2113,10 @@ func (kl *Kubelet) SyncPod(ctx context.Context, updateType kubetypes.SyncPodType
 		for _, r := range result.SyncResults {
 			if r.Action == kubecontainer.ResizePodInPlace && r.Error != nil {
 				// If the condition already exists, the observedGeneration does not get updated.
-				kl.statusManager.SetPodResizeInProgressCondition(pod.UID, v1.PodReasonError, r.Message, pod.Generation)
+				if generation, updated := kl.statusManager.SetPodResizeInProgressCondition(pod.UID, v1.PodReasonError, r.Message, pod.Generation); updated {
+					msg := events.PodResizeErrorMsg(pod, generation, r.Message)
+					kl.recorder.Eventf(pod, v1.EventTypeWarning, events.ResizeError, msg)
+				}
 			}
 		}
 	}
