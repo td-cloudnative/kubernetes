@@ -439,11 +439,6 @@ var (
 	// TODO: document the feature (owning SIG, when to use this feature for a test)
 	StorageVersionAPI = framework.WithFeature(framework.ValidFeatures.Add("StorageVersionAPI"))
 
-	// Owner: sig-node
-	// Marks tests that require a cluster with SupplementalGroupsPolicy
-	// (used for testing fine-grained SupplementalGroups control <https://kep.k8s.io/3619>)
-	SupplementalGroupsPolicy = framework.WithFeature(framework.ValidFeatures.Add("SupplementalGroupsPolicy"))
-
 	// The Swap feature tests must run on nodes with the swap memory allocated and kubelet swap enabled. KEP-2400 (Node Swap Support)
 	Swap = framework.WithFeature(framework.ValidFeatures.Add("NodeSwap"))
 
@@ -454,6 +449,11 @@ var (
 
 	// TODO: document the feature (owning SIG, when to use this feature for a test)
 	Upgrade = framework.WithFeature(framework.ValidFeatures.Add("Upgrade"))
+
+	// Owner: sig-node
+	// Test marked with this feature must run on nodes where container runtime allows to pods with hostNetwork to use user namespaces.
+	// This feature can be removed once Containerd and CRI-O both added this support.
+	UserNamespacesHostNetworkSupport = framework.WithFeature(framework.ValidFeatures.Add("UserNamespacesHostNetworkSupport"))
 
 	// TODO: document the feature (owning SIG, when to use this feature for a test)
 	UserNamespacesSupport = framework.WithFeature(framework.ValidFeatures.Add("UserNamespacesSupport"))
