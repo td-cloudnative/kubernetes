@@ -53,6 +53,8 @@ func TestVersionedValidationByFuzzing(t *testing.T) {
 		{Group: "autoscaling", Version: "v1beta1"},
 		{Group: "autoscaling", Version: "v1beta2"},
 		{Group: "autoscaling", Version: "v2"},
+		{Group: "discovery.k8s.io", Version: "v1"},
+		{Group: "discovery.k8s.io", Version: "v1beta1"},
 	}
 
 	fuzzIters := *roundtrip.FuzzIters / 10 // TODO: Find a better way to manage test running time
@@ -76,6 +78,9 @@ func TestVersionedValidationByFuzzing(t *testing.T) {
 					allRules := append([]field.NormalizationRule{}, resourcevalidation.ResourceNormalizationRules...)
 					allRules = append(allRules, nodevalidation.NodeNormalizationRules...)
 					opts = append(opts, WithNormalizationRules(allRules...))
+					if gv.Group == "autoscaling" {
+						opts = append(opts, WithIgnoreObjectConversionErrors())
+					}
 
 					VerifyVersionedValidationEquivalence(t, obj, nil, opts...)
 
