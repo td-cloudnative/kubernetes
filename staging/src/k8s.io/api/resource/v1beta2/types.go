@@ -689,8 +689,17 @@ type DeviceTaint struct {
 	// which will enable adding new enums within a single release without
 	// ratcheting.
 
-	// TimeAdded represents the time at which the taint was added.
+	// TimeAdded represents the time at which the taint was added or
+	// (only in a DeviceTaintRule) the effect was modified.
 	// Added automatically during create or update if not set.
+	//
+	// In addition, in a DeviceTaintRule a value provided during
+	// an update gets replaced with the current time if the provided
+	// value is the same as the old one and the new effect is different.
+	// Changing the key and/or value while keeping the effect unchanged
+	// is possible and does not update the time stamp because the eviction
+	// which uses it is either already started (NoExecute) or
+	// not started yet (NoEffect, NoSchedule).
 	//
 	// +optional
 	TimeAdded *metav1.Time `json:"timeAdded,omitempty" protobuf:"bytes,4,opt,name=timeAdded"`
@@ -2001,11 +2010,11 @@ type NetworkDeviceData struct {
 	// the allocated device. This might be the name of a physical or virtual
 	// network interface being configured in the pod.
 	//
-	// Must not be longer than 256 characters.
+	// Must not be longer than 256 bytes.
 	//
 	// +optional
 	// +k8s:alpha(since: "1.36")=+k8s:optional
-	// +k8s:alpha(since: "1.36")=+k8s:maxLength=256
+	// +k8s:alpha(since: "1.36")=+k8s:maxBytes=256
 	InterfaceName string `json:"interfaceName,omitempty" protobuf:"bytes,1,opt,name=interfaceName"`
 
 	// IPs lists the network addresses assigned to the device's network interface.
@@ -2024,10 +2033,10 @@ type NetworkDeviceData struct {
 
 	// HardwareAddress represents the hardware address (e.g. MAC Address) of the device's network interface.
 	//
-	// Must not be longer than 128 characters.
+	// Must not be longer than 128 bytes.
 	//
 	// +optional
 	// +k8s:alpha(since: "1.36")=+k8s:optional
-	// +k8s:alpha(since: "1.36")=+k8s:maxLength=128
+	// +k8s:alpha(since: "1.36")=+k8s:maxBytes=128
 	HardwareAddress string `json:"hardwareAddress,omitempty" protobuf:"bytes,3,opt,name=hardwareAddress"`
 }
