@@ -1672,7 +1672,7 @@ func (kl *Kubelet) StartGarbageCollection(ctx context.Context) {
 	go wait.Until(func() {
 		if err := kl.containerGC.GarbageCollect(ctx); err != nil {
 			logger.Error(err, "Container garbage collection failed")
-			kl.recorder.WithLogger(logger).Eventf(kl.nodeRef, v1.EventTypeWarning, events.ContainerGCFailed, err.Error())
+			kl.recorder.WithLogger(logger).Eventf(kl.nodeRef, v1.EventTypeWarning, events.ContainerGCFailed, "%s", err.Error())
 			loggedContainerGCFailure = true
 		} else {
 			var vLevel klog.Level = 4
@@ -1868,7 +1868,7 @@ func (kl *Kubelet) Run(ctx context.Context, updates <-chan kubetypes.PodUpdate) 
 	}
 
 	if err := kl.initializeModules(ctx); err != nil {
-		kl.recorder.WithLogger(logger).Eventf(kl.nodeRef, v1.EventTypeWarning, events.KubeletSetupFailed, err.Error())
+		kl.recorder.WithLogger(logger).Eventf(kl.nodeRef, v1.EventTypeWarning, events.KubeletSetupFailed, "%s", err.Error())
 		logger.Error(err, "Failed to initialize internal modules")
 		os.Exit(1)
 	}
@@ -2040,7 +2040,7 @@ func (kl *Kubelet) SyncPod(ctx context.Context, updateType kubetypes.SyncPodType
 		} else if generation, cleared := kl.statusManager.ClearPodResizeInProgressCondition(pod.UID); cleared {
 			// (Allocated == Actual) => clear the resize in-progress status.
 			msg := events.PodResizeCompletedMsg(logger, pod, generation)
-			kl.recorder.WithLogger(logger).Eventf(pod, v1.EventTypeNormal, events.ResizeCompleted, msg)
+			kl.recorder.WithLogger(logger).Eventf(pod, v1.EventTypeNormal, events.ResizeCompleted, "%s", msg)
 		}
 		// TODO(natasha41575): There is a race condition here, where the goroutine in the
 		// allocation manager may allocate a new resize and unconditionally set the
@@ -2208,13 +2208,37 @@ func (kl *Kubelet) SyncPod(ctx context.Context, updateType kubetypes.SyncPodType
 	result := kl.containerRuntime.SyncPod(sctx, pod, podStatus, pullSecrets, kl.crashLoopBackOff, restartingAllContainers)
 	kl.reasonCache.Update(pod.UID, result)
 
+	// If we just performed a RestartAllContainers reset, we want to immediately
+	// trigger another sync to start the containers, rather than waiting for PLEG
+	// or the periodic resync.
+	if utilfeature.DefaultFeatureGate.Enabled(features.RestartAllContainersOnContainerExits) &&
+		restartingAllContainers && result.Error() == nil {
+		shouldRequeue := false
+		for _, r := range result.SyncResults {
+			if r.Action == kubecontainer.RemoveContainer && r.Error == nil {
+				shouldRequeue = true
+				break
+			}
+		}
+		if shouldRequeue {
+			// This will not cause an infinite loop because UpdatePod merges concurrent updates
+			// to the same pod. Because all containers are removed, the subsequent SyncPod
+			// execution will unset the AllContainersRestarting condition and break the cycle.
+			kl.podWorkers.UpdatePod(ctx, UpdatePodOptions{
+				Pod:        pod,
+				MirrorPod:  mirrorPod,
+				UpdateType: kubetypes.SyncPodUpdate,
+			})
+		}
+	}
+
 	if utilfeature.DefaultFeatureGate.Enabled(features.InPlacePodVerticalScaling) {
 		for _, r := range result.SyncResults {
 			if r.Action == kubecontainer.ResizePodInPlace && r.Error != nil {
 				// If the condition already exists, the observedGeneration does not get updated.
 				if generation, updated := kl.statusManager.SetPodResizeInProgressCondition(pod.UID, v1.PodReasonError, r.Message, pod.Generation); updated {
 					msg := events.PodResizeErrorMsg(logger, pod, generation, r.Message)
-					kl.recorder.WithLogger(logger).Eventf(pod, v1.EventTypeWarning, events.ResizeError, msg)
+					kl.recorder.WithLogger(logger).Eventf(pod, v1.EventTypeWarning, events.ResizeError, "%s", msg)
 				}
 			}
 		}
@@ -2272,8 +2296,7 @@ func (kl *Kubelet) SyncTerminatingPod(ctx context.Context, pod *v1.Pod, podStatu
 	if err := kl.killPod(ctx, pod, p, gracePeriod); err != nil {
 		kl.recorder.WithLogger(logger).Eventf(pod, v1.EventTypeWarning, events.FailedToKillPod, "error killing pod: %v", err)
 		// there was an error killing the pod, so we return that error directly
-		utilruntime.HandleError(err)
-		return err
+		return fmt.Errorf("error killing terminating pod: %w", err)
 	}
 
 	// Once the containers are stopped, we can stop probing for liveness and readiness.
@@ -2287,10 +2310,22 @@ func (kl *Kubelet) SyncTerminatingPod(ctx context.Context, pod *v1.Pod, podStatu
 	// catch race conditions introduced by callers updating pod status out of order.
 	// TODO: have KillPod return the terminal status of stopped containers and write that into the
 	//  cache immediately
-	stoppedPodStatus, err := kl.containerRuntime.GetPodStatus(ctx, pod.UID, pod.Name, pod.Namespace)
+	runtimePod, err := kl.containerRuntime.GetPod(ctx, pod.UID)
 	if err != nil {
-		logger.Error(err, "Unable to read pod status prior to final pod termination", "pod", klog.KObj(pod), "podUID", pod.UID)
-		return err
+		if errors.Is(err, kubecontainer.ErrPodNotFound) {
+			// If pod sandboxes were already cleaned up, proceed with an empty runtimePod.
+			runtimePod = &kubecontainer.Pod{
+				ID:        pod.UID,
+				Name:      pod.Name,
+				Namespace: pod.Namespace,
+			}
+		} else {
+			return fmt.Errorf("unable to get pod prior to final pod termination: %w", err)
+		}
+	}
+	stoppedPodStatus, err := kl.containerRuntime.GetPodStatus(ctx, runtimePod)
+	if err != nil {
+		return fmt.Errorf("unable to read pod status prior to final pod termination: %w", err)
 	}
 	preserveDataFromBeforeStopping(stoppedPodStatus, podStatus)
 	var runningContainers []string
@@ -2522,7 +2557,7 @@ func (kl *Kubelet) deletePod(ctx context.Context, pod *v1.Pod) error {
 // and updates the pod to the failed phase in the status manager.
 func (kl *Kubelet) rejectPod(ctx context.Context, pod *v1.Pod, reason, message string) {
 	logger := klog.FromContext(ctx)
-	kl.recorder.WithLogger(logger).Eventf(pod, v1.EventTypeWarning, reason, message)
+	kl.recorder.WithLogger(logger).Eventf(pod, v1.EventTypeWarning, reason, "%s", message)
 	kl.statusManager.SetPodStatus(logger, pod, v1.PodStatus{
 		QOSClass: v1qos.GetPodQOS(pod), // keep it as is
 		Phase:    v1.PodFailed,
