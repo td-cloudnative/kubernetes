@@ -875,7 +875,7 @@ var _ = framework.SIGDescribe("node")(framework.WithLabel("DRA"), func() {
 			tCtx := f.TContext(ctx)
 			var objects []klog.KMetadata
 			pods := make([]*v1.Pod, numPods)
-			for i := 0; i < numPods; i++ {
+			for i := range numPods {
 				pod, template := b.PodInline()
 				pods[i] = pod
 				objects = append(objects, pod, template)
@@ -886,7 +886,7 @@ var _ = framework.SIGDescribe("node")(framework.WithLabel("DRA"), func() {
 			// We don't know the order. All that matters is that all of them get scheduled eventually.
 			var wg sync.WaitGroup
 			wg.Add(numPods)
-			for i := 0; i < numPods; i++ {
+			for i := range numPods {
 				pod := pods[i]
 				go func() {
 					defer ginkgo.GinkgoRecover()
@@ -906,7 +906,7 @@ var _ = framework.SIGDescribe("node")(framework.WithLabel("DRA"), func() {
 			claim := b.ExternalClaim()
 			objects = append(objects, claim)
 			pods := make([]*v1.Pod, numPods)
-			for i := 0; i < numPods; i++ {
+			for i := range numPods {
 				pod := b.PodExternal(claim.Name)
 				pods[i] = pod
 				objects = append(objects, pod)
@@ -918,7 +918,7 @@ var _ = framework.SIGDescribe("node")(framework.WithLabel("DRA"), func() {
 			f.Timeouts.PodStartSlow *= time.Duration(numPods)
 			var wg sync.WaitGroup
 			wg.Add(numPods)
-			for i := 0; i < numPods; i++ {
+			for i := range numPods {
 				pod := pods[i]
 				go func() {
 					defer ginkgo.GinkgoRecover()
@@ -2237,7 +2237,7 @@ var _ = framework.SIGDescribe("node")(framework.WithLabel("DRA"), func() {
 		}).WithTimeout(time.Minute).Should(gomega.BeTrueBecause("extended resource claim should be automatically deleted when pod %s", cleanupMessage))
 	}
 
-	framework.Context(f.WithFeatureGate(features.DRAExtendedResource), func() {
+	framework.Context(f.WithFeatureGate(features.DRAExtendedResource), feature.DynamicResourceAllocation, f.WithLabel("KubeletMinVersion:1.36"), func() {
 		nodes := drautils.NewNodes(f, 1, 1)
 		driver := drautils.NewDriver(f, nodes, drautils.NetworkResources(10, false))
 		b := drautils.NewBuilder(f, driver)
@@ -2674,7 +2674,7 @@ var _ = framework.SIGDescribe("node")(framework.WithLabel("DRA"), func() {
 		})
 	})
 
-	framework.Context(f.WithFeatureGate(features.DRAExtendedResource), func() {
+	framework.Context(f.WithFeatureGate(features.DRAExtendedResource), feature.DynamicResourceAllocation, f.WithLabel("KubeletMinVersion:1.36"), func() {
 		nodes := drautils.NewNodes(f, 2, 2)
 		nodes.NumReservedNodes = 1
 		driver := drautils.NewDriver(f, nodes, drautils.NetworkResources(2, false))

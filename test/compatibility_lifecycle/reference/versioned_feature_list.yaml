@@ -563,6 +563,10 @@
     lockToDefault: false
     preRelease: Beta
     version: "1.34"
+  - default: true
+    lockToDefault: false
+    preRelease: GA
+    version: "1.36"
 - name: DRAResourceClaimDeviceStatus
   versionedSpecs:
   - default: false
@@ -1150,6 +1154,12 @@
   - default: true
     lockToDefault: false
     preRelease: GA
+    version: "1.36"
+- name: NativeHistograms
+  versionedSpecs:
+  - default: false
+    lockToDefault: false
+    preRelease: Alpha
     version: "1.36"
 - name: NFTablesProxyMode
   versionedSpecs:
