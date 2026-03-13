@@ -34,7 +34,6 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	v1 "k8s.io/api/core/v1"
 	resourceapi "k8s.io/api/resource/v1"
-	resourcealphaapi "k8s.io/api/resource/v1alpha3"
 	resourcev1beta1 "k8s.io/api/resource/v1beta1"
 	resourcev1beta2 "k8s.io/api/resource/v1beta2"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -432,7 +431,7 @@ var _ = framework.SIGDescribe("node")(framework.WithLabel("DRA"), func() {
 
 		// https://github.com/kubernetes/kubernetes/issues/131513 was fixed in master for 1.34 and not backported,
 		// so this test only passes for kubelet >= 1.34.
-		f.It("blocks new pod after force-delete", f.WithLabel("KubeletMinVersion:1.34"), func(ctx context.Context) {
+		f.It("blocks new pod after force-delete", f.WithKubeletMinVersion("1.34"), func(ctx context.Context) {
 			// The problem with a force-deleted pod is that kubelet
 			// is not necessarily done yet with tearing down the
 			// pod at the time when the pod and its claim are
@@ -701,7 +700,7 @@ var _ = framework.SIGDescribe("node")(framework.WithLabel("DRA"), func() {
 		})
 
 		// Seamless upgrade support was added in Kubernetes 1.33.
-		f.It("rolling update", f.WithLabel("KubeletMinVersion:1.33"), func(ctx context.Context) {
+		f.It("rolling update", f.WithKubeletMinVersion("1.33"), func(ctx context.Context) {
 			tCtx := f.TContext(ctx)
 			nodes := drautils.NewNodesNow(tCtx, 1, 1)
 
@@ -742,7 +741,7 @@ var _ = framework.SIGDescribe("node")(framework.WithLabel("DRA"), func() {
 		})
 
 		// Seamless upgrade support was added in Kubernetes 1.33.
-		f.It("failed update", f.WithLabel("KubeletMinVersion:1.33"), func(ctx context.Context) {
+		f.It("failed update", f.WithKubeletMinVersion("1.33"), func(ctx context.Context) {
 			tCtx := f.TContext(ctx)
 			nodes := drautils.NewNodesNow(tCtx, 1, 1)
 
@@ -785,7 +784,7 @@ var _ = framework.SIGDescribe("node")(framework.WithLabel("DRA"), func() {
 		})
 
 		// Seamless upgrade support was added in Kubernetes 1.33.
-		f.It("sequential update with pods replacing each other", f.WithLabel("KubeletMinVersion:1.33"), framework.WithSlow(), func(ctx context.Context) {
+		f.It("sequential update with pods replacing each other", f.WithKubeletMinVersion("1.33"), framework.WithSlow(), func(ctx context.Context) {
 			tCtx := f.TContext(ctx)
 			nodes := drautils.NewNodesNow(tCtx, 1, 1)
 
@@ -1110,7 +1109,7 @@ var _ = framework.SIGDescribe("node")(framework.WithLabel("DRA"), func() {
 
 		// https://github.com/kubernetes/kubernetes/issues/135901 was fixed in master for Kubernetes 1.35 and not backported
 		// so this test only passes for kubelet >= 1.35.
-		f.It("requests an already allocated and a new claim for a pod", f.WithLabel("KubeletMinVersion:1.35"), func(ctx context.Context) {
+		f.It("requests an already allocated and a new claim for a pod", f.WithKubeletMinVersion("1.35"), func(ctx context.Context) {
 			// This test covers a situation when a pod references a mix of already-prepared and new claims.
 			tCtx := f.TContext(ctx)
 
@@ -1961,7 +1960,7 @@ var _ = framework.SIGDescribe("node")(framework.WithLabel("DRA"), func() {
 		))
 		b := drautils.NewBuilder(f, driver)
 
-		f.It("must allow multiple allocations and consume capacity", f.WithLabel("KubeletMinVersion:1.34"), func(ctx context.Context) {
+		f.It("must allow multiple allocations and consume capacity", f.WithKubeletMinVersion("1.34"), func(ctx context.Context) {
 			tCtx := f.TContext(ctx)
 			// The first pod will use 4Gi of the device.
 			claim := b.ExternalClaim()
@@ -2092,17 +2091,17 @@ var _ = framework.SIGDescribe("node")(framework.WithLabel("DRA"), func() {
 
 			// Now evict it.
 			ginkgo.By("Evicting pod...")
-			taint := &resourcealphaapi.DeviceTaintRule{
+			taint := &resourcev1beta2.DeviceTaintRule{
 				ObjectMeta: metav1.ObjectMeta{
 					GenerateName: "device-taint-rule-" + f.UniqueName + "-",
 				},
-				Spec: resourcealphaapi.DeviceTaintRuleSpec{
+				Spec: resourcev1beta2.DeviceTaintRuleSpec{
 					// All devices of the current driver instance.
-					DeviceSelector: &resourcealphaapi.DeviceTaintSelector{
+					DeviceSelector: &resourcev1beta2.DeviceTaintSelector{
 						Driver: &driver.Name,
 					},
-					Taint: resourcealphaapi.DeviceTaint{
-						Effect: resourcealphaapi.DeviceTaintEffectNoExecute,
+					Taint: resourcev1beta2.DeviceTaint{
+						Effect: resourcev1beta2.DeviceTaintEffectNoExecute,
 						Key:    "test.example.com/evict",
 						Value:  "now",
 						// No TimeAdded, gets defaulted.
@@ -2110,7 +2109,7 @@ var _ = framework.SIGDescribe("node")(framework.WithLabel("DRA"), func() {
 				},
 			}
 			createdTaint := b.Create(tCtx, taint)
-			taint = createdTaint[0].(*resourcealphaapi.DeviceTaintRule)
+			taint = createdTaint[0].(*resourcev1beta2.DeviceTaintRule)
 			gomega.Expect(*taint).Should(gomega.HaveField("Spec.Taint.TimeAdded.Time", gomega.BeTemporally("~", time.Now(), time.Minute /* allow for some clock drift and delays */)))
 			framework.ExpectNoError(e2epod.WaitForPodTerminatingInNamespaceTimeout(ctx, f.ClientSet, pod.Name, f.Namespace.Name, f.Timeouts.PodStart))
 			pod, err := f.ClientSet.CoreV1().Pods(f.Namespace.Name).Get(ctx, pod.Name, metav1.GetOptions{})
@@ -2237,7 +2236,7 @@ var _ = framework.SIGDescribe("node")(framework.WithLabel("DRA"), func() {
 		}).WithTimeout(time.Minute).Should(gomega.BeTrueBecause("extended resource claim should be automatically deleted when pod %s", cleanupMessage))
 	}
 
-	framework.Context(f.WithFeatureGate(features.DRAExtendedResource), feature.DynamicResourceAllocation, f.WithLabel("KubeletMinVersion:1.36"), func() {
+	framework.Context(f.WithFeatureGate(features.DRAExtendedResource), feature.DynamicResourceAllocation, f.WithKubeletMinVersion("1.36"), func() {
 		nodes := drautils.NewNodes(f, 1, 1)
 		driver := drautils.NewDriver(f, nodes, drautils.NetworkResources(10, false))
 		b := drautils.NewBuilder(f, driver)
@@ -2674,7 +2673,7 @@ var _ = framework.SIGDescribe("node")(framework.WithLabel("DRA"), func() {
 		})
 	})
 
-	framework.Context(f.WithFeatureGate(features.DRAExtendedResource), feature.DynamicResourceAllocation, f.WithLabel("KubeletMinVersion:1.36"), func() {
+	framework.Context(f.WithFeatureGate(features.DRAExtendedResource), feature.DynamicResourceAllocation, f.WithKubeletMinVersion("1.36"), func() {
 		nodes := drautils.NewNodes(f, 2, 2)
 		nodes.NumReservedNodes = 1
 		driver := drautils.NewDriver(f, nodes, drautils.NetworkResources(2, false))
@@ -3125,7 +3124,7 @@ var _ = framework.SIGDescribe("node")(framework.WithLabel("DRA"), func() {
 			// If the v1beta1 gRPC API is disabled, then
 			// kubelet from 1.34 is required because that is
 			// when v1 was introduced.
-			args = append(args, f.WithLabel("KubeletMinVersion:1.34"))
+			args = append(args, f.WithKubeletMinVersion("1.34"))
 		}
 		framework.Context(args...)
 	}
@@ -3142,7 +3141,7 @@ var _ = framework.SIGDescribe("node")(framework.WithLabel("DRA"), func() {
 		driver := drautils.NewDriver(f, nodes, drautils.NetworkResources(10, false))
 		b := drautils.NewBuilder(f, driver)
 
-		f.It("should report device health with custom messages", f.WithLabel("KubeletMinVersion:1.36"), framework.WithFeatureGate(features.ResourceHealthStatusMessage), func(ctx context.Context) {
+		f.It("should report device health with custom messages", f.WithKubeletMinVersion("1.36"), framework.WithFeatureGate(features.ResourceHealthStatusMessage), func(ctx context.Context) {
 			claimName := "health-test-claim"
 			claim := b.ExternalClaim()
 			claim.Name = claimName
