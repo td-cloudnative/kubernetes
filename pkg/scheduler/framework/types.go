@@ -478,7 +478,10 @@ func (n *NodeInfo) SetNode(node *v1.Node) {
 	n.node = node
 	n.Allocatable = NewResource(node.Status.Allocatable)
 	if utilfeature.DefaultFeatureGate.Enabled(features.NodeDeclaredFeatures) {
-		n.DeclaredFeatures = ndf.NewFeatureSet(node.Status.DeclaredFeatures...)
+		// Use TryMap rather than Map here in case the node has unknown features. Since we're only
+		// concerned with matching known features to the node, there is no risk to discarding
+		// unknown features.
+		n.DeclaredFeatures = ndf.DefaultFramework.TryMap(node.Status.DeclaredFeatures)
 	}
 	n.Generation = nextGeneration()
 }
@@ -558,6 +561,8 @@ type QueuedPodInfo struct {
 	// or doesn't belong to any pod group.
 	// This field can only be set to true when GenericWorkload feature flag is enabled.
 	NeedsPodGroupScheduling bool
+	// PodSignature for opportunistic batching
+	PodSignature fwk.PodSignature
 }
 
 func (pqi *QueuedPodInfo) GetPodInfo() fwk.PodInfo {
@@ -624,7 +629,15 @@ func (pqi *QueuedPodInfo) DeepCopy() *QueuedPodInfo {
 		PendingPlugins:          pqi.PendingPlugins.Clone(),
 		ConsecutiveErrorsCount:  pqi.ConsecutiveErrorsCount,
 		NeedsPodGroupScheduling: pqi.NeedsPodGroupScheduling,
+		PodSignature:            pqi.PodSignature,
 	}
+}
+
+// Update updates the pod in QueuedPodInfo and clears the cached PodSignature,
+// since the updated pod may no longer match the signature computed for the previous version.
+func (pqi *QueuedPodInfo) Update(pod *v1.Pod) error {
+	pqi.PodSignature = nil
+	return pqi.PodInfo.Update(pod)
 }
 
 // ClearRejectorPlugins clears the plugin-related fields that track why a pod

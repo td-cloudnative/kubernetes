@@ -482,7 +482,7 @@ func (m *kubeGenericRuntimeManager) getPods(ctx context.Context, opts listOption
 		return nil, err
 	}
 	// Sort sandboxes by creation time, newest first.
-	sort.Sort(podSandboxByCreated(sandboxes))
+	sort.Sort(podSandboxByCreatedThenID(sandboxes))
 	for i := range sandboxes {
 		s := sandboxes[i]
 		if s.Metadata == nil {
@@ -511,6 +511,13 @@ func (m *kubeGenericRuntimeManager) getPods(ctx context.Context, opts listOption
 	if err != nil {
 		return nil, err
 	}
+	// Sort containers: newest CreatedAt first, then by container ID for stability.
+	// There are scenarios where multiple pods are running in parallel having
+	// the same name, because one of them have not been fully terminated yet.
+	// To avoid unexpected behavior on container name based search (for example
+	// by calling *Kubelet.findContainer() without specifying a pod ID), we
+	// return the list of pods ordered by their creation time.
+	sort.Sort(containerByCreatedThenID(containers))
 	for i := range containers {
 		c := containers[i]
 		if c.Metadata == nil {
@@ -917,21 +924,30 @@ func (m *kubeGenericRuntimeManager) doPodResizeAction(ctx context.Context, pod *
 			}
 			resizedResources.Memory = podResources.Memory
 		}
+
+		// Notify the runtime first. If this fails, the runtime has rejected the resize.
+		mergedPodResources := mergeResourceConfig(currentPodResources, resizedResources)
+		if err = m.updatePodSandboxResources(ctx, podContainerChanges.SandboxID, pod, mergedPodResources); err != nil {
+			return fmt.Errorf("failed to notify runtime for UpdatePodSandboxResources (resource=%s); resize rejected: %w", rName, err)
+		}
+
+		// Actuate the pod-level cgroup change.
 		err = pcm.SetPodCgroupConfig(logger, pod, resizedResources)
 		if err != nil {
 			logger.Error(err, "Failed to set cgroup config", "resource", rName, "pod", klog.KObj(pod))
+			// If cgroup adjustment fails, notify the runtime to revert to the previous resources.
+			if rollbackErr := m.updatePodSandboxResources(ctx, podContainerChanges.SandboxID, pod, currentPodResources); rollbackErr != nil {
+				logger.Error(rollbackErr, "Failed to notify runtime to rollback UpdatePodSandboxResources", "resource", rName, "pod", klog.KObj(pod))
+			}
 			return err
 		}
-		currentPodResources = mergeResourceConfig(currentPodResources, resizedResources)
-		if err = m.updatePodSandboxResources(ctx, podContainerChanges.SandboxID, pod, currentPodResources); err != nil {
-			logger.Error(err, "Failed to notify runtime for UpdatePodSandboxResources", "resource", rName, "pod", klog.KObj(pod))
-			// Don't propagate the error since the updatePodSandboxResources call is best-effort.
-		}
+
+		// Update our tracking of the current state.
+		currentPodResources = mergedPodResources
 
 		if utilfeature.DefaultFeatureGate.Enabled(features.InPlacePodLevelResourcesVerticalScaling) {
 			if err = updateActuatedPodLevelResources(rName); err != nil {
 				logger.Error(err, "Failed to update pod-level actuated resources", "resource", rName, "pod", klog.KObj(pod))
-
 			}
 		}
 		return nil

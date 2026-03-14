@@ -77,11 +77,11 @@ import (
 	zpagesfeatures "k8s.io/component-base/zpages/features"
 	runtimeapi "k8s.io/cri-api/pkg/apis/runtime/v1"
 	"k8s.io/cri-client/pkg/util"
+	"k8s.io/cri-streaming/pkg/streaming"
+	"k8s.io/cri-streaming/pkg/streaming/portforward"
+	remotecommandserver "k8s.io/cri-streaming/pkg/streaming/remotecommand"
 	podresourcesapi "k8s.io/kubelet/pkg/apis/podresources/v1"
 	podresourcesapiv1alpha1 "k8s.io/kubelet/pkg/apis/podresources/v1alpha1"
-	"k8s.io/kubelet/pkg/cri/streaming"
-	"k8s.io/kubelet/pkg/cri/streaming/portforward"
-	remotecommandserver "k8s.io/kubelet/pkg/cri/streaming/remotecommand"
 	kubelettypes "k8s.io/kubelet/pkg/types"
 	"k8s.io/kubernetes/pkg/api/legacyscheme"
 	api "k8s.io/kubernetes/pkg/apis/core"
@@ -134,11 +134,12 @@ type Server struct {
 
 // TLSOptions holds the TLS options.
 type TLSOptions struct {
-	MinVersion   uint16
-	CipherSuites []uint16
-	CertFile     string
-	KeyFile      string
-	ClientCAFile string
+	MinVersion       uint16
+	CipherSuites     []uint16
+	CurvePreferences []tls.CurveID
+	CertFile         string
+	KeyFile          string
+	ClientCAFile     string
 }
 
 // containerInterface defines the restful.Container functions used on the root container
