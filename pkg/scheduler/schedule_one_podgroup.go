@@ -137,6 +137,9 @@ func (sched *Scheduler) podGroupInfoForPod(ctx context.Context, pInfo *framework
 
 	// Pop all unscheduled pods from the scheduling queue
 	for _, pod := range unscheduledPods {
+		if pod.Name == pInfo.Pod.Name {
+			continue
+		}
 		unscheduledPodInfo := sched.SchedulingQueue.PopSpecificPod(logger, pod)
 		if unscheduledPodInfo == nil {
 			logger.V(5).Info("Pod available in pod group state not available in scheduling queue", "podGroup", klog.KObj(podGroupInfo), "pod", klog.KObj(pod))
@@ -440,8 +443,6 @@ func (sched *Scheduler) submitPodGroupAlgorithmResult(ctx context.Context, sched
 			}
 			switch {
 			case podGroupResult.status.IsSuccess():
-				// Pod no longer needs a pod group scheduling cycle. Setting it to false to disable any checks in further functions.
-				pInfo.NeedsPodGroupScheduling = false
 				// Disable pod group scheduling in cycle state before binding.
 				podCtx.state.SetPodGroupSchedulingCycle(false)
 				// Schedule result is applied for pod and its binding cycle executes.
