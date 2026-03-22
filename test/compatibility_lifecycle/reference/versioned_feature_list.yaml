@@ -593,6 +593,12 @@
     lockToDefault: false
     preRelease: Beta
     version: "1.36"
+- name: DRAListTypeAttributes
+  versionedSpecs:
+  - default: false
+    lockToDefault: false
+    preRelease: Alpha
+    version: "1.36"
 - name: DRANodeAllocatableResources
   versionedSpecs:
   - default: false
@@ -633,6 +639,12 @@
     lockToDefault: false
     preRelease: Beta
     version: "1.33"
+- name: DRAResourcePoolStatus
+  versionedSpecs:
+  - default: false
+    lockToDefault: false
+    preRelease: Alpha
+    version: "1.36"
 - name: DRASchedulerFilterTimeout
   versionedSpecs:
   - default: true
@@ -1305,6 +1317,10 @@
     lockToDefault: false
     preRelease: Beta
     version: "1.30"
+  - default: true
+    lockToDefault: true
+    preRelease: GA
+    version: "1.36"
 - name: NodeSwap
   versionedSpecs:
   - default: false
