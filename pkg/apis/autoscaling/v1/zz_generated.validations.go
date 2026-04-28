@@ -42,7 +42,7 @@ func RegisterValidations(scheme *runtime.Scheme) error {
 	// type HorizontalPodAutoscaler
 	scheme.AddValidationFunc((*autoscalingv1.HorizontalPodAutoscaler)(nil), func(ctx context.Context, op operation.Operation, obj, oldObj interface{}) field.ErrorList {
 		switch op.Request.SubresourcePath() {
-		case "/":
+		case "/", "/status":
 			return Validate_HorizontalPodAutoscaler(ctx, op, nil /* fldPath */, obj.(*autoscalingv1.HorizontalPodAutoscaler), safe.Cast[*autoscalingv1.HorizontalPodAutoscaler](oldObj))
 		}
 		return field.ErrorList{field.InternalError(nil, fmt.Errorf("no validation found for %T, subresource: %v", obj, op.Request.SubresourcePath()))}
@@ -163,6 +163,7 @@ func Validate_ScaleSpec(ctx context.Context, op operation.Operation, fldPath *fi
 	// field autoscalingv1.ScaleSpec.Replicas
 	errs = append(errs,
 		func(fldPath *field.Path, obj, oldObj *int32, oldValueCorrelated bool) (errs field.ErrorList) {
+			// optional value-type fields with zero-value defaults are purely documentation
 			// don't revalidate unchanged data
 			if oldValueCorrelated && op.Type == operation.Update && (obj == oldObj || (obj != nil && oldObj != nil && *obj == *oldObj)) {
 				return nil
