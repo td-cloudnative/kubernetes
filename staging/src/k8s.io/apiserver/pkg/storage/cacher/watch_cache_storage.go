@@ -21,11 +21,27 @@ import (
 	"sort"
 	"sync/atomic"
 
+	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/apiserver/pkg/features"
 	"k8s.io/apiserver/pkg/storage/cacher/store"
 	utilfeature "k8s.io/apiserver/pkg/util/feature"
+	"k8s.io/client-go/tools/cache"
 )
+
+func newWatchCacheStorage(config *ImmutableWatchCacheConfig, indexers *cache.Indexers) *watchCacheStorage {
+	storage := &watchCacheStorage{
+		config:              config,
+		store:               store.NewIndexer(indexers),
+		listResourceVersion: 0,
+	}
+	if utilfeature.DefaultFeatureGate.Enabled(features.ListFromCacheSnapshot) {
+		storage.snapshottingEnabled.Store(true)
+		storage.snapshots = store.NewSnapshotter()
+	}
+	return storage
+}
 
 type watchCacheStorage struct {
 	config *ImmutableWatchCacheConfig
@@ -169,4 +185,69 @@ func (w *watchCacheStorage) ListKeys() []string {
 // List returns list of pointers to <store.Element> objects.
 func (w *watchCacheStorage) List() []interface{} {
 	return w.store.List()
+}
+
+// UpdateStoreLocked executes a mutation (Add, Update, Delete) on the underlying store.
+func (w *watchCacheStorage) UpdateStoreLocked(eventType watch.EventType, elem *store.Element) error {
+	switch eventType {
+	case watch.Added:
+		return w.store.Add(elem)
+	case watch.Modified:
+		return w.store.Update(elem)
+	case watch.Deleted:
+		return w.store.Delete(elem)
+	default:
+		return fmt.Errorf("unexpected event type: %v", eventType)
+	}
+}
+
+// AddSnapshotLocked collects a new snapshot if snapshotting is enabled.
+func (w *watchCacheStorage) AddSnapshotLocked(version uint64) {
+	if w.snapshots != nil && w.snapshottingEnabled.Load() {
+		w.snapshots.Add(version, w.store)
+	}
+}
+
+// CompactSnapshotsLocked prunes snapshots older than the oldest history version.
+func (w *watchCacheStorage) CompactSnapshotsLocked(oldestRV uint64) {
+	if w.snapshots != nil && w.snapshottingEnabled.Load() {
+		w.snapshots.RemoveLess(oldestRV)
+	}
+}
+
+// ReplaceLocked replaces the elements in the underlying store and resets snapshots.
+func (w *watchCacheStorage) ReplaceLocked(toReplace []interface{}, resourceVersion string, version uint64) error {
+	if err := w.store.Replace(toReplace, resourceVersion); err != nil {
+		return err
+	}
+	if w.snapshots != nil {
+		w.snapshots.Reset()
+		if w.snapshottingEnabled.Load() {
+			w.snapshots.Add(version, w.store)
+		}
+	}
+	w.listResourceVersion = version
+	return nil
+}
+
+// GetExactSnapshotLocked retrieves a snapshot less than or equal to the given resource version.
+func (w *watchCacheStorage) GetExactSnapshotLocked(resourceVersion uint64) (store.Snapshot, error) {
+	if w.snapshots == nil {
+		return nil, errors.NewResourceExpired(fmt.Sprintf("too old resource version: %d", resourceVersion))
+	}
+	snap, ok := w.snapshots.GetLessOrEqual(resourceVersion)
+	if !ok {
+		return nil, errors.NewResourceExpired(fmt.Sprintf("too old resource version: %d", resourceVersion))
+	}
+	return snap, nil
+}
+
+// ByIndex retrieves elements from the indexer by index name and value.
+func (w *watchCacheStorage) ByIndex(indexName, value string) ([]interface{}, error) {
+	return w.store.ByIndex(indexName, value)
+}
+
+// ListResourceVersion returns the list resource version.
+func (w *watchCacheStorage) ListResourceVersion() uint64 {
+	return w.listResourceVersion
 }

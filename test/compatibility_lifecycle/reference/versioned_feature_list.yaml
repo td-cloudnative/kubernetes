@@ -177,6 +177,12 @@
     lockToDefault: false
     preRelease: Beta
     version: "1.36"
+- name: CompositePodGroup
+  versionedSpecs:
+  - default: false
+    lockToDefault: false
+    preRelease: Alpha
+    version: "1.37"
 - name: ConcurrentWatchObjectDecode
   versionedSpecs:
   - default: false
@@ -998,7 +1004,11 @@
   - default: true
     lockToDefault: false
     preRelease: GA
-    version: "1.11"
+    version: "1.0"
+  - default: true
+    lockToDefault: false
+    preRelease: Deprecated
+    version: "1.37"
 - name: ListFromCacheSnapshot
   versionedSpecs:
   - default: false
