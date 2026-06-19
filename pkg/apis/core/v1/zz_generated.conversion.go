@@ -7041,17 +7041,7 @@ func Convert_core_PodSignature_To_v1_PodSignature(in *core.PodSignature, out *co
 }
 
 func autoConvert_v1_PodSpec_To_core_PodSpec(in *corev1.PodSpec, out *core.PodSpec, s conversion.Scope) error {
-	if in.Volumes != nil {
-		in, out := &in.Volumes, &out.Volumes
-		*out = make([]core.Volume, len(*in))
-		for i := range *in {
-			if err := Convert_v1_Volume_To_core_Volume(&(*in)[i], &(*out)[i], s); err != nil {
-				return err
-			}
-		}
-	} else {
-		out.Volumes = nil
-	}
+	out.Volumes = *(*[]core.Volume)(unsafe.Pointer(&in.Volumes))
 	out.InitContainers = *(*[]core.Container)(unsafe.Pointer(&in.InitContainers))
 	out.Containers = *(*[]core.Container)(unsafe.Pointer(&in.Containers))
 	out.EphemeralContainers = *(*[]core.EphemeralContainer)(unsafe.Pointer(&in.EphemeralContainers))
@@ -7105,17 +7095,7 @@ func autoConvert_v1_PodSpec_To_core_PodSpec(in *corev1.PodSpec, out *core.PodSpe
 }
 
 func autoConvert_core_PodSpec_To_v1_PodSpec(in *core.PodSpec, out *corev1.PodSpec, s conversion.Scope) error {
-	if in.Volumes != nil {
-		in, out := &in.Volumes, &out.Volumes
-		*out = make([]corev1.Volume, len(*in))
-		for i := range *in {
-			if err := Convert_core_Volume_To_v1_Volume(&(*in)[i], &(*out)[i], s); err != nil {
-				return err
-			}
-		}
-	} else {
-		out.Volumes = nil
-	}
+	out.Volumes = *(*[]corev1.Volume)(unsafe.Pointer(&in.Volumes))
 	out.InitContainers = *(*[]corev1.Container)(unsafe.Pointer(&in.InitContainers))
 	out.Containers = *(*[]corev1.Container)(unsafe.Pointer(&in.Containers))
 	out.EphemeralContainers = *(*[]corev1.EphemeralContainer)(unsafe.Pointer(&in.EphemeralContainers))
@@ -7482,17 +7462,7 @@ func Convert_core_ProbeHandler_To_v1_ProbeHandler(in *core.ProbeHandler, out *co
 }
 
 func autoConvert_v1_ProjectedVolumeSource_To_core_ProjectedVolumeSource(in *corev1.ProjectedVolumeSource, out *core.ProjectedVolumeSource, s conversion.Scope) error {
-	if in.Sources != nil {
-		in, out := &in.Sources, &out.Sources
-		*out = make([]core.VolumeProjection, len(*in))
-		for i := range *in {
-			if err := Convert_v1_VolumeProjection_To_core_VolumeProjection(&(*in)[i], &(*out)[i], s); err != nil {
-				return err
-			}
-		}
-	} else {
-		out.Sources = nil
-	}
+	out.Sources = *(*[]core.VolumeProjection)(unsafe.Pointer(&in.Sources))
 	out.DefaultMode = (*int32)(unsafe.Pointer(in.DefaultMode))
 	return nil
 }
@@ -7503,17 +7473,7 @@ func Convert_v1_ProjectedVolumeSource_To_core_ProjectedVolumeSource(in *corev1.P
 }
 
 func autoConvert_core_ProjectedVolumeSource_To_v1_ProjectedVolumeSource(in *core.ProjectedVolumeSource, out *corev1.ProjectedVolumeSource, s conversion.Scope) error {
-	if in.Sources != nil {
-		in, out := &in.Sources, &out.Sources
-		*out = make([]corev1.VolumeProjection, len(*in))
-		for i := range *in {
-			if err := Convert_core_VolumeProjection_To_v1_VolumeProjection(&(*in)[i], &(*out)[i], s); err != nil {
-				return err
-			}
-		}
-	} else {
-		out.Sources = nil
-	}
+	out.Sources = *(*[]corev1.VolumeProjection)(unsafe.Pointer(&in.Sources))
 	out.DefaultMode = (*int32)(unsafe.Pointer(in.DefaultMode))
 	return nil
 }
@@ -8535,9 +8495,7 @@ func Convert_core_ServiceAccountList_To_v1_ServiceAccountList(in *core.ServiceAc
 
 func autoConvert_v1_ServiceAccountTokenProjection_To_core_ServiceAccountTokenProjection(in *corev1.ServiceAccountTokenProjection, out *core.ServiceAccountTokenProjection, s conversion.Scope) error {
 	out.Audience = in.Audience
-	if err := metav1.Convert_Pointer_int64_To_int64(&in.ExpirationSeconds, &out.ExpirationSeconds, s); err != nil {
-		return err
-	}
+	out.ExpirationSeconds = (*int64)(unsafe.Pointer(in.ExpirationSeconds))
 	out.Path = in.Path
 	return nil
 }
@@ -8549,9 +8507,7 @@ func Convert_v1_ServiceAccountTokenProjection_To_core_ServiceAccountTokenProject
 
 func autoConvert_core_ServiceAccountTokenProjection_To_v1_ServiceAccountTokenProjection(in *core.ServiceAccountTokenProjection, out *corev1.ServiceAccountTokenProjection, s conversion.Scope) error {
 	out.Audience = in.Audience
-	if err := metav1.Convert_int64_To_Pointer_int64(&in.ExpirationSeconds, &out.ExpirationSeconds, s); err != nil {
-		return err
-	}
+	out.ExpirationSeconds = (*int64)(unsafe.Pointer(in.ExpirationSeconds))
 	out.Path = in.Path
 	return nil
 }
@@ -9207,15 +9163,7 @@ func autoConvert_v1_VolumeProjection_To_core_VolumeProjection(in *corev1.VolumeP
 	out.Secret = (*core.SecretProjection)(unsafe.Pointer(in.Secret))
 	out.DownwardAPI = (*core.DownwardAPIProjection)(unsafe.Pointer(in.DownwardAPI))
 	out.ConfigMap = (*core.ConfigMapProjection)(unsafe.Pointer(in.ConfigMap))
-	if in.ServiceAccountToken != nil {
-		in, out := &in.ServiceAccountToken, &out.ServiceAccountToken
-		*out = new(core.ServiceAccountTokenProjection)
-		if err := Convert_v1_ServiceAccountTokenProjection_To_core_ServiceAccountTokenProjection(*in, *out, s); err != nil {
-			return err
-		}
-	} else {
-		out.ServiceAccountToken = nil
-	}
+	out.ServiceAccountToken = (*core.ServiceAccountTokenProjection)(unsafe.Pointer(in.ServiceAccountToken))
 	out.ClusterTrustBundle = (*core.ClusterTrustBundleProjection)(unsafe.Pointer(in.ClusterTrustBundle))
 	out.PodCertificate = (*core.PodCertificateProjection)(unsafe.Pointer(in.PodCertificate))
 	return nil
@@ -9230,15 +9178,7 @@ func autoConvert_core_VolumeProjection_To_v1_VolumeProjection(in *core.VolumePro
 	out.Secret = (*corev1.SecretProjection)(unsafe.Pointer(in.Secret))
 	out.DownwardAPI = (*corev1.DownwardAPIProjection)(unsafe.Pointer(in.DownwardAPI))
 	out.ConfigMap = (*corev1.ConfigMapProjection)(unsafe.Pointer(in.ConfigMap))
-	if in.ServiceAccountToken != nil {
-		in, out := &in.ServiceAccountToken, &out.ServiceAccountToken
-		*out = new(corev1.ServiceAccountTokenProjection)
-		if err := Convert_core_ServiceAccountTokenProjection_To_v1_ServiceAccountTokenProjection(*in, *out, s); err != nil {
-			return err
-		}
-	} else {
-		out.ServiceAccountToken = nil
-	}
+	out.ServiceAccountToken = (*corev1.ServiceAccountTokenProjection)(unsafe.Pointer(in.ServiceAccountToken))
 	out.ClusterTrustBundle = (*corev1.ClusterTrustBundleProjection)(unsafe.Pointer(in.ClusterTrustBundle))
 	out.PodCertificate = (*corev1.PodCertificateProjection)(unsafe.Pointer(in.PodCertificate))
 	return nil
@@ -9295,15 +9235,7 @@ func autoConvert_v1_VolumeSource_To_core_VolumeSource(in *corev1.VolumeSource, o
 	out.Quobyte = (*core.QuobyteVolumeSource)(unsafe.Pointer(in.Quobyte))
 	out.AzureDisk = (*core.AzureDiskVolumeSource)(unsafe.Pointer(in.AzureDisk))
 	out.PhotonPersistentDisk = (*core.PhotonPersistentDiskVolumeSource)(unsafe.Pointer(in.PhotonPersistentDisk))
-	if in.Projected != nil {
-		in, out := &in.Projected, &out.Projected
-		*out = new(core.ProjectedVolumeSource)
-		if err := Convert_v1_ProjectedVolumeSource_To_core_ProjectedVolumeSource(*in, *out, s); err != nil {
-			return err
-		}
-	} else {
-		out.Projected = nil
-	}
+	out.Projected = (*core.ProjectedVolumeSource)(unsafe.Pointer(in.Projected))
 	out.PortworxVolume = (*core.PortworxVolumeSource)(unsafe.Pointer(in.PortworxVolume))
 	out.ScaleIO = (*core.ScaleIOVolumeSource)(unsafe.Pointer(in.ScaleIO))
 	out.StorageOS = (*core.StorageOSVolumeSource)(unsafe.Pointer(in.StorageOS))
@@ -9330,7 +9262,6 @@ func autoConvert_core_VolumeSource_To_v1_VolumeSource(in *core.VolumeSource, out
 	out.Glusterfs = (*corev1.GlusterfsVolumeSource)(unsafe.Pointer(in.Glusterfs))
 	out.PersistentVolumeClaim = (*corev1.PersistentVolumeClaimVolumeSource)(unsafe.Pointer(in.PersistentVolumeClaim))
 	out.RBD = (*corev1.RBDVolumeSource)(unsafe.Pointer(in.RBD))
-	out.Quobyte = (*corev1.QuobyteVolumeSource)(unsafe.Pointer(in.Quobyte))
 	out.FlexVolume = (*corev1.FlexVolumeSource)(unsafe.Pointer(in.FlexVolume))
 	out.Cinder = (*corev1.CinderVolumeSource)(unsafe.Pointer(in.Cinder))
 	out.CephFS = (*corev1.CephFSVolumeSource)(unsafe.Pointer(in.CephFS))
@@ -9340,17 +9271,10 @@ func autoConvert_core_VolumeSource_To_v1_VolumeSource(in *core.VolumeSource, out
 	out.AzureFile = (*corev1.AzureFileVolumeSource)(unsafe.Pointer(in.AzureFile))
 	out.ConfigMap = (*corev1.ConfigMapVolumeSource)(unsafe.Pointer(in.ConfigMap))
 	out.VsphereVolume = (*corev1.VsphereVirtualDiskVolumeSource)(unsafe.Pointer(in.VsphereVolume))
+	out.Quobyte = (*corev1.QuobyteVolumeSource)(unsafe.Pointer(in.Quobyte))
 	out.AzureDisk = (*corev1.AzureDiskVolumeSource)(unsafe.Pointer(in.AzureDisk))
 	out.PhotonPersistentDisk = (*corev1.PhotonPersistentDiskVolumeSource)(unsafe.Pointer(in.PhotonPersistentDisk))
-	if in.Projected != nil {
-		in, out := &in.Projected, &out.Projected
-		*out = new(corev1.ProjectedVolumeSource)
-		if err := Convert_core_ProjectedVolumeSource_To_v1_ProjectedVolumeSource(*in, *out, s); err != nil {
-			return err
-		}
-	} else {
-		out.Projected = nil
-	}
+	out.Projected = (*corev1.ProjectedVolumeSource)(unsafe.Pointer(in.Projected))
 	out.PortworxVolume = (*corev1.PortworxVolumeSource)(unsafe.Pointer(in.PortworxVolume))
 	out.ScaleIO = (*corev1.ScaleIOVolumeSource)(unsafe.Pointer(in.ScaleIO))
 	out.StorageOS = (*corev1.StorageOSVolumeSource)(unsafe.Pointer(in.StorageOS))
