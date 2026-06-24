@@ -20,8 +20,6 @@ import (
 	"fmt"
 	"reflect"
 
-	"k8s.io/utils/ptr"
-
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/conversion"
@@ -255,44 +253,6 @@ func Convert_v1_PodTemplateSpec_To_core_PodTemplateSpec(in *v1.PodTemplateSpec, 
 	return nil
 }
 
-func Convert_v1_PodStatus_To_core_PodStatus(in *v1.PodStatus, out *core.PodStatus, s conversion.Scope) error {
-	if err := autoConvert_v1_PodStatus_To_core_PodStatus(in, out, s); err != nil {
-		return err
-	}
-
-	// If both fields (v1.PodIPs and v1.PodIP) are provided and differ, then PodIP is authoritative for compatibility with older kubelets
-	if (len(in.PodIP) > 0 && len(in.PodIPs) > 0) && (in.PodIP != in.PodIPs[0].IP) {
-		out.PodIPs = []core.PodIP{
-			{
-				IP: in.PodIP,
-			},
-		}
-	}
-	// at the this point, autoConvert copied v1.PodIPs -> core.PodIPs
-	// if v1.PodIPs was empty but v1.PodIP is not, then set core.PodIPs[0] with v1.PodIP
-	if len(in.PodIP) > 0 && len(in.PodIPs) == 0 {
-		out.PodIPs = []core.PodIP{
-			{
-				IP: in.PodIP,
-			},
-		}
-	}
-	return nil
-}
-
-func Convert_core_PodStatus_To_v1_PodStatus(in *core.PodStatus, out *v1.PodStatus, s conversion.Scope) error {
-	if err := autoConvert_core_PodStatus_To_v1_PodStatus(in, out, s); err != nil {
-		return err
-	}
-	// at the this point autoConvert copied core.PodIPs -> v1.PodIPs
-	//  v1.PodIP (singular value field, which does not exist in core) needs to
-	// be set with core.PodIPs[0]
-	if len(in.PodIPs) > 0 {
-		out.PodIP = in.PodIPs[0].IP
-	}
-	return nil
-}
-
 func Convert_core_NodeSpec_To_v1_NodeSpec(in *core.NodeSpec, out *v1.NodeSpec, s conversion.Scope) error {
 	if err := autoConvert_core_NodeSpec_To_v1_NodeSpec(in, out, s); err != nil {
 		return err
@@ -330,12 +290,6 @@ func Convert_v1_Pod_To_core_Pod(in *v1.Pod, out *core.Pod, s conversion.Scope) e
 
 	// drop init container annotations so they don't show up as differences when receiving requests from old clients
 	out.Annotations = dropInitContainerAnnotations(out.Annotations)
-
-	// Forcing the value of TerminationGracePeriodSeconds to 1 if it is negative.
-	// Just for Pod, not for PodSpec, because we don't want to change the behavior of the PodTemplate.
-	if in.Spec.TerminationGracePeriodSeconds != nil && *in.Spec.TerminationGracePeriodSeconds < 0 {
-		out.Spec.TerminationGracePeriodSeconds = ptr.To[int64](1)
-	}
 	return nil
 }
 
@@ -347,12 +301,6 @@ func Convert_core_Pod_To_v1_Pod(in *core.Pod, out *v1.Pod, s conversion.Scope) e
 	// drop init container annotations so they don't take effect on legacy kubelets.
 	// remove this once the oldest supported kubelet no longer honors the annotations over the field.
 	out.Annotations = dropInitContainerAnnotations(out.Annotations)
-
-	// Forcing the value of TerminationGracePeriodSeconds to 1 if it is negative.
-	// Just for Pod, not for PodSpec, because we don't want to change the behavior of the PodTemplate.
-	if in.Spec.TerminationGracePeriodSeconds != nil && *in.Spec.TerminationGracePeriodSeconds < 0 {
-		out.Spec.TerminationGracePeriodSeconds = ptr.To[int64](1)
-	}
 	return nil
 }
 

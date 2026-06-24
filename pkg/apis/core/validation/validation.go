@@ -4533,6 +4533,10 @@ func validatePodMetadataAndSpec(pod *core.Pod, opts PodValidationOptions) field.
 		}
 	}
 
+	if pod.Spec.TerminationGracePeriodSeconds != nil {
+		allErrs = append(allErrs, ValidateNonnegativeField(*pod.Spec.TerminationGracePeriodSeconds, specPath.Child("terminationGracePeriodSeconds"))...)
+	}
+
 	allErrs = append(allErrs, validateContainersOnlyForPod(pod.Spec.Containers, specPath.Child("containers"))...)
 	allErrs = append(allErrs, validateContainersOnlyForPod(pod.Spec.InitContainers, specPath.Child("initContainers"))...)
 	// validateContainersOnlyForPod() is checked for ephemeral containers by validateEphemeralContainers()
@@ -4574,6 +4578,16 @@ func validatePodIPs(pod, oldPod *core.Pod) field.ErrorList {
 		if !dualStack || len(podIPs) > 2 {
 			allErrs = append(allErrs, field.Invalid(podIPsField, pod.Status.PodIPs, "may specify no more than one IP for each IP family"))
 		}
+	}
+
+	// As an additional layer of safety, ensure podIP matches podIPs[0].IP.
+	hasPodIP := len(pod.Status.PodIP) > 0
+	hasPodIPs := len(pod.Status.PodIPs) > 0
+	switch {
+	case hasPodIP != hasPodIPs:
+		allErrs = append(allErrs, field.Invalid(podIPsField, pod.Status.PodIPs, "podIP and podIPs must either both be set or both be unset"))
+	case hasPodIPs && pod.Status.PodIP != pod.Status.PodIPs[0].IP:
+		allErrs = append(allErrs, field.Invalid(podIPsField.Index(0).Child("ip"), pod.Status.PodIPs[0].IP, "must be equal to `podIP`"))
 	}
 
 	return allErrs
@@ -4676,6 +4690,9 @@ func ValidatePodSpec(spec *core.PodSpec, podMeta *metav1.ObjectMeta, fldPath *fi
 		for _, msg := range ValidateServiceAccountName(spec.ServiceAccountName, false) {
 			allErrs = append(allErrs, field.Invalid(fldPath.Child("serviceAccountName"), spec.ServiceAccountName, msg))
 		}
+	}
+	if deprecatedServiceAccount := spec.DeprecatedServiceAccount; deprecatedServiceAccount != spec.ServiceAccountName { //nolint:staticcheck // SA1019 enforce the deprecated field stays in sync
+		allErrs = append(allErrs, field.Invalid(fldPath.Child("deprecatedServiceAccount"), deprecatedServiceAccount, fmt.Sprintf("must be the same as serviceAccountName: %q", spec.ServiceAccountName)))
 	}
 
 	if len(spec.NodeName) > 0 {
