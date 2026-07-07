@@ -4057,8 +4057,7 @@ func setup(tCtx ktesting.TContext, args *config.DynamicResourcesArgs, nodes []*v
 	resourceSliceTrackerOpts := resourceslicetracker.Options{
 		EnableDeviceTaintRules: true,
 		SliceInformer:          tc.informerFactory.Resource().V1().ResourceSlices(),
-		TaintInformer:          tc.informerFactory.Resource().V1beta2().DeviceTaintRules(),
-		ClassInformer:          tc.informerFactory.Resource().V1().DeviceClasses(),
+		TaintInformer:          tc.informerFactory.Resource().V1().DeviceTaintRules(),
 		KubeClient:             tc.client,
 	}
 	resourceSliceTracker, err := resourceslicetracker.StartTracker(tCtx, resourceSliceTrackerOpts)
