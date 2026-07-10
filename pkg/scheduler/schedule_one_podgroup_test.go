@@ -31,6 +31,7 @@ import (
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/wait"
 	utilfeature "k8s.io/apiserver/pkg/util/feature"
@@ -71,7 +72,7 @@ type fakePodGroupPlugin struct {
 
 var _ fwk.FilterPlugin = &fakePodGroupPlugin{}
 var _ fwk.PostFilterPlugin = &fakePodGroupPlugin{}
-var _ framework.PodGroupPostFilterPlugin = &fakePodGroupPlugin{}
+var _ fwk.PodGroupPostFilterPlugin = &fakePodGroupPlugin{}
 
 func (mp *fakePodGroupPlugin) Name() string { return "FakePodGroupPlugin" }
 
@@ -94,7 +95,7 @@ func (mp *fakePodGroupPlugin) Permit(ctx context.Context, state fwk.CycleState, 
 	return fwk.NewStatus(fwk.Error, "unexpected call to permit"), 0
 }
 
-func (mp *fakePodGroupPlugin) PodGroupPostFilter(ctx context.Context, pgInfo fwk.PodGroupInfo, pgSchedulingFunc framework.PodGroupSchedulingFunc) (*framework.PodGroupPostFilterResult, *fwk.Status) {
+func (mp *fakePodGroupPlugin) PodGroupPostFilter(ctx context.Context, state fwk.PodGroupCycleState, pgInfo fwk.PodGroupInfo, pgSchedulingFunc fwk.PodGroupSchedulingFunc) (*fwk.PodGroupPostFilterResult, *fwk.Status) {
 	mp.podGroupPostFilterCalled = true
 	if mp.podGroupPostFilterStatus == nil {
 		return nil, fwk.NewStatus(fwk.Unschedulable, "default fake podgroup postfilter failure")
@@ -103,22 +104,13 @@ func (mp *fakePodGroupPlugin) PodGroupPostFilter(ctx context.Context, pgInfo fwk
 		return nil, mp.podGroupPostFilterStatus
 	}
 	pods := pgInfo.GetUnscheduledPods()
-	n := make(map[*v1.Pod]*fwk.NominatingInfo, len(pods))
+	n := make(map[types.NamespacedName]*fwk.NominatingInfo, len(pods))
 	for _, passedPod := range pods {
-		n[passedPod] = mp.podGroupPostFilterResult[passedPod.Name]
+		namespacedName := types.NamespacedName{Namespace: passedPod.Namespace, Name: passedPod.Name}
+		n[namespacedName] = mp.podGroupPostFilterResult[passedPod.Name]
 	}
-	return &framework.PodGroupPostFilterResult{NominatedNodeNames: n}, mp.podGroupPostFilterStatus
+	return &fwk.PodGroupPostFilterResult{NominatingInfos: n}, mp.podGroupPostFilterStatus
 }
-
-type fakePlacementFeasibleState struct {
-	podCount int
-}
-
-func (s *fakePlacementFeasibleState) Clone() fwk.StateData {
-	return &fakePlacementFeasibleState{podCount: s.podCount}
-}
-
-const fakePlacementFeasibleStateKey fwk.StateKey = "fakePlacementFeasibleState"
 
 type fakePlacementFeasiblePlugin struct {
 	placementFeasibleStatuses [][]fwk.Code
@@ -138,29 +130,17 @@ func (mp *fakePlacementFeasiblePlugin) Name() string {
 // The mock uses a 2D slice (placementFeasibleStatuses) where:
 // - The outer slice represents distinct placements (e.g., when evaluating multiple topology placements).
 // - The inner slice represents the pod-by-pod evaluation within a single placement.
-// It uses placementCycleState to track how many pods have been evaluated in the current placement.
-func (mp *fakePlacementFeasiblePlugin) PlacementFeasible(ctx context.Context, placementCycleState fwk.PlacementCycleState, podGroupInfo fwk.PodGroupInfo) *fwk.Status {
+func (mp *fakePlacementFeasiblePlugin) PlacementFeasible(ctx context.Context, placementCycleState fwk.PlacementCycleState, podGroupInfo fwk.PodGroupInfo, args framework.PlacementFeasibleArgs) *fwk.Status {
 	// If no mock statuses are configured, always succeed.
 	if len(mp.placementFeasibleStatuses) == 0 {
 		return nil
 	}
 
-	// Each placement gets a new placementCycleState. Check if this state has been initialized.
-	stateData, err := placementCycleState.Read(fakePlacementFeasibleStateKey)
-	if err != nil {
-		// We haven't considered this placement before (this is the first pod evaluated in this placement).
-		// Initialize the state and increment the placement count.
-		stateData = &fakePlacementFeasibleState{podCount: 0}
-		placementCycleState.Write(fakePlacementFeasibleStateKey, stateData)
+	if args.Evaluated == 0 {
 		mp.placementCount++
 	}
 
-	// Increment the count of pods evaluated for the current placement attempt.
-	state := stateData.(*fakePlacementFeasibleState)
-	state.podCount++
-
 	placementIndex := mp.placementCount - 1
-	podIndex := state.podCount - 1
 
 	// Ensure the indices are within the bounds of the injected statuses.
 	if placementIndex < len(mp.placementFeasibleStatuses) {
@@ -168,8 +148,8 @@ func (mp *fakePlacementFeasiblePlugin) PlacementFeasible(ctx context.Context, pl
 		if len(mp.placementFeasibleStatuses[placementIndex]) == 0 {
 			return nil
 		}
-		if podIndex < len(mp.placementFeasibleStatuses[placementIndex]) {
-			code := mp.placementFeasibleStatuses[placementIndex][podIndex]
+		if args.Evaluated < len(mp.placementFeasibleStatuses[placementIndex]) {
+			code := mp.placementFeasibleStatuses[placementIndex][args.Evaluated]
 			if code == fwk.Success {
 				return nil
 			}
@@ -185,11 +165,12 @@ func (mp *fakePlacementFeasiblePlugin) Permit(ctx context.Context, state fwk.Cyc
 
 func TestValidatePodGroup(t *testing.T) {
 	tests := []struct {
-		name        string
-		podGroup    *schedulingv1alpha3.PodGroup
-		pods        []*v1.Pod
-		profiles    profile.Map
-		expectError bool
+		name          string
+		podGroup      *schedulingv1alpha3.PodGroup
+		scheduledPods []*v1.Pod
+		pods          []*v1.Pod
+		profiles      profile.Map
+		expectError   bool
 	}{
 		{
 			name:     "failure when no pods to evaluate",
@@ -273,6 +254,48 @@ func TestValidatePodGroup(t *testing.T) {
 			},
 			expectError: true,
 		},
+		{
+			name:     "success when new pods match scheduled pods scheduler name and priority",
+			podGroup: st.MakePodGroup().Name("pg").Priority(10).Obj(),
+			scheduledPods: []*v1.Pod{
+				st.MakePod().Name("p2").UID("p2").PodGroupName("pg").Priority(10).SchedulerName("sched1").Node("node1").Obj(),
+			},
+			pods: []*v1.Pod{
+				st.MakePod().Name("p1").UID("p1").PodGroupName("pg").Priority(10).SchedulerName("sched1").Obj(),
+			},
+			profiles: profile.Map{
+				"sched1": nil,
+			},
+			expectError: false,
+		},
+		{
+			name:     "failure when new pod has different scheduler name than scheduled pod",
+			podGroup: st.MakePodGroup().Name("pg").Priority(10).Obj(),
+			scheduledPods: []*v1.Pod{
+				st.MakePod().Name("p2").UID("p2").PodGroupName("pg").Priority(10).SchedulerName("sched2").Node("node1").Obj(),
+			},
+			pods: []*v1.Pod{
+				st.MakePod().Name("p1").UID("p1").PodGroupName("pg").Priority(10).SchedulerName("sched1").Obj(),
+			},
+			profiles: profile.Map{
+				"sched1": nil,
+			},
+			expectError: true,
+		},
+		{
+			name:     "failure when new pod has different priority than scheduled pod",
+			podGroup: st.MakePodGroup().Name("pg").Priority(10).Obj(),
+			scheduledPods: []*v1.Pod{
+				st.MakePod().Name("p2").UID("p2").PodGroupName("pg").Priority(9).SchedulerName("sched1").Node("node1").Obj(),
+			},
+			pods: []*v1.Pod{
+				st.MakePod().Name("p1").UID("p1").PodGroupName("pg").Priority(10).SchedulerName("sched1").Obj(),
+			},
+			profiles: profile.Map{
+				"sched1": nil,
+			},
+			expectError: true,
+		},
 	}
 
 	for _, tt := range tests {
@@ -280,7 +303,11 @@ func TestValidatePodGroup(t *testing.T) {
 			featuregatetesting.SetFeatureGatesDuringTest(t, utilfeature.DefaultFeatureGate, featuregatetesting.FeatureOverrides{
 				features.GenericWorkload: true,
 			})
-			sched := &Scheduler{Profiles: tt.profiles}
+			snapshot := internalcache.NewTestSnapshotWithPodGroups(tt.scheduledPods, nil, []*schedulingv1alpha3.PodGroup{tt.podGroup})
+			sched := &Scheduler{
+				Profiles:         tt.profiles,
+				nodeInfoSnapshot: snapshot,
+			}
 
 			podGroupInfo := &framework.QueuedPodGroupInfo{
 				PodGroupInfo: &framework.PodGroupInfo{
@@ -662,6 +689,11 @@ func TestPodGroupCycle_PodGroupPostFilter(t *testing.T) {
 				}
 			}
 
+			var pgPostFilterPlugins []config.Plugin
+			if tt.postFilterPlugin == "DefaultPreemption" {
+				pgPostFilterPlugins = []config.Plugin{{Name: "DefaultPreemption"}}
+			}
+
 			profileCfg := config.KubeSchedulerProfile{
 				SchedulerName: "test-scheduler",
 				Plugins: &config.Plugins{
@@ -676,6 +708,9 @@ func TestPodGroupCycle_PodGroupPostFilter(t *testing.T) {
 					},
 					PostFilter: config.PluginSet{
 						Enabled: []config.Plugin{{Name: tt.postFilterPlugin}},
+					},
+					PodGroupPostFilter: config.PluginSet{
+						Enabled: pgPostFilterPlugins,
 					},
 				},
 			}
@@ -771,6 +806,28 @@ func TestPodGroupSchedulingAlgorithm(t *testing.T) {
 			},
 		},
 		{
+			name: "All pods feasible, podGroup already meeting quorum before any pod is evaluated",
+			plugin: &fakePodGroupPlugin{
+				filterStatus: map[string]*fwk.Status{
+					"p1": nil,
+					"p2": nil,
+					"p3": nil,
+				},
+			},
+			podGroupFeasibleStatuses: []fwk.Code{
+				fwk.Success,
+				fwk.Success,
+				fwk.Success,
+				fwk.Success,
+			},
+			expectedGroupStatusCode: fwk.Success,
+			expectedPodStatus: map[string]*fwk.Status{
+				"p1": nil,
+				"p2": nil,
+				"p3": nil,
+			},
+		},
+		{
 			name: "All pods feasible, podGroup schedulable with 3 schedulable pods",
 			plugin: &fakePodGroupPlugin{
 				filterStatus: map[string]*fwk.Status{
@@ -780,6 +837,7 @@ func TestPodGroupSchedulingAlgorithm(t *testing.T) {
 				},
 			},
 			podGroupFeasibleStatuses: []fwk.Code{
+				fwk.Wait,
 				fwk.Wait,
 				fwk.Wait,
 				fwk.Success,
@@ -804,6 +862,7 @@ func TestPodGroupSchedulingAlgorithm(t *testing.T) {
 				fwk.Wait,
 				fwk.Wait,
 				fwk.Wait,
+				fwk.Wait,
 			},
 			expectedGroupStatusCode: fwk.Unschedulable,
 			expectedPodStatus: map[string]*fwk.Status{
@@ -822,6 +881,7 @@ func TestPodGroupSchedulingAlgorithm(t *testing.T) {
 				},
 			},
 			podGroupFeasibleStatuses: []fwk.Code{
+				fwk.Wait,
 				fwk.Unschedulable,
 			},
 			expectedGroupStatusCode: fwk.Unschedulable,
@@ -840,6 +900,7 @@ func TestPodGroupSchedulingAlgorithm(t *testing.T) {
 				},
 			},
 			podGroupFeasibleStatuses: []fwk.Code{
+				fwk.Wait,
 				fwk.Wait,
 				fwk.Unschedulable,
 			},
@@ -901,6 +962,7 @@ func TestPodGroupSchedulingAlgorithm(t *testing.T) {
 			podGroupFeasibleStatuses: []fwk.Code{
 				fwk.Wait,
 				fwk.Wait,
+				fwk.Wait,
 				fwk.Success,
 			},
 			expectedGroupStatusCode:          fwk.Unschedulable,
@@ -960,6 +1022,7 @@ func TestPodGroupSchedulingAlgorithm(t *testing.T) {
 				},
 			},
 			podGroupFeasibleStatuses: []fwk.Code{
+				fwk.Wait,
 				fwk.Success,
 				fwk.Success,
 				fwk.Success,
@@ -997,6 +1060,7 @@ func TestPodGroupSchedulingAlgorithm(t *testing.T) {
 				},
 			},
 			podGroupFeasibleStatuses: []fwk.Code{
+				fwk.Wait,
 				fwk.Success,
 				fwk.Error,
 			},
@@ -1005,6 +1069,40 @@ func TestPodGroupSchedulingAlgorithm(t *testing.T) {
 				"p1": nil,
 				"p2": nil,
 				// The algorithm stopped evaluating the pods after an error occurred, so a "p3" status is not expected.
+			},
+		},
+		{
+			name: "First placementFeasible call returned Unschedulable",
+			plugin: &fakePodGroupPlugin{
+				filterStatus: map[string]*fwk.Status{
+					"p1": nil,
+					"p2": nil,
+					"p3": nil,
+				},
+			},
+			podGroupFeasibleStatuses: []fwk.Code{
+				fwk.Unschedulable,
+			},
+			expectedGroupStatusCode: fwk.Unschedulable,
+			expectedPodStatus:       map[string]*fwk.Status{
+				// The algorithm didn't evaluate any pods whatsoever because the first call to PlacementFeasible Plugin returned Unschedulable.
+			},
+		},
+		{
+			name: "First placementFeasible call returned Error",
+			plugin: &fakePodGroupPlugin{
+				filterStatus: map[string]*fwk.Status{
+					"p1": nil,
+					"p2": nil,
+					"p3": nil,
+				},
+			},
+			podGroupFeasibleStatuses: []fwk.Code{
+				fwk.Error,
+			},
+			expectedGroupStatusCode: fwk.Error,
+			expectedPodStatus:       map[string]*fwk.Status{
+				// The algorithm didn't evaluate any pods whatsoever because the first call to PlacementFeasible Plugin returned Error.
 			},
 		},
 		{
@@ -1039,6 +1137,7 @@ func TestPodGroupSchedulingAlgorithm(t *testing.T) {
 				},
 			},
 			podGroupFeasibleStatuses: []fwk.Code{
+				fwk.Wait,
 				fwk.Success,
 				fwk.Error,
 			},
@@ -2297,8 +2396,8 @@ func TestPodGroupSchedulingPlacementAlgorithm(t *testing.T) {
 				},
 			},
 			placementFeasibleStatuses: [][]fwk.Code{
-				{fwk.Unschedulable},
-				{fwk.Unschedulable},
+				{fwk.Wait, fwk.Unschedulable},
+				{fwk.Wait, fwk.Unschedulable},
 			},
 			expectedResult: podGroupAlgorithmResult{
 				podResults: []algorithmResult{
@@ -2357,8 +2456,8 @@ func TestPodGroupSchedulingPlacementAlgorithm(t *testing.T) {
 				},
 			},
 			placementFeasibleStatuses: [][]fwk.Code{
-				{fwk.Success},       // placement1
-				{fwk.Unschedulable}, // placement2
+				{fwk.Wait, fwk.Success},       // placement1
+				{fwk.Wait, fwk.Unschedulable}, // placement2
 			},
 			expectedResult: podGroupAlgorithmResult{
 				podResults: []algorithmResult{
@@ -2855,7 +2954,7 @@ func TestPodGroupCycle_NominatedNodes(t *testing.T) {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	// Mock PodGroupPostFilter to return NominatedNodeNames
+	// Mock PodGroupPostFilter to return NominatingInfos
 	nominatedNodes := map[string]*fwk.NominatingInfo{
 		p1.Name: {NominatingMode: fwk.ModeOverride, NominatedNodeName: "node1"},
 	}
@@ -2882,6 +2981,9 @@ func TestPodGroupCycle_NominatedNodes(t *testing.T) {
 				Enabled: []config.Plugin{{Name: defaultbinder.Name}},
 			},
 			PostFilter: config.PluginSet{
+				Enabled: []config.Plugin{{Name: "DefaultPreemption"}},
+			},
+			PodGroupPostFilter: config.PluginSet{
 				Enabled: []config.Plugin{{Name: "DefaultPreemption"}},
 			},
 		},
