@@ -498,6 +498,11 @@ type EnqueueExtensions interface {
 // PreFilterExtensions is an interface that is included in plugins that allow specifying
 // callbacks to make incremental updates to its supposedly pre-calculated
 // state.
+// Note: In some contexts (e.g., preemption), the passed NodeInfo might be a shared, non-snapshotted
+// instance (especially for remote nodes affected by cross-node victims). Implementations
+// must treat the nodeInfo parameter as read-only and must NOT mutate it (e.g., by calling
+// RemovePod or AddPodInfo). Additionally, plugins that read NodeInfo directly during Filter
+// (rather than CycleState) will observe stale state for those remote nodes.
 type PreFilterExtensions interface {
 	// AddPod is called by the framework while trying to evaluate the impact
 	// of adding podToAdd to the node while scheduling podToSchedule.
@@ -984,4 +989,12 @@ type PluginsRunner interface {
 	// PreFilter plugins. It returns directly if any of the plugins return any
 	// status other than Success.
 	RunPreFilterExtensionRemovePod(ctx context.Context, state CycleState, podToSchedule *v1.Pod, podInfoToRemove PodInfo, nodeInfo NodeInfo) *Status
+	// RunReservePluginsReserve runs the Reserve method of the set of
+	// configured Reserve plugins. If any of these calls returns an error, it
+	// does not continue running the remaining ones and returns the error. In
+	// such case, pod will not be scheduled.
+	RunReservePluginsReserve(ctx context.Context, state CycleState, pod *v1.Pod, nodeName string) *Status
+	// RunReservePluginsUnreserve runs the Unreserve method of the set of
+	// configured Reserve plugins.
+	RunReservePluginsUnreserve(ctx context.Context, state CycleState, pod *v1.Pod, nodeName string)
 }
