@@ -357,6 +357,12 @@ func (m *Manager) prepareResources(ctx context.Context, pod *v1.Pod) error {
 				if claimInfo.ClaimUID != resourceClaim.UID {
 					return fmt.Errorf("old ResourceClaim with same name %s and different UID %s still exists (previous pod force-deleted?!)", resourceClaim.Name, claimInfo.ClaimUID)
 				}
+				// Reject attaching a new pod to a claim if unprepareResources
+				// has already started as cache entry will be deleted when resources
+				// are fully unprepared.
+				if claimInfo.isUnpreparing() {
+					return fmt.Errorf("ResourceClaim %s is being unprepared", resourceClaim.Name)
+				}
 				logger.V(6).Info("Found existing claim info cache entry", "podClaim", podClaim.Name, "claim", klog.KObj(resourceClaim), "claimInfoEntry", claimInfo)
 			}
 
@@ -422,12 +428,19 @@ func (m *Manager) prepareResources(ctx context.Context, pod *v1.Pod) error {
 
 			claim := resourceClaims[types.UID(claimUID)]
 
-			// Add the prepared CDI devices to the claim info
+			// Add the prepared CDI devices to the claim info. The
+			// driver's response is authoritative for this (claim, driver)
+			// pair, so drop any previously appended devices before
+			// rebuilding the list. Otherwise a retry of a prepare that
+			// had partially succeeded (this driver appended devices,
+			// another driver in the batch failed, setPrepared was
+			// skipped) would end up with the devices duplicated.
 			err := m.cache.withLock(logger, func() error {
 				info, exists := m.cache.get(claim.Name, claim.Namespace)
 				if !exists {
 					return fmt.Errorf("internal error: unable to get claim info for ResourceClaim %s in namespace %s", claim.Name, claim.Namespace)
 				}
+				info.resetDevices(plugin.DriverName())
 				for _, device := range result.GetDevices() {
 					info.addDevice(plugin.DriverName(), state.Device{PoolName: device.PoolName,
 						DeviceName: device.DeviceName, ShareID: (*types.UID)(device.ShareId),
@@ -671,6 +684,14 @@ func (m *Manager) unprepareResources(ctx context.Context, podUID types.UID, name
 			// This claimInfo name will be used to update ClaimInfo cache
 			// after NodeUnprepareResources GRPC succeeds
 			claimNamesMap[claimInfo.ClaimUID] = claimInfo.ClaimName
+
+			// Mark the claim as being unprepared while we hold the cache
+			// lock. NodeUnprepareResources runs below without the lock
+			// held; any concurrent prepareResources for a different pod
+			// that finds this entry must refuse to attach itself, since
+			// the resources are being unprepared and the cache entry
+			// will be deleted on completion.
+			claimInfo.setUnpreparing()
 
 			// Loop through all drivers and prepare for calling NodeUnprepareResources.
 			claim := &drapb.Claim{

@@ -1037,6 +1037,35 @@ dra_operations_duration_seconds_count{is_error="false",operation_name="PrepareRe
 `,
 		},
 		{
+			// Regression test: if a previous PrepareResources attempt
+			// appended devices to the cached ClaimInfo but returned before
+			// reaching setPrepared (e.g. a driver in the same batch failed),
+			// a retry must not duplicate those devices in the cache. The
+			// seeded ClaimInfo mimics that leftover state: prepared=false,
+			// DriverState already populated with the device the fake driver
+			// will return on retry. After the retry, DriverState must
+			// contain exactly one device, not two.
+			description:            "should not duplicate devices on prepare retry",
+			driverName:             driverName,
+			pod:                    genTestPod(),
+			claim:                  genTestClaim(claimName, driverName, deviceName, podUID),
+			claimInfo:              genTestClaimInfo(claimUID, []string{podUID}, false, nil),
+			resp:                   genPrepareResourcesResponse(claimUID),
+			expectedClaimInfoState: genClaimInfoState(cdiID),
+			expectedPrepareCalls:   1,
+			expectedMetric: `# HELP dra_grpc_operations_duration_seconds [ALPHA] Duration in seconds of the DRA gRPC operations
+# TYPE dra_grpc_operations_duration_seconds histogram
+dra_grpc_operations_duration_seconds_bucket{driver_name="test-driver",grpc_status_code="OK",method_name="/k8s.io.kubelet.pkg.apis.dra.v1.DRAPlugin/NodePrepareResources",le="+Inf"} 1
+dra_grpc_operations_duration_seconds_sum{driver_name="test-driver",grpc_status_code="OK",method_name="/k8s.io.kubelet.pkg.apis.dra.v1.DRAPlugin/NodePrepareResources"} 0
+dra_grpc_operations_duration_seconds_count{driver_name="test-driver",grpc_status_code="OK",method_name="/k8s.io.kubelet.pkg.apis.dra.v1.DRAPlugin/NodePrepareResources"} 1
+# HELP dra_operations_duration_seconds [ALPHA] Latency histogram in seconds for the duration of handling all ResourceClaims referenced by a pod when the pod starts or stops. Identified by the name of the operation (PrepareResources or UnprepareResources) and separated by the success of the operation. The number of failed operations is provided through the histogram's overall count.
+# TYPE dra_operations_duration_seconds histogram
+dra_operations_duration_seconds_bucket{is_error="false",operation_name="PrepareResources",le="+Inf"} 1
+dra_operations_duration_seconds_sum{is_error="false",operation_name="PrepareResources"} 0
+dra_operations_duration_seconds_count{is_error="false",operation_name="PrepareResources"} 1
+`,
+		},
+		{
 			description:          "should timeout",
 			driverName:           driverName,
 			pod:                  genTestPod(),
@@ -1362,6 +1391,59 @@ func TestPrepareResourcesWithPreparedAndNewClaim(t *testing.T) {
 		require.True(t, exists, "claim %s should exist in cache", claimName)
 		assert.True(t, claimInfo.prepared, "claim %s should be marked as prepared", claimName)
 	}
+}
+
+// TestPrepareResourcesWithUnpreparingClaim is a regression test for the race
+// where reconcileLoop-initiated (or otherwise concurrent) unprepareResources
+// has committed to calling NodeUnprepareResources on a claim, released the
+// cache lock during the RPC, and prepareResources for a different pod would
+// otherwise attach itself to the still-cached-but-being-torn-down claim.
+// PrepareResources must refuse to touch a claim marked as unpreparing.
+func TestPrepareResourcesWithUnpreparingClaim(t *testing.T) {
+	logger, tCtx := ktesting.NewTestContext(t)
+	fakeKubeClient := fake.NewClientset()
+
+	manager, err := NewManager(logger, fakeKubeClient, t.TempDir())
+	require.NoError(t, err)
+	manager.initDRAPluginManager(tCtx, getFakeNode, time.Second)
+
+	pod := genTestPod()
+	claim := genTestClaim(claimName, driverName, deviceName, podUID)
+	_, err = fakeKubeClient.ResourceV1().ResourceClaims(namespace).Create(tCtx, claim, metav1.CreateOptions{})
+	require.NoError(t, err)
+
+	draServerInfo, err := setupFakeDRADriverGRPCServer(tCtx, false, nil, genPrepareResourcesResponse(claim.UID), nil, nil)
+	require.NoError(t, err)
+	defer draServerInfo.teardownFn()
+
+	plg := manager.GetWatcherHandler()
+	require.NoError(t, plg.RegisterPlugin(tCtx, driverName, draServerInfo.socketName, []string{drapb.DRAPluginService}, nil))
+
+	// Seed the cache with a claimInfo that is fully prepared for another
+	// pod and marked as unpreparing (mimicking the state after
+	// unprepareResources has committed to calling NodeUnprepareResources
+	// but before the terminal cache delete). The other pod is still
+	// referenced so we can also check its reference survives.
+	existing := genTestClaimInfo(claimUID, []string{"another-pod-uid"}, true, nil)
+	existing.setUnpreparing()
+	manager.cache.add(existing)
+
+	err = manager.PrepareResources(tCtx, pod)
+	require.Error(t, err, "PrepareResources must fail while the claim is being unprepared")
+
+	assert.Equal(t, uint32(0), draServerInfo.server.prepareResourceCalls.Load(),
+		"driver must not be called while the claim is being unprepared")
+
+	// The seeded claimInfo must be untouched: no new pod reference, still
+	// unpreparing, still prepared, other pod's reference intact.
+	cached, ok := manager.cache.get(claimName, namespace)
+	require.True(t, ok, "claim info must still be in the cache")
+	assert.False(t, cached.PodUIDs.Has(string(pod.UID)),
+		"failing PrepareResources must not have added this pod to PodUIDs")
+	assert.True(t, cached.PodUIDs.Has("another-pod-uid"),
+		"other pod's reference must survive")
+	assert.True(t, cached.isUnpreparing(),
+		"unpreparing flag must still be set")
 }
 
 func TestUnprepareResources(t *testing.T) {

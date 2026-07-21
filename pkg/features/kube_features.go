@@ -486,6 +486,12 @@ const (
 	// Allow in-place pod resize of running non-sidecar init containers.
 	InPlacePodVerticalScalingInitContainers featuregate.Feature = "InPlacePodVerticalScalingInitContainers"
 
+	// owner: @natasha41575
+	// kep: https://kep.k8s.io/5836
+	//
+	// Enables scheduler-triggered preemption for deferred in-place pod vertical scaling pods.
+	InPlacePodVerticalScalingSchedulerPreemption featuregate.Feature = "InPlacePodVerticalScalingSchedulerPreemption"
+
 	// owner: @mimowo
 	// kep: https://kep.k8s.io/4368
 	//
@@ -1374,6 +1380,7 @@ var defaultVersionedKubernetesFeatureGates = map[featuregate.Feature]featuregate
 	DRAResourceClaimDeviceStatus: {
 		{Version: version.MustParse("1.32"), Default: false, PreRelease: featuregate.Alpha},
 		{Version: version.MustParse("1.33"), Default: true, PreRelease: featuregate.Beta},
+		{Version: version.MustParse("1.37"), Default: true, PreRelease: featuregate.GA, LockToDefault: true}, // remove in 1.40
 	},
 
 	DRAResourceClaimGranularStatusAuthorization: {
@@ -1534,6 +1541,11 @@ var defaultVersionedKubernetesFeatureGates = map[featuregate.Feature]featuregate
 
 	InPlacePodVerticalScalingInitContainers: {
 		{Version: version.MustParse("1.36"), Default: true, PreRelease: featuregate.Beta},
+		{Version: version.MustParse("1.37"), Default: true, PreRelease: featuregate.GA, LockToDefault: true}, // remove in 1.40
+	},
+
+	InPlacePodVerticalScalingSchedulerPreemption: {
+		{Version: version.MustParse("1.37"), Default: false, PreRelease: featuregate.Alpha},
 	},
 
 	JobManagedBy: {
@@ -2437,6 +2449,8 @@ var defaultKubernetesFeatureGateDependencies = map[featuregate.Feature][]feature
 	InPlacePodVerticalScalingExclusiveMemory: {InPlacePodVerticalScaling},
 
 	InPlacePodVerticalScalingInitContainers: {InPlacePodVerticalScaling, NodeDeclaredFeatures},
+
+	InPlacePodVerticalScalingSchedulerPreemption: {InPlacePodVerticalScaling},
 
 	JobManagedBy: {},
 
