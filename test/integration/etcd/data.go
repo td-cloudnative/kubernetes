@@ -293,6 +293,14 @@ func GetEtcdStorageDataForNamespaceServedAt(namespace string, v string, isEmulat
 			IntroducedVersion: "1.35",
 			RemovedVersion:    "1.39",
 		},
+		gvr("certificates.k8s.io", "v1", "podcertificaterequests"): {
+			Stub:              `{"metadata": {"name": "req-2"}, "spec": {"signerName":"example.com/signer", "podName":"pod-1", "podUID":"pod-uid-1", "serviceAccountName":"sa-1", "serviceAccountUID":"sa-uid-1", "nodeName":"node-1", "nodeUID":"node-uid-1", "maxExpirationSeconds":86400, "stubPKCS10Request":"MIGNMEECAQAwDjEMMAoGA1UEAxMDZm9vMCowBQYDK2VwAyEA33notc99UJwFQmOojmMx5+OHh3eSxnCXPD8y4+3fCOigADAFBgMrZXADQQB201a14Mlk73XPyT7Ff/Ln0SIDL/YO4MIqPDYnpO1pA2s3vyo0H8qkvxo9WMNLeY5MZa2uG3gqZzXjjyWV38QA"}}`,
+			ExpectedEtcdPath:  "/registry/podcertificaterequests/" + namespace + "/req-2",
+			ExpectedGVK:       gvkP("certificates.k8s.io", "v1beta1", "PodCertificateRequest"),
+			StatusStub:        `{"status": {"conditions": [{"type": "Denied", "status":"True", "lastTransitionTime": "2020-01-01T00:00:00Z", "reason": "TestReason", "message": "test message"}]}}`,
+			MutatedStatusStub: `{"status": {"conditions": [{"type": "Denied", "status":"False", "lastTransitionTime": "2020-01-01T00:00:00Z", "reason": "TestReason", "message": "test message"}]}}`,
+			IntroducedVersion: "1.37",
+		},
 		// --
 
 		// k8s.io/kubernetes/pkg/apis/coordination/v1
@@ -602,16 +610,33 @@ func GetEtcdStorageDataForNamespaceServedAt(namespace string, v string, isEmulat
 		},
 		// --
 
+		// k8s.io/kubernetes/pkg/apis/scheduling/v1beta1
+		gvr("scheduling.k8s.io", "v1beta1", "workloads"): {
+			Stub:              `{"metadata": {"name": "w2"}, "spec": {"podGroupTemplates": [{"name": "group1", "schedulingPolicy": {"basic": {}}}]}}`,
+			ExpectedEtcdPath:  "/registry/workloads/" + namespace + "/w2",
+			IntroducedVersion: "1.37",
+			RemovedVersion:    "1.43",
+		},
+		gvr("scheduling.k8s.io", "v1beta1", "podgroups"): {
+			Stub:              `{"metadata": {"name": "pg2"}, "spec": {"workloadRef": {"workloadName": "w", "templateName": "t"}, "schedulingPolicy": {"basic": {}}}}`,
+			ExpectedEtcdPath:  "/registry/podgroups/" + namespace + "/pg2",
+			IntroducedVersion: "1.37",
+			RemovedVersion:    "1.43",
+		},
+		// --
+
 		// k8s.io/kubernetes/pkg/apis/scheduling/v1alpha3
 		gvr("scheduling.k8s.io", "v1alpha3", "workloads"): {
 			Stub:              `{"metadata": {"name": "w1"}, "spec": {"podGroupTemplates": [{"name": "group1", "schedulingPolicy": {"basic": {}}}]}}`,
 			ExpectedEtcdPath:  "/registry/workloads/" + namespace + "/w1",
+			ExpectedGVK:       gvkP("scheduling.k8s.io", "v1beta1", "Workload"),
 			IntroducedVersion: "1.36",
 			RemovedVersion:    "1.42",
 		},
 		gvr("scheduling.k8s.io", "v1alpha3", "podgroups"): {
 			Stub:              `{"metadata": {"name": "pg1"}, "spec": {"workloadRef": {"workloadName": "w", "templateName": "t"}, "schedulingPolicy": {"basic": {}}}}`,
 			ExpectedEtcdPath:  "/registry/podgroups/" + namespace + "/pg1",
+			ExpectedGVK:       gvkP("scheduling.k8s.io", "v1beta1", "PodGroup"),
 			IntroducedVersion: "1.36",
 			RemovedVersion:    "1.42",
 		},

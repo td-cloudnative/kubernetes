@@ -30,7 +30,7 @@ import (
 	resourcealphaapi "k8s.io/api/resource/v1alpha3"
 	resourcev1beta1 "k8s.io/api/resource/v1beta1"
 	resourcev1beta2 "k8s.io/api/resource/v1beta2"
-	schedulingapi "k8s.io/api/scheduling/v1alpha3"
+	schedulingapi "k8s.io/api/scheduling/v1beta1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -212,26 +212,16 @@ func run(tCtx ktesting.TContext, whatRE string) {
 				})
 			},
 		},
-		// This scenario verifies that features which have graduated to GA can
-		// still be explicitly disabled via feature gates.
-		"GA-opt-out": {
-			apis: map[schema.GroupVersion]bool{},
-			features: map[featuregate.Feature]bool{
-				featuregate.Feature("AllBeta"): false,
-				features.DRAPrioritizedList:    false,
-			},
-			f: func(tCtx ktesting.TContext) {
-				runSubTest(tCtx, "PrioritizedList", func(tCtx ktesting.TContext) { testPrioritizedList(tCtx, false) })
-			},
-		},
 		"GA-opt-out-1.36": {
 			version: "1.36",
 			apis:    map[schema.GroupVersion]bool{},
 			features: map[featuregate.Feature]bool{
 				features.DRAResourceClaimDeviceStatus: false,
+				features.DRAPrioritizedList:           false,
 			},
 			f: func(tCtx ktesting.TContext) {
 				runSubTest(tCtx, "ResourceClaimDeviceStatus", func(tCtx ktesting.TContext) { testResourceClaimDeviceStatus(tCtx, false) })
+				runSubTest(tCtx, "PrioritizedList", func(tCtx ktesting.TContext) { testPrioritizedList(tCtx, false) })
 			},
 		},
 		"v1beta1": {
@@ -647,7 +637,7 @@ func (claimController *claimControllerSingleton) start(tCtx ktesting.TContext) {
 		klog.FromContext(claimControllerCtx),
 		claimControllerCtx.Client(),
 		claimController.informerFactory.Core().V1().Pods(),
-		claimController.informerFactory.Scheduling().V1alpha3().PodGroups(),
+		claimController.informerFactory.Scheduling().V1beta1().PodGroups(),
 		claimController.informerFactory.Resource().V1().ResourceClaims(),
 		claimController.informerFactory.Resource().V1().ResourceClaimTemplates(),
 	)
