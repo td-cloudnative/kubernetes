@@ -215,9 +215,7 @@ const (
 	genericPlegRelistPeriod    = time.Second * 1
 	genericPlegRelistThreshold = time.Minute * 3
 
-	// Generic PLEG relist period and threshold when used with Evented PLEG.
-	eventedPlegRelistPeriod     = time.Second * 300
-	eventedPlegRelistThreshold  = time.Minute * 10
+	// Evented PLEG CRI stream retry limit.
 	eventedPlegMaxStreamRetries = 5
 
 	// backOffPeriod is the period to back off when pod syncing results in an
@@ -888,39 +886,20 @@ func NewMainKubelet(ctx context.Context,
 	}
 
 	eventChannel := make(chan *pleg.PodLifecycleEvent, plegChannelCapacity)
+	genericRelistDuration := &pleg.RelistDuration{
+		RelistPeriod:    genericPlegRelistPeriod,
+		RelistThreshold: genericPlegRelistThreshold,
+	}
+	klet.pleg = pleg.NewGenericPLEG(klet.containerRuntime, eventChannel, genericRelistDuration, podCache, clock.RealClock{})
 
 	if utilfeature.DefaultFeatureGate.Enabled(features.EventedPLEG) {
-		// adjust Generic PLEG relisting period and threshold to higher value when Evented PLEG is turned on
-		genericRelistDuration := &pleg.RelistDuration{
-			RelistPeriod:    eventedPlegRelistPeriod,
-			RelistThreshold: eventedPlegRelistThreshold,
-		}
-		klet.pleg = pleg.NewGenericPLEG(klet.containerRuntime, eventChannel, genericRelistDuration, podCache, clock.RealClock{})
-		// In case Evented PLEG has to fall back on Generic PLEG due to an error,
-		// Evented PLEG should be able to reset the Generic PLEG relisting duration
-		// to the default value.
-		eventedRelistDuration := &pleg.RelistDuration{
-			RelistPeriod:    genericPlegRelistPeriod,
-			RelistThreshold: genericPlegRelistThreshold,
-		}
-		klet.eventedPleg, err = pleg.NewEventedPLEG(klet.containerRuntime, klet.runtimeService, eventChannel,
-			podCache, klet.pleg, eventedPlegMaxStreamRetries, eventedRelistDuration, clock.RealClock{})
-		if err != nil {
-			return nil, err
-		}
-	} else {
-		genericRelistDuration := &pleg.RelistDuration{
-			RelistPeriod:    genericPlegRelistPeriod,
-			RelistThreshold: genericPlegRelistThreshold,
-		}
-		klet.pleg = pleg.NewGenericPLEG(klet.containerRuntime, eventChannel, genericRelistDuration, podCache, clock.RealClock{})
+		// EventedPLEG only watches the CRI event stream and requests relists.
+		// GenericPLEG remains responsible for cache updates and lifecycle events.
+		klet.eventedPlegWatcher = pleg.NewEventedPLEG(klet.runtimeService, klet.pleg, eventedPlegMaxStreamRetries)
 	}
 
 	klet.runtimeState = newRuntimeState(maxWaitForContainerRuntime)
 	klet.runtimeState.addHealthCheck("PLEG", klet.pleg.Healthy)
-	if utilfeature.DefaultFeatureGate.Enabled(features.EventedPLEG) {
-		klet.runtimeState.addHealthCheck("EventedPLEG", klet.eventedPleg.Healthy)
-	}
 	if _, err := klet.updatePodCIDR(ctx, kubeCfg.PodCIDR); err != nil {
 		logger.Error(err, "Pod CIDR update failed")
 	}
@@ -1098,7 +1077,9 @@ func NewMainKubelet(ctx context.Context,
 		kubeDeps.HostUtil,
 		klet.getPodsDir(),
 		kubeDeps.Recorder,
-		volumepathhandler.NewBlockVolumePathHandler())
+		volumepathhandler.NewBlockVolumePathHandler(),
+		klet.statusManager,
+		kubeCfg.VolumeStatsAggPeriod.Duration)
 
 	boMax, base := newCrashLoopBackOff(kubeCfg)
 
@@ -1427,6 +1408,11 @@ type Kubelet struct {
 	// Reference to this node.
 	nodeRef *v1.ObjectReference
 
+	// cachedNodeRef caches a copy of nodeRef with the Node's UID resolved, so the
+	// common path of recording a node event allocates nothing and does no lister
+	// lookup. It is populated lazily once the UID is known; see nodeRefWithUID.
+	cachedNodeRef atomic.Pointer[v1.ObjectReference]
+
 	// Container runtime.
 	containerRuntime kubecontainer.Runtime
 
@@ -1495,8 +1481,8 @@ type Kubelet struct {
 	// be restarted).
 	pleg pleg.PodLifecycleEventGenerator
 
-	// eventedPleg supplements the pleg to deliver edge-driven container changes with low-latency.
-	eventedPleg pleg.PodLifecycleEventGenerator
+	// eventedPlegWatcher supplements the pleg by using CRI events to request low-latency relists.
+	eventedPlegWatcher *pleg.EventedPLEG
 
 	// Store kubecontainer.PodStatus for all pods.
 	podCache kubecontainer.ROCache
@@ -1735,7 +1721,7 @@ func (kl *Kubelet) StartGarbageCollection(ctx context.Context) {
 	go wait.UntilWithContext(ctx, func(ctx context.Context) {
 		if err := kl.containerGC.GarbageCollect(ctx); err != nil {
 			logger.Error(err, "Container garbage collection failed")
-			kl.recorder.WithLogger(logger).Eventf(kl.nodeRef, v1.EventTypeWarning, events.ContainerGCFailed, "%s", err.Error())
+			kl.recorder.WithLogger(logger).Eventf(kl.nodeRefWithUID(), v1.EventTypeWarning, events.ContainerGCFailed, "%s", err.Error())
 			loggedContainerGCFailure = true
 		} else {
 			var vLevel klog.Level = 4
@@ -1762,7 +1748,7 @@ func (kl *Kubelet) StartGarbageCollection(ctx context.Context) {
 			if prevImageGCFailed {
 				logger.Error(err, "Image garbage collection failed multiple times in a row")
 				// Only create an event for repeated failures
-				kl.recorder.WithLogger(logger).Event(kl.nodeRef, v1.EventTypeWarning, events.ImageGCFailed, err.Error())
+				kl.recorder.WithLogger(logger).Event(kl.nodeRefWithUID(), v1.EventTypeWarning, events.ImageGCFailed, err.Error())
 			} else {
 				logger.Error(err, "Image garbage collection failed once. Stats initialization may not have completed yet")
 			}
@@ -1935,7 +1921,7 @@ func (kl *Kubelet) Run(ctx context.Context, updates <-chan kubetypes.PodUpdate) 
 	}
 
 	if err := kl.initializeModules(ctx); err != nil {
-		kl.recorder.WithLogger(logger).Eventf(kl.nodeRef, v1.EventTypeWarning, events.KubeletSetupFailed, "%s", err.Error())
+		kl.recorder.WithLogger(logger).Eventf(kl.nodeRefWithUID(), v1.EventTypeWarning, events.KubeletSetupFailed, "%s", err.Error())
 		logger.Error(err, "Failed to initialize internal modules")
 		os.Exit(1)
 	}
@@ -2003,9 +1989,8 @@ func (kl *Kubelet) Run(ctx context.Context, updates <-chan kubetypes.PodUpdate) 
 	// Start the pod lifecycle event generator.
 	kl.pleg.Start(ctx)
 
-	// Start eventedPLEG only if EventedPLEG feature gate is enabled.
-	if utilfeature.DefaultFeatureGate.Enabled(features.EventedPLEG) {
-		kl.eventedPleg.Start(ctx)
+	if kl.eventedPlegWatcher != nil {
+		kl.eventedPlegWatcher.Start(ctx)
 	}
 
 	if kl.healthChecker != nil {
@@ -3384,7 +3369,7 @@ func (kl *Kubelet) GetConfiguration() kubeletconfiginternal.KubeletConfiguration
 // BirthCry sends an event that the kubelet has started up.
 func (kl *Kubelet) BirthCry() {
 	// Make an event that kubelet restarted.
-	kl.recorder.Eventf(kl.nodeRef, v1.EventTypeNormal, events.StartingKubelet, "Starting kubelet.")
+	kl.recorder.Eventf(kl.nodeRefWithUID(), v1.EventTypeNormal, events.StartingKubelet, "Starting kubelet.")
 }
 
 // ListenAndServe runs the kubelet HTTP server.

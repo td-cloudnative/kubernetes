@@ -4250,6 +4250,17 @@ func TestValidateVolumes(t *testing.T) {
 				},
 			},
 		}, {
+			name: "valid Secret with defaultUser",
+			vol: core.Volume{
+				Name: "secret",
+				VolumeSource: core.VolumeSource{
+					Secret: &core.SecretVolumeSource{
+						SecretName:  "my-secret",
+						DefaultUser: ptr.To[int64](1001),
+					},
+				},
+			},
+		}, {
 			name: "valid Secret with projection and mode",
 			vol: core.Volume{
 				Name: "secret",
@@ -4260,6 +4271,21 @@ func TestValidateVolumes(t *testing.T) {
 							Key:  "key",
 							Path: "filename",
 							Mode: ptr.To[int32](0644),
+						}},
+					},
+				},
+			},
+		}, {
+			name: "valid Secret with projection and user",
+			vol: core.Volume{
+				Name: "secret",
+				VolumeSource: core.VolumeSource{
+					Secret: &core.SecretVolumeSource{
+						SecretName: "my-secret",
+						Items: []core.KeyToPath{{
+							Key:  "key",
+							Path: "filename",
+							User: ptr.To[int64](1001),
 						}},
 					},
 				},
@@ -4353,6 +4379,74 @@ func TestValidateVolumes(t *testing.T) {
 				etype: field.ErrorTypeInvalid,
 				field: "secret.defaultMode",
 			}},
+		}, {
+			name: "secret with invalid positive defaultUser",
+			vol: core.Volume{
+				Name: "secret",
+				VolumeSource: core.VolumeSource{
+					Secret: &core.SecretVolumeSource{
+						SecretName:  "s",
+						DefaultUser: ptr.To[int64](2147483648),
+					},
+				},
+			},
+			errs: []verr{{
+				etype: field.ErrorTypeInvalid,
+				field: "secret.defaultUser",
+			}},
+		}, {
+			name: "secret with invalid negative defaultUser",
+			vol: core.Volume{
+				Name: "secret",
+				VolumeSource: core.VolumeSource{
+					Secret: &core.SecretVolumeSource{
+						SecretName:  "s",
+						DefaultUser: ptr.To[int64](-1),
+					},
+				},
+			},
+			errs: []verr{{
+				etype: field.ErrorTypeInvalid,
+				field: "secret.defaultUser",
+			}},
+		}, {
+			name: "secret with projection and invalid positive user",
+			vol: core.Volume{
+				Name: "secret",
+				VolumeSource: core.VolumeSource{
+					Secret: &core.SecretVolumeSource{
+						SecretName: "my-secret",
+						Items: []core.KeyToPath{{
+							Key:  "key",
+							Path: "filename",
+							User: ptr.To[int64](2147483648),
+						}},
+					},
+				},
+			},
+			errs: []verr{{
+				etype: field.ErrorTypeInvalid,
+				field: "secret.items[0].user",
+			}},
+		}, {
+			name: "secret with projection and invalid negative user",
+			vol: core.Volume{
+				Name: "secret",
+				VolumeSource: core.VolumeSource{
+					Secret: &core.SecretVolumeSource{
+						SecretName: "my-secret",
+						Items: []core.KeyToPath{{
+							Key:  "key",
+							Path: "filename",
+							User: ptr.To[int64](-1),
+						}},
+					},
+				},
+			},
+			errs: []verr{{
+				etype: field.ErrorTypeInvalid,
+				field: "secret.items[0].user",
+			}},
 		},
 		// ConfigMap
 		{
@@ -4381,6 +4475,19 @@ func TestValidateVolumes(t *testing.T) {
 				},
 			},
 		}, {
+			name: "valid ConfigMap with defaultUser",
+			vol: core.Volume{
+				Name: "cfgmap",
+				VolumeSource: core.VolumeSource{
+					ConfigMap: &core.ConfigMapVolumeSource{
+						LocalObjectReference: core.LocalObjectReference{
+							Name: "my-cfgmap",
+						},
+						DefaultUser: ptr.To[int64](1001),
+					},
+				},
+			},
+		}, {
 			name: "valid ConfigMap with projection and mode",
 			vol: core.Volume{
 				Name: "cfgmap",
@@ -4392,6 +4499,22 @@ func TestValidateVolumes(t *testing.T) {
 							Key:  "key",
 							Path: "filename",
 							Mode: ptr.To[int32](0644),
+						}},
+					},
+				},
+			},
+		}, {
+			name: "valid ConfigMap with projection and user",
+			vol: core.Volume{
+				Name: "cfgmap",
+				VolumeSource: core.VolumeSource{
+					ConfigMap: &core.ConfigMapVolumeSource{
+						LocalObjectReference: core.LocalObjectReference{
+							Name: "my-cfgmap"},
+						Items: []core.KeyToPath{{
+							Key:  "key",
+							Path: "filename",
+							User: ptr.To[int64](1001),
 						}},
 					},
 				},
@@ -4485,6 +4608,76 @@ func TestValidateVolumes(t *testing.T) {
 			errs: []verr{{
 				etype: field.ErrorTypeInvalid,
 				field: "configMap.defaultMode",
+			}},
+		}, {
+			name: "configmap with invalid positive defaultUser",
+			vol: core.Volume{
+				Name: "cfgmap",
+				VolumeSource: core.VolumeSource{
+					ConfigMap: &core.ConfigMapVolumeSource{
+						LocalObjectReference: core.LocalObjectReference{Name: "c"},
+						DefaultUser:          ptr.To[int64](2147483648),
+					},
+				},
+			},
+			errs: []verr{{
+				etype: field.ErrorTypeInvalid,
+				field: "configMap.defaultUser",
+			}},
+		}, {
+			name: "configmap with invalid negative defaultUser",
+			vol: core.Volume{
+				Name: "cfgmap",
+				VolumeSource: core.VolumeSource{
+					ConfigMap: &core.ConfigMapVolumeSource{
+						LocalObjectReference: core.LocalObjectReference{Name: "c"},
+						DefaultUser:          ptr.To[int64](-1),
+					},
+				},
+			},
+			errs: []verr{{
+				etype: field.ErrorTypeInvalid,
+				field: "configMap.defaultUser",
+			}},
+		}, {
+			name: "configMap with projection and invalid positive user",
+			vol: core.Volume{
+				Name: "cfgmap",
+				VolumeSource: core.VolumeSource{
+					ConfigMap: &core.ConfigMapVolumeSource{
+						LocalObjectReference: core.LocalObjectReference{
+							Name: "my-cfgmap"},
+						Items: []core.KeyToPath{{
+							Key:  "key",
+							Path: "filename",
+							User: ptr.To[int64](2147483648),
+						}},
+					},
+				},
+			},
+			errs: []verr{{
+				etype: field.ErrorTypeInvalid,
+				field: "configMap.items[0].user",
+			}},
+		}, {
+			name: "configMap with projection and invalid negative user",
+			vol: core.Volume{
+				Name: "cfgmap",
+				VolumeSource: core.VolumeSource{
+					ConfigMap: &core.ConfigMapVolumeSource{
+						LocalObjectReference: core.LocalObjectReference{
+							Name: "my-cfgmap"},
+						Items: []core.KeyToPath{{
+							Key:  "key",
+							Path: "filename",
+							User: ptr.To[int64](-1),
+						}},
+					},
+				},
+			},
+			errs: []verr{{
+				etype: field.ErrorTypeInvalid,
+				field: "configMap.items[0].user",
 			}},
 		},
 		// Glusterfs
@@ -4884,6 +5077,75 @@ func TestValidateVolumes(t *testing.T) {
 				field: "downwardAPI.mode",
 			}},
 		}, {
+			name: "downapi valid defaultUser",
+			vol: core.Volume{
+				Name: "downapi",
+				VolumeSource: core.VolumeSource{
+					DownwardAPI: &core.DownwardAPIVolumeSource{
+						DefaultUser: ptr.To[int64](1001),
+					},
+				},
+			},
+		}, {
+			name: "downapi valid item user",
+			vol: core.Volume{
+				Name: "downapi",
+				VolumeSource: core.VolumeSource{
+					DownwardAPI: &core.DownwardAPIVolumeSource{
+						Items: []core.DownwardAPIVolumeFile{{
+							User: ptr.To[int64](1001),
+							Path: "path",
+							FieldRef: &core.ObjectFieldSelector{
+								APIVersion: "v1",
+								FieldPath:  "metadata.labels",
+							},
+						}},
+					},
+				},
+			},
+		}, {
+			name: "downapi invalid positive item user",
+			vol: core.Volume{
+				Name: "downapi",
+				VolumeSource: core.VolumeSource{
+					DownwardAPI: &core.DownwardAPIVolumeSource{
+						Items: []core.DownwardAPIVolumeFile{{
+							User: ptr.To[int64](2147483648),
+							Path: "path",
+							FieldRef: &core.ObjectFieldSelector{
+								APIVersion: "v1",
+								FieldPath:  "metadata.labels",
+							},
+						}},
+					},
+				},
+			},
+			errs: []verr{{
+				etype: field.ErrorTypeInvalid,
+				field: "downwardAPI.user",
+			}},
+		}, {
+			name: "downapi invalid negative item user",
+			vol: core.Volume{
+				Name: "downapi",
+				VolumeSource: core.VolumeSource{
+					DownwardAPI: &core.DownwardAPIVolumeSource{
+						Items: []core.DownwardAPIVolumeFile{{
+							User: ptr.To[int64](-1),
+							Path: "path",
+							FieldRef: &core.ObjectFieldSelector{
+								APIVersion: "v1",
+								FieldPath:  "metadata.labels",
+							},
+						}},
+					},
+				},
+			},
+			errs: []verr{{
+				etype: field.ErrorTypeInvalid,
+				field: "downwardAPI.user",
+			}},
+		}, {
 			name: "downapi empty metatada path",
 			vol: core.Volume{
 				Name: "downapi",
@@ -5038,6 +5300,34 @@ func TestValidateVolumes(t *testing.T) {
 			errs: []verr{{
 				etype: field.ErrorTypeInvalid,
 				field: "downwardAPI.defaultMode",
+			}},
+		}, {
+			name: "downapi invalid positive defaultUser",
+			vol: core.Volume{
+				Name: "downapi",
+				VolumeSource: core.VolumeSource{
+					DownwardAPI: &core.DownwardAPIVolumeSource{
+						DefaultUser: ptr.To[int64](2147483648),
+					},
+				},
+			},
+			errs: []verr{{
+				etype: field.ErrorTypeInvalid,
+				field: "downwardAPI.defaultUser",
+			}},
+		}, {
+			name: "downapi invalid negative defaultUser",
+			vol: core.Volume{
+				Name: "downapi",
+				VolumeSource: core.VolumeSource{
+					DownwardAPI: &core.DownwardAPIVolumeSource{
+						DefaultUser: ptr.To[int64](-1),
+					},
+				},
+			},
+			errs: []verr{{
+				etype: field.ErrorTypeInvalid,
+				field: "downwardAPI.defaultUser",
 			}},
 		},
 		// FC
@@ -5464,6 +5754,298 @@ func TestValidateVolumes(t *testing.T) {
 			}, {
 				etype: field.ErrorTypeForbidden,
 				field: "projected.sources[1]",
+			}},
+		}, {
+			name: "ProjectedVolumeSource valid defaultMode",
+			vol: core.Volume{
+				Name: "projected-volume",
+				VolumeSource: core.VolumeSource{
+					Projected: &core.ProjectedVolumeSource{
+						Sources: []core.VolumeProjection{{
+							Secret: &core.SecretProjection{
+								LocalObjectReference: core.LocalObjectReference{
+									Name: "foo",
+								},
+							},
+						}},
+						DefaultMode: ptr.To[int32](0644),
+					},
+				},
+			},
+		}, {
+			name: "ProjectedVolumeSource invalid positive defaultMode",
+			vol: core.Volume{
+				Name: "projected-volume",
+				VolumeSource: core.VolumeSource{
+					Projected: &core.ProjectedVolumeSource{
+						Sources: []core.VolumeProjection{{
+							Secret: &core.SecretProjection{
+								LocalObjectReference: core.LocalObjectReference{
+									Name: "foo",
+								},
+							},
+						}},
+						DefaultMode: ptr.To[int32](01000),
+					},
+				},
+			},
+			errs: []verr{{
+				etype: field.ErrorTypeInvalid,
+				field: "projected.defaultMode",
+			}},
+		}, {
+			name: "ProjectedVolumeSource invalid negative defaultMode",
+			vol: core.Volume{
+				Name: "projected-volume",
+				VolumeSource: core.VolumeSource{
+					Projected: &core.ProjectedVolumeSource{
+						Sources: []core.VolumeProjection{{
+							Secret: &core.SecretProjection{
+								LocalObjectReference: core.LocalObjectReference{
+									Name: "foo",
+								},
+							},
+						}},
+						DefaultMode: ptr.To[int32](-1),
+					},
+				},
+			},
+			errs: []verr{{
+				etype: field.ErrorTypeInvalid,
+				field: "projected.defaultMode",
+			}},
+		}, {
+			name: "ProjectedVolumeSource valid defaultUser",
+			vol: core.Volume{
+				Name: "projected-volume",
+				VolumeSource: core.VolumeSource{
+					Projected: &core.ProjectedVolumeSource{
+						Sources: []core.VolumeProjection{{
+							Secret: &core.SecretProjection{
+								LocalObjectReference: core.LocalObjectReference{
+									Name: "foo",
+								},
+							},
+						}},
+						DefaultUser: ptr.To[int64](1001),
+					},
+				},
+			},
+		}, {
+			name: "ProjectedVolumeSource invalid positive defaultUser",
+			vol: core.Volume{
+				Name: "projected-volume",
+				VolumeSource: core.VolumeSource{
+					Projected: &core.ProjectedVolumeSource{
+						Sources: []core.VolumeProjection{{
+							Secret: &core.SecretProjection{
+								LocalObjectReference: core.LocalObjectReference{
+									Name: "foo",
+								},
+							},
+						}},
+						DefaultUser: ptr.To[int64](2147483648),
+					},
+				},
+			},
+			errs: []verr{{
+				etype: field.ErrorTypeInvalid,
+				field: "projected.defaultUser",
+			}},
+		}, {
+			name: "ProjectedVolumeSource invalid negative defaultUser",
+			vol: core.Volume{
+				Name: "projected-volume",
+				VolumeSource: core.VolumeSource{
+					Projected: &core.ProjectedVolumeSource{
+						Sources: []core.VolumeProjection{{
+							Secret: &core.SecretProjection{
+								LocalObjectReference: core.LocalObjectReference{
+									Name: "foo",
+								},
+							},
+						}},
+						DefaultUser: ptr.To[int64](-1),
+					},
+				},
+			},
+			errs: []verr{{
+				etype: field.ErrorTypeInvalid,
+				field: "projected.defaultUser",
+			}},
+		}, {
+			name: "ProjectedVolumeSource ServiceAccountToken valid user",
+			vol: core.Volume{
+				Name: "projected-volume",
+				VolumeSource: core.VolumeSource{
+					Projected: &core.ProjectedVolumeSource{
+						Sources: []core.VolumeProjection{{
+							ServiceAccountToken: &core.ServiceAccountTokenProjection{
+								Audience:          "foo-audience",
+								ExpirationSeconds: ptr.To[int64](6000),
+								Path:              "foo-path",
+								User:              ptr.To[int64](1001),
+							},
+						}},
+					},
+				},
+			},
+		}, {
+			name: "ProjectedVolumeSource ServiceAccountToken invalid positive user",
+			vol: core.Volume{
+				Name: "projected-volume",
+				VolumeSource: core.VolumeSource{
+					Projected: &core.ProjectedVolumeSource{
+						Sources: []core.VolumeProjection{{
+							ServiceAccountToken: &core.ServiceAccountTokenProjection{
+								Audience:          "foo-audience",
+								ExpirationSeconds: ptr.To[int64](6000),
+								Path:              "foo-path",
+								User:              ptr.To[int64](2147483648),
+							},
+						}},
+					},
+				},
+			},
+			errs: []verr{{
+				etype: field.ErrorTypeInvalid,
+				field: "projected.sources[0].serviceAccountToken.user",
+			}},
+		}, {
+			name: "ProjectedVolumeSource ServiceAccountToken invalid negative user",
+			vol: core.Volume{
+				Name: "projected-volume",
+				VolumeSource: core.VolumeSource{
+					Projected: &core.ProjectedVolumeSource{
+						Sources: []core.VolumeProjection{{
+							ServiceAccountToken: &core.ServiceAccountTokenProjection{
+								Audience:          "foo-audience",
+								ExpirationSeconds: ptr.To[int64](6000),
+								Path:              "foo-path",
+								User:              ptr.To[int64](-1),
+							},
+						}},
+					},
+				},
+			},
+			errs: []verr{{
+				etype: field.ErrorTypeInvalid,
+				field: "projected.sources[0].serviceAccountToken.user",
+			}},
+		}, {
+			name: "ProjectedVolumeSource ClusterTrustBundle valid user",
+			vol: core.Volume{
+				Name: "projected-volume",
+				VolumeSource: core.VolumeSource{
+					Projected: &core.ProjectedVolumeSource{
+						Sources: []core.VolumeProjection{{
+							ClusterTrustBundle: &core.ClusterTrustBundleProjection{
+								Path: "foo-path",
+								Name: new("foo"),
+								User: ptr.To[int64](1001),
+							},
+						}},
+					},
+				},
+			},
+		}, {
+			name: "ProjectedVolumeSource ClusterTrustBundle invalid positive user",
+			vol: core.Volume{
+				Name: "projected-volume",
+				VolumeSource: core.VolumeSource{
+					Projected: &core.ProjectedVolumeSource{
+						Sources: []core.VolumeProjection{{
+							ClusterTrustBundle: &core.ClusterTrustBundleProjection{
+								Path: "foo-path",
+								Name: new("foo"),
+								User: ptr.To[int64](2147483648),
+							},
+						}},
+					},
+				},
+			},
+			errs: []verr{{
+				etype: field.ErrorTypeInvalid,
+				field: "projected.sources[0].clusterTrustBundle.user",
+			}},
+		}, {
+			name: "ProjectedVolumeSource ServiceAccountToken invalid negative user",
+			vol: core.Volume{
+				Name: "projected-volume",
+				VolumeSource: core.VolumeSource{
+					Projected: &core.ProjectedVolumeSource{
+						Sources: []core.VolumeProjection{{
+							ClusterTrustBundle: &core.ClusterTrustBundleProjection{
+								Path: "foo-path",
+								Name: new("foo"),
+								User: ptr.To[int64](-1),
+							},
+						}},
+					},
+				},
+			},
+			errs: []verr{{
+				etype: field.ErrorTypeInvalid,
+				field: "projected.sources[0].clusterTrustBundle.user",
+			}},
+		}, {
+			name: "ProjectedVolumeSource PodCertificate valid user",
+			vol: core.Volume{
+				Name: "projected-volume",
+				VolumeSource: core.VolumeSource{
+					Projected: &core.ProjectedVolumeSource{
+						Sources: []core.VolumeProjection{{
+							PodCertificate: &core.PodCertificateProjection{
+								SignerName:           "example.com/foo",
+								KeyType:              "ED25519",
+								CredentialBundlePath: "credbundle.pem",
+								User:                 ptr.To[int64](1001),
+							},
+						}},
+					},
+				},
+			},
+		}, {
+			name: "ProjectedVolumeSource PodCertificate invalid positive user",
+			vol: core.Volume{
+				Name: "projected-volume",
+				VolumeSource: core.VolumeSource{
+					Projected: &core.ProjectedVolumeSource{
+						Sources: []core.VolumeProjection{{
+							PodCertificate: &core.PodCertificateProjection{
+								SignerName:           "example.com/foo",
+								KeyType:              "ED25519",
+								CredentialBundlePath: "credbundle.pem",
+								User:                 ptr.To[int64](2147483648),
+							},
+						}},
+					},
+				},
+			},
+			errs: []verr{{
+				etype: field.ErrorTypeInvalid,
+				field: "projected.sources[0].podCertificate.user",
+			}},
+		}, {
+			name: "ProjectedVolumeSource ServiceAccountToken invalid negative user",
+			vol: core.Volume{
+				Name: "projected-volume",
+				VolumeSource: core.VolumeSource{
+					Projected: &core.ProjectedVolumeSource{
+						Sources: []core.VolumeProjection{{
+							PodCertificate: &core.PodCertificateProjection{
+								SignerName:           "example.com/foo",
+								KeyType:              "ED25519",
+								CredentialBundlePath: "credbundle.pem",
+								User:                 ptr.To[int64](-1),
+							},
+						}},
+					},
+				},
+			},
+			errs: []verr{{
+				etype: field.ErrorTypeInvalid,
+				field: "projected.sources[0].podCertificate.user",
 			}},
 		},
 		// ImageVolumeSource
@@ -7939,6 +8521,50 @@ func TestValidateHTTPGetActionProtocol(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			if errs := validateHandler(handlerFromProbe(&tc.handler), defaultGracePeriod, field.NewPath("field")); len(errs) == 0 {
 				t.Errorf("expected failure for %#v", tc.handler)
+			}
+		})
+	}
+}
+
+func TestValidateGRPCAction(t *testing.T) {
+	fldPath := field.NewPath("probe")
+
+	testCases := []struct {
+		name      string
+		grpc      *core.GRPCAction
+		expectErr field.ErrorList
+	}{
+		{
+			name: "mode TLS allowed",
+			grpc: &core.GRPCAction{Port: 8443, Mode: ptr.To(core.GRPCProbeModeTLS)},
+		},
+		{
+			name: "mode Plaintext allowed",
+			grpc: &core.GRPCAction{Port: 8443, Mode: ptr.To(core.GRPCProbeModePlaintext)},
+		},
+		{
+			name: "nil mode passes",
+			grpc: &core.GRPCAction{Port: 8443},
+		},
+		{
+			name:      "unsupported mode rejected",
+			grpc:      &core.GRPCAction{Port: 8443, Mode: ptr.To(core.GRPCProbeMode("Verify"))},
+			expectErr: field.ErrorList{field.NotSupported(fldPath.Child("grpc").Child("mode"), core.GRPCProbeMode("Verify"), []string{string(core.GRPCProbeModePlaintext), string(core.GRPCProbeModeTLS)})},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			handler := commonHandler{GRPC: tc.grpc}
+			errs := validateHandler(handler, nil, fldPath)
+			if len(tc.expectErr) > 0 && len(errs) == 0 {
+				t.Errorf("Unexpected success")
+			} else if len(tc.expectErr) == 0 && len(errs) != 0 {
+				t.Errorf("Unexpected error(s): %v", errs)
+			} else if len(tc.expectErr) > 0 {
+				if tc.expectErr[0].Error() != errs[0].Error() {
+					t.Errorf("Expected error %v, got %v", tc.expectErr[0], errs[0])
+				}
 			}
 		})
 	}
@@ -14779,6 +15405,25 @@ func TestValidatePodUpdate(t *testing.T) {
 			),
 			err:  "pod updates may not change fields other than",
 			test: "updated restartPolicyRules",
+		}, {
+			new: *podtest.MakePod("pod",
+				podtest.SetEvictionResponders(
+					core.EvictionResponder{
+						Name: "foo.example.com",
+					}, core.EvictionResponder{
+						Name: "bar.example.com",
+					}),
+			),
+			old: *podtest.MakePod("pod",
+				podtest.SetEvictionResponders(
+					core.EvictionResponder{
+						Name: "foo.example.com",
+					}, core.EvictionResponder{
+						Name: "new.example.com",
+					}),
+			),
+			err:  "pod updates may not change fields other than",
+			test: "updated eviction interceptors",
 		},
 	}
 
@@ -22223,6 +22868,83 @@ func TestValidatePersistentVolumeClaimStatusUpdate(t *testing.T) {
 	}
 }
 
+func TestValidatePodVolumeHealth(t *testing.T) {
+	podSpec := &core.PodSpec{
+		Volumes: []core.Volume{
+			{Name: "vol1"},
+			{Name: "vol2"},
+		},
+	}
+	tests := []struct {
+		name         string
+		volumeHealth []core.PodVolumeHealth
+		isErr        bool
+		expectedErr  string
+	}{
+		{
+			name: "valid volume health",
+			volumeHealth: []core.PodVolumeHealth{
+				{
+					Name: "vol1",
+					HealthConditions: []core.VolumeHealthCondition{
+						{Status: core.VolumeHealthDegraded, Reason: "DiskSlow"},
+					},
+				},
+			},
+		},
+		{
+			name: "volume name not in spec",
+			volumeHealth: []core.PodVolumeHealth{
+				{
+					Name: "nonexistent",
+					HealthConditions: []core.VolumeHealthCondition{
+						{Status: core.VolumeHealthDegraded, Reason: "DiskSlow"},
+					},
+				},
+			},
+			isErr:       true,
+			expectedErr: "volumeHealth[0].name",
+		},
+		{
+			name: "invalid reason format",
+			volumeHealth: []core.PodVolumeHealth{
+				{
+					Name: "vol1",
+					HealthConditions: []core.VolumeHealthCondition{
+						{Status: core.VolumeHealthDegraded, Reason: "invalid;val"},
+					},
+				},
+			},
+			isErr:       true,
+			expectedErr: "volumeHealth[0].healthConditions[0].reason",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			errs := validatePodVolumeHealth(tt.volumeHealth, podSpec, field.NewPath("volumeHealth"))
+			if tt.isErr && len(errs) == 0 {
+				t.Errorf("expected error but got none")
+			}
+			if !tt.isErr && len(errs) > 0 {
+				t.Errorf("unexpected errors: %v", errs)
+			}
+			if tt.isErr && len(errs) > 0 && tt.expectedErr != "" {
+				found := false
+				for _, err := range errs {
+					if strings.Contains(err.Field, tt.expectedErr) {
+						found = true
+						break
+					}
+				}
+				if !found {
+					t.Errorf("expected error containing %q but got: %v", tt.expectedErr, errs)
+				}
+			}
+		})
+	}
+}
+
 func TestValidateResourceQuota(t *testing.T) {
 	spec := core.ResourceQuotaSpec{
 		Hard: core.ResourceList{
@@ -23584,6 +24306,8 @@ func TestValidateOSFields(t *testing.T) {
 		"EphemeralContainers[*].EphemeralContainerCommon.StartupProbe",
 		"EphemeralContainers[*].EphemeralContainerCommon.VolumeDevices[*]",
 		"EphemeralContainers[*].EphemeralContainerCommon.VolumeMounts[*]",
+		"EvictionResponders[*].Name",
+		"EvictionResponders[*].Priority",
 		"HostAliases",
 		"Hostname",
 		"HostnameOverride",
@@ -23903,20 +24627,27 @@ func TestValidateSecurityContext(t *testing.T) {
 	procMountUnmasked := fullValidSC()
 	procMountUnmasked.ProcMount = &umPmt
 
+	sysAdminPriv := fullValidSC()
+	sysAdminPriv.Capabilities = &core.Capabilities{
+		Add: []core.Capability{"CAP_SYS_ADMIN"},
+	}
+
 	successCases := map[string]struct {
-		sc        *core.SecurityContext
-		hostUsers bool
+		sc            *core.SecurityContext
+		hostUsers     bool
+		allowSysAdmin bool
 	}{
-		"all settings":        {allSettings, false},
-		"no capabilities":     {noCaps, false},
-		"no selinux":          {noSELinux, false},
-		"no priv request":     {noPrivRequest, false},
-		"no run as user":      {noRunAsUser, false},
-		"proc mount set":      {procMountSet, true},
-		"proc mount unmasked": {procMountUnmasked, false},
+		"all settings":                           {allSettings, false, false},
+		"no capabilities":                        {noCaps, false, false},
+		"no selinux":                             {noSELinux, false, false},
+		"no priv request":                        {noPrivRequest, false, false},
+		"no run as user":                         {noRunAsUser, false, false},
+		"proc mount set":                         {procMountSet, true, false},
+		"proc mount unmasked":                    {procMountUnmasked, false, false},
+		"sys admin without privilege escalation": {sysAdminPriv, false, true},
 	}
 	for k, v := range successCases {
-		if errs := ValidateSecurityContext(v.sc, field.NewPath("field"), v.hostUsers); len(errs) != 0 {
+		if errs := ValidateSecurityContext(v.sc, field.NewPath("field"), v.hostUsers, v.allowSysAdmin); len(errs) != 0 {
 			t.Errorf("[%s] Expected success, got %v", k, errs)
 		}
 	}
@@ -23976,7 +24707,7 @@ func TestValidateSecurityContext(t *testing.T) {
 		})
 		// note the unconditional `true` here for hostUsers. The failure case to test for ProcMount only includes it being true,
 		// and the field is ignored if ProcMount isn't set. Thus, we can unconditionally set to `true` and simplify the test matrix setup.
-		if errs := ValidateSecurityContext(v.sc, field.NewPath("field"), true); len(errs) == 0 || errs[0].Type != v.errorType || !strings.Contains(errs[0].Detail, v.errorDetail) {
+		if errs := ValidateSecurityContext(v.sc, field.NewPath("field"), true, false); len(errs) == 0 || errs[0].Type != v.errorType || !strings.Contains(errs[0].Detail, v.errorDetail) {
 			t.Errorf("[%s] Expected error type %q with detail %q, got %v", k, v.errorType, v.errorDetail, errs)
 		}
 	}
@@ -28044,12 +28775,125 @@ func TestValidateContainerStatusNoAllocatedResourcesStatus(t *testing.T) {
 	assert.Equal(t, "must not be specified in container status", errs[1].Detail)
 }
 
+func TestResourceStatusName(t *testing.T) {
+	testCases := []struct {
+		name        string
+		claimName   string
+		requestName string
+		want        core.ResourceName
+	}{
+		{
+			name:      "claim without request",
+			claimName: "claim-name",
+			want:      "claim:claim-name",
+		},
+		{
+			name:        "claim with request",
+			claimName:   "claim-name",
+			requestName: "request-name",
+			want:        "claim:claim-name/request-name",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := resourceStatusName(tc.claimName, tc.requestName)
+			assert.Equal(t, tc.want, got)
+		})
+	}
+}
+
+func TestParseResourceStatusName(t *testing.T) {
+	testCases := []struct {
+		name            string
+		resourceName    string
+		wantClaimName   string
+		wantRequestName string
+		wantOK          bool
+	}{
+		{
+			name:          "claim without request",
+			resourceName:  "claim:claim-name",
+			wantClaimName: "claim-name",
+			wantOK:        true,
+		},
+		{
+			name:            "claim with request",
+			resourceName:    "claim:claim-name/request-name",
+			wantClaimName:   "claim-name",
+			wantRequestName: "request-name",
+			wantOK:          true,
+		},
+		{
+			name:         "resource name",
+			resourceName: "example.com/gpu",
+			wantOK:       false,
+		},
+		{
+			name:         "empty claim name",
+			resourceName: "claim:",
+			wantOK:       false,
+		},
+		{
+			name:         "empty request name",
+			resourceName: "claim:claim-name/",
+			wantOK:       false,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			gotClaimName, gotRequestName, gotOK := parseResourceStatusName(tc.resourceName)
+			assert.Equal(t, tc.wantClaimName, gotClaimName)
+			assert.Equal(t, tc.wantRequestName, gotRequestName)
+			assert.Equal(t, tc.wantOK, gotOK)
+		})
+	}
+}
+
 func TestValidateContainerStatusAllocatedResourcesStatus(t *testing.T) {
 	fldPath := field.NewPath("spec", "containers")
+	extendedResourceContainer := core.Container{
+		Name: "container-1",
+		Resources: core.ResourceRequirements{
+			Requests: core.ResourceList{
+				"example.com/gpu": resource.MustParse("1"),
+			},
+		},
+	}
+	extendedResourceClaimStatus := &core.PodExtendedResourceClaimStatus{
+		ResourceClaimName: "generated-claim",
+		RequestMappings: []core.ContainerExtendedResourceRequest{
+			{
+				ContainerName: "container-1",
+				ResourceName:  "example.com/gpu",
+				RequestName:   "request-0",
+			},
+		},
+	}
+	newExtendedResourceContainerStatuses := func(name core.ResourceName) []core.ContainerStatus {
+		return []core.ContainerStatus{
+			{
+				Name: "container-1",
+				AllocatedResourcesStatus: []core.ResourceStatus{
+					{
+						Name: name,
+						Resources: []core.ResourceHealth{
+							{
+								ResourceID: "driver/pool/device-name",
+								Health:     core.ResourceHealthStatusHealthy,
+							},
+						},
+					},
+				},
+			},
+		}
+	}
 
 	testCases := map[string]struct {
 		containers        []core.Container
 		containerStatuses []core.ContainerStatus
+		podStatus         core.PodStatus
 		wantFieldErrors   field.ErrorList
 	}{
 		"basic correct status": {
@@ -28265,6 +29109,59 @@ func TestValidateContainerStatusAllocatedResourcesStatus(t *testing.T) {
 			wantFieldErrors: field.ErrorList{},
 		},
 
+		"allow DRA-backed extended resource claim status": {
+			containers:        []core.Container{extendedResourceContainer},
+			containerStatuses: newExtendedResourceContainerStatuses("claim:generated-claim/request-0"),
+			podStatus: core.PodStatus{
+				ExtendedResourceClaimStatus: extendedResourceClaimStatus,
+			},
+			wantFieldErrors: field.ErrorList{},
+		},
+
+		"don't allow DRA-backed extended resource claim status with mismatched request": {
+			containers:        []core.Container{extendedResourceContainer},
+			containerStatuses: newExtendedResourceContainerStatuses("claim:generated-claim/other-request"),
+			podStatus: core.PodStatus{
+				ExtendedResourceClaimStatus: extendedResourceClaimStatus,
+			},
+			wantFieldErrors: field.ErrorList{
+				field.Invalid(fldPath.Index(0).Child("allocatedResourcesStatus").Index(0).Child("name"), core.ResourceName("claim:generated-claim/other-request"), "must match one of the container's resource claims as 'claim:<claimName>/<requestName>' when container.resources.claims[*].request is set or 'claim:<claimName>' when it is empty"),
+			},
+		},
+
+		"don't allow DRA-backed extended resource claim status without claim prefix": {
+			containers:        []core.Container{extendedResourceContainer},
+			containerStatuses: newExtendedResourceContainerStatuses("generated-claim/request-0"),
+			podStatus: core.PodStatus{
+				ExtendedResourceClaimStatus: extendedResourceClaimStatus,
+			},
+			wantFieldErrors: field.ErrorList{
+				field.Invalid(fldPath.Index(0).Child("allocatedResourcesStatus").Index(0).Child("name"), core.ResourceName("generated-claim/request-0"), "must match one of the container's resource requests"),
+			},
+		},
+
+		"don't allow DRA-backed extended resource claim status without request name": {
+			containers:        []core.Container{extendedResourceContainer},
+			containerStatuses: newExtendedResourceContainerStatuses("claim:generated-claim/"),
+			podStatus: core.PodStatus{
+				ExtendedResourceClaimStatus: extendedResourceClaimStatus,
+			},
+			wantFieldErrors: field.ErrorList{
+				field.Invalid(fldPath.Index(0).Child("allocatedResourcesStatus").Index(0).Child("name"), core.ResourceName("claim:generated-claim/"), "must match one of the container's resource claims as 'claim:<claimName>/<requestName>' when container.resources.claims[*].request is set or 'claim:<claimName>' when it is empty"),
+			},
+		},
+
+		"don't allow DRA-backed extended resource claim status with mismatched claim name": {
+			containers:        []core.Container{extendedResourceContainer},
+			containerStatuses: newExtendedResourceContainerStatuses("claim:other-claim/request-0"),
+			podStatus: core.PodStatus{
+				ExtendedResourceClaimStatus: extendedResourceClaimStatus,
+			},
+			wantFieldErrors: field.ErrorList{
+				field.Invalid(fldPath.Index(0).Child("allocatedResourcesStatus").Index(0).Child("name"), core.ResourceName("claim:other-claim/request-0"), "must match one of the container's resource claims as 'claim:<claimName>/<requestName>' when container.resources.claims[*].request is set or 'claim:<claimName>' when it is empty"),
+			},
+		},
+
 		"don't allow claims that are not in spec": {
 			containers: []core.Container{
 				{
@@ -28298,7 +29195,7 @@ func TestValidateContainerStatusAllocatedResourcesStatus(t *testing.T) {
 				},
 			},
 			wantFieldErrors: field.ErrorList{
-				field.Invalid(fldPath.Index(0).Child("allocatedResourcesStatus").Index(0).Child("name"), core.ResourceName("claim:claim.name"), "must match one of the container's resource claims in a format 'claim:<claimName>/<request>' or 'claim:<claimName>' if request is empty"),
+				field.Invalid(fldPath.Index(0).Child("allocatedResourcesStatus").Index(0).Child("name"), core.ResourceName("claim:claim.name"), "must match one of the container's resource claims as 'claim:<claimName>/<requestName>' when container.resources.claims[*].request is set or 'claim:<claimName>' when it is empty"),
 			},
 		},
 
@@ -28433,7 +29330,7 @@ func TestValidateContainerStatusAllocatedResourcesStatus(t *testing.T) {
 	}
 	for name, tt := range testCases {
 		t.Run(name, func(t *testing.T) {
-			errs := validateContainerStatusAllocatedResourcesStatus(tt.containerStatuses, fldPath, tt.containers)
+			errs := validateContainerStatusAllocatedResourcesStatus(tt.containerStatuses, fldPath, tt.containers, &tt.podStatus)
 			if diff := cmp.Diff(tt.wantFieldErrors, errs); diff != "" {
 				t.Errorf("unexpected field errors (-want, +got):\n%s", diff)
 			}

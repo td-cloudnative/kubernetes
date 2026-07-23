@@ -158,6 +158,8 @@ func (m *EventSeries) Reset() { *m = EventSeries{} }
 
 func (m *EventSource) Reset() { *m = EventSource{} }
 
+func (m *EvictionResponder) Reset() { *m = EvictionResponder{} }
+
 func (m *ExecAction) Reset() { *m = ExecAction{} }
 
 func (m *FCVolumeSource) Reset() { *m = FCVolumeSource{} }
@@ -368,6 +370,8 @@ func (m *PodTemplateList) Reset() { *m = PodTemplateList{} }
 
 func (m *PodTemplateSpec) Reset() { *m = PodTemplateSpec{} }
 
+func (m *PodVolumeHealth) Reset() { *m = PodVolumeHealth{} }
+
 func (m *PortStatus) Reset() { *m = PortStatus{} }
 
 func (m *PortworxVolumeSource) Reset() { *m = PortworxVolumeSource{} }
@@ -497,6 +501,10 @@ func (m *TypedObjectReference) Reset() { *m = TypedObjectReference{} }
 func (m *Volume) Reset() { *m = Volume{} }
 
 func (m *VolumeDevice) Reset() { *m = VolumeDevice{} }
+
+func (m *VolumeHealthCondition) Reset() { *m = VolumeHealthCondition{} }
+
+func (m *VolumeHealthStatus) Reset() { *m = VolumeHealthStatus{} }
 
 func (m *VolumeMount) Reset() { *m = VolumeMount{} }
 
@@ -1462,6 +1470,11 @@ func (m *ClusterTrustBundleProjection) MarshalToSizedBuffer(dAtA []byte) (int, e
 	_ = i
 	var l int
 	_ = l
+	if m.User != nil {
+		i = encodeVarintGenerated(dAtA, i, uint64(*m.User))
+		i--
+		dAtA[i] = 0x30
+	}
 	if m.Optional != nil {
 		i--
 		if *m.Optional {
@@ -1999,6 +2012,11 @@ func (m *ConfigMapVolumeSource) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	_ = i
 	var l int
 	_ = l
+	if m.DefaultUser != nil {
+		i = encodeVarintGenerated(dAtA, i, uint64(*m.DefaultUser))
+		i--
+		dAtA[i] = 0x28
+	}
 	if m.Optional != nil {
 		i--
 		if *m.Optional {
@@ -3035,6 +3053,11 @@ func (m *DownwardAPIVolumeFile) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	_ = i
 	var l int
 	_ = l
+	if m.User != nil {
+		i = encodeVarintGenerated(dAtA, i, uint64(*m.User))
+		i--
+		dAtA[i] = 0x28
+	}
 	if m.Mode != nil {
 		i = encodeVarintGenerated(dAtA, i, uint64(*m.Mode))
 		i--
@@ -3092,6 +3115,11 @@ func (m *DownwardAPIVolumeSource) MarshalToSizedBuffer(dAtA []byte) (int, error)
 	_ = i
 	var l int
 	_ = l
+	if m.DefaultUser != nil {
+		i = encodeVarintGenerated(dAtA, i, uint64(*m.DefaultUser))
+		i--
+		dAtA[i] = 0x18
+	}
 	if m.DefaultMode != nil {
 		i = encodeVarintGenerated(dAtA, i, uint64(*m.DefaultMode))
 		i--
@@ -4207,6 +4235,39 @@ func (m *EventSource) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	return len(dAtA) - i, nil
 }
 
+func (m *EvictionResponder) Marshal() (dAtA []byte, err error) {
+	size := m.Size()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *EvictionResponder) MarshalTo(dAtA []byte) (int, error) {
+	size := m.Size()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *EvictionResponder) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
+	_ = i
+	var l int
+	_ = l
+	if m.Priority != nil {
+		i = encodeVarintGenerated(dAtA, i, uint64(*m.Priority))
+		i--
+		dAtA[i] = 0x10
+	}
+	i -= len(m.Name)
+	copy(dAtA[i:], m.Name)
+	i = encodeVarintGenerated(dAtA, i, uint64(len(m.Name)))
+	i--
+	dAtA[i] = 0xa
+	return len(dAtA) - i, nil
+}
+
 func (m *ExecAction) Marshal() (dAtA []byte, err error) {
 	size := m.Size()
 	dAtA = make([]byte, size)
@@ -4597,6 +4658,13 @@ func (m *GRPCAction) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	_ = i
 	var l int
 	_ = l
+	if m.Mode != nil {
+		i -= len(*m.Mode)
+		copy(dAtA[i:], *m.Mode)
+		i = encodeVarintGenerated(dAtA, i, uint64(len(*m.Mode)))
+		i--
+		dAtA[i] = 0x1a
+	}
 	if m.Service != nil {
 		i -= len(*m.Service)
 		copy(dAtA[i:], *m.Service)
@@ -5216,6 +5284,11 @@ func (m *KeyToPath) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	_ = i
 	var l int
 	_ = l
+	if m.User != nil {
+		i = encodeVarintGenerated(dAtA, i, uint64(*m.User))
+		i--
+		dAtA[i] = 0x20
+	}
 	if m.Mode != nil {
 		i = encodeVarintGenerated(dAtA, i, uint64(*m.Mode))
 		i--
@@ -7801,6 +7874,18 @@ func (m *PersistentVolumeClaimStatus) MarshalToSizedBuffer(dAtA []byte) (int, er
 	_ = i
 	var l int
 	_ = l
+	if m.HealthStatus != nil {
+		{
+			size, err := m.HealthStatus.MarshalToSizedBuffer(dAtA[:i])
+			if err != nil {
+				return 0, err
+			}
+			i -= size
+			i = encodeVarintGenerated(dAtA, i, uint64(size))
+		}
+		i--
+		dAtA[i] = 0x52
+	}
 	if m.ModifyVolumeStatus != nil {
 		{
 			size, err := m.ModifyVolumeStatus.MarshalToSizedBuffer(dAtA[:i])
@@ -8885,6 +8970,11 @@ func (m *PodCertificateProjection) MarshalToSizedBuffer(dAtA []byte) (int, error
 	_ = i
 	var l int
 	_ = l
+	if m.User != nil {
+		i = encodeVarintGenerated(dAtA, i, uint64(*m.User))
+		i--
+		dAtA[i] = 0x40
+	}
 	if len(m.UserAnnotations) > 0 {
 		keysForUserAnnotations := make([]string, 0, len(m.UserAnnotations))
 		for k := range m.UserAnnotations {
@@ -9820,6 +9910,22 @@ func (m *PodSpec) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	_ = i
 	var l int
 	_ = l
+	if len(m.EvictionResponders) > 0 {
+		for iNdEx := len(m.EvictionResponders) - 1; iNdEx >= 0; iNdEx-- {
+			{
+				size, err := m.EvictionResponders[iNdEx].MarshalToSizedBuffer(dAtA[:i])
+				if err != nil {
+					return 0, err
+				}
+				i -= size
+				i = encodeVarintGenerated(dAtA, i, uint64(size))
+			}
+			i--
+			dAtA[i] = 0x2
+			i--
+			dAtA[i] = 0xe2
+		}
+	}
 	if m.SchedulingGroup != nil {
 		{
 			size, err := m.SchedulingGroup.MarshalToSizedBuffer(dAtA[:i])
@@ -10331,6 +10437,22 @@ func (m *PodStatus) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	_ = i
 	var l int
 	_ = l
+	if len(m.VolumeHealth) > 0 {
+		for iNdEx := len(m.VolumeHealth) - 1; iNdEx >= 0; iNdEx-- {
+			{
+				size, err := m.VolumeHealth[iNdEx].MarshalToSizedBuffer(dAtA[:i])
+				if err != nil {
+					return 0, err
+				}
+				i -= size
+				i = encodeVarintGenerated(dAtA, i, uint64(size))
+			}
+			i--
+			dAtA[i] = 0x1
+			i--
+			dAtA[i] = 0xb2
+		}
+	}
 	if len(m.NodeAllocatableResourceClaimStatuses) > 0 {
 		for iNdEx := len(m.NodeAllocatableResourceClaimStatuses) - 1; iNdEx >= 0; iNdEx-- {
 			{
@@ -10699,6 +10821,58 @@ func (m *PodTemplateSpec) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	return len(dAtA) - i, nil
 }
 
+func (m *PodVolumeHealth) Marshal() (dAtA []byte, err error) {
+	size := m.Size()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *PodVolumeHealth) MarshalTo(dAtA []byte) (int, error) {
+	size := m.Size()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *PodVolumeHealth) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
+	_ = i
+	var l int
+	_ = l
+	{
+		size, err := m.LastTransitionTime.MarshalToSizedBuffer(dAtA[:i])
+		if err != nil {
+			return 0, err
+		}
+		i -= size
+		i = encodeVarintGenerated(dAtA, i, uint64(size))
+	}
+	i--
+	dAtA[i] = 0x1a
+	if len(m.HealthConditions) > 0 {
+		for iNdEx := len(m.HealthConditions) - 1; iNdEx >= 0; iNdEx-- {
+			{
+				size, err := m.HealthConditions[iNdEx].MarshalToSizedBuffer(dAtA[:i])
+				if err != nil {
+					return 0, err
+				}
+				i -= size
+				i = encodeVarintGenerated(dAtA, i, uint64(size))
+			}
+			i--
+			dAtA[i] = 0x12
+		}
+	}
+	i -= len(m.Name)
+	copy(dAtA[i:], m.Name)
+	i = encodeVarintGenerated(dAtA, i, uint64(len(m.Name)))
+	i--
+	dAtA[i] = 0xa
+	return len(dAtA) - i, nil
+}
+
 func (m *PortStatus) Marshal() (dAtA []byte, err error) {
 	size := m.Size()
 	dAtA = make([]byte, size)
@@ -11041,6 +11215,11 @@ func (m *ProjectedVolumeSource) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	_ = i
 	var l int
 	_ = l
+	if m.DefaultUser != nil {
+		i = encodeVarintGenerated(dAtA, i, uint64(*m.DefaultUser))
+		i--
+		dAtA[i] = 0x18
+	}
 	if m.DefaultMode != nil {
 		i = encodeVarintGenerated(dAtA, i, uint64(*m.DefaultMode))
 		i--
@@ -12772,6 +12951,11 @@ func (m *SecretVolumeSource) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	_ = i
 	var l int
 	_ = l
+	if m.DefaultUser != nil {
+		i = encodeVarintGenerated(dAtA, i, uint64(*m.DefaultUser))
+		i--
+		dAtA[i] = 0x28
+	}
 	if m.Optional != nil {
 		i--
 		if *m.Optional {
@@ -13173,6 +13357,11 @@ func (m *ServiceAccountTokenProjection) MarshalToSizedBuffer(dAtA []byte) (int, 
 	_ = i
 	var l int
 	_ = l
+	if m.User != nil {
+		i = encodeVarintGenerated(dAtA, i, uint64(*m.User))
+		i--
+		dAtA[i] = 0x20
+	}
 	i -= len(m.Path)
 	copy(dAtA[i:], m.Path)
 	i = encodeVarintGenerated(dAtA, i, uint64(len(m.Path)))
@@ -14222,6 +14411,91 @@ func (m *VolumeDevice) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	i = encodeVarintGenerated(dAtA, i, uint64(len(m.Name)))
 	i--
 	dAtA[i] = 0xa
+	return len(dAtA) - i, nil
+}
+
+func (m *VolumeHealthCondition) Marshal() (dAtA []byte, err error) {
+	size := m.Size()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *VolumeHealthCondition) MarshalTo(dAtA []byte) (int, error) {
+	size := m.Size()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *VolumeHealthCondition) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
+	_ = i
+	var l int
+	_ = l
+	i -= len(m.Message)
+	copy(dAtA[i:], m.Message)
+	i = encodeVarintGenerated(dAtA, i, uint64(len(m.Message)))
+	i--
+	dAtA[i] = 0x1a
+	i -= len(m.Reason)
+	copy(dAtA[i:], m.Reason)
+	i = encodeVarintGenerated(dAtA, i, uint64(len(m.Reason)))
+	i--
+	dAtA[i] = 0x12
+	i -= len(m.Status)
+	copy(dAtA[i:], m.Status)
+	i = encodeVarintGenerated(dAtA, i, uint64(len(m.Status)))
+	i--
+	dAtA[i] = 0xa
+	return len(dAtA) - i, nil
+}
+
+func (m *VolumeHealthStatus) Marshal() (dAtA []byte, err error) {
+	size := m.Size()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *VolumeHealthStatus) MarshalTo(dAtA []byte) (int, error) {
+	size := m.Size()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *VolumeHealthStatus) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
+	_ = i
+	var l int
+	_ = l
+	{
+		size, err := m.LastTransitionTime.MarshalToSizedBuffer(dAtA[:i])
+		if err != nil {
+			return 0, err
+		}
+		i -= size
+		i = encodeVarintGenerated(dAtA, i, uint64(size))
+	}
+	i--
+	dAtA[i] = 0x12
+	if len(m.HealthConditions) > 0 {
+		for iNdEx := len(m.HealthConditions) - 1; iNdEx >= 0; iNdEx-- {
+			{
+				size, err := m.HealthConditions[iNdEx].MarshalToSizedBuffer(dAtA[:i])
+				if err != nil {
+					return 0, err
+				}
+				i -= size
+				i = encodeVarintGenerated(dAtA, i, uint64(size))
+			}
+			i--
+			dAtA[i] = 0xa
+		}
+	}
 	return len(dAtA) - i, nil
 }
 
@@ -15523,6 +15797,9 @@ func (m *ClusterTrustBundleProjection) Size() (n int) {
 	if m.Optional != nil {
 		n += 2
 	}
+	if m.User != nil {
+		n += 1 + sovGenerated(uint64(*m.User))
+	}
 	return n
 }
 
@@ -15716,6 +15993,9 @@ func (m *ConfigMapVolumeSource) Size() (n int) {
 	}
 	if m.Optional != nil {
 		n += 2
+	}
+	if m.DefaultUser != nil {
+		n += 1 + sovGenerated(uint64(*m.DefaultUser))
 	}
 	return n
 }
@@ -16098,6 +16378,9 @@ func (m *DownwardAPIVolumeFile) Size() (n int) {
 	if m.Mode != nil {
 		n += 1 + sovGenerated(uint64(*m.Mode))
 	}
+	if m.User != nil {
+		n += 1 + sovGenerated(uint64(*m.User))
+	}
 	return n
 }
 
@@ -16115,6 +16398,9 @@ func (m *DownwardAPIVolumeSource) Size() (n int) {
 	}
 	if m.DefaultMode != nil {
 		n += 1 + sovGenerated(uint64(*m.DefaultMode))
+	}
+	if m.DefaultUser != nil {
+		n += 1 + sovGenerated(uint64(*m.DefaultUser))
 	}
 	return n
 }
@@ -16513,6 +16799,20 @@ func (m *EventSource) Size() (n int) {
 	return n
 }
 
+func (m *EvictionResponder) Size() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	l = len(m.Name)
+	n += 1 + l + sovGenerated(uint64(l))
+	if m.Priority != nil {
+		n += 1 + sovGenerated(uint64(*m.Priority))
+	}
+	return n
+}
+
 func (m *ExecAction) Size() (n int) {
 	if m == nil {
 		return 0
@@ -16662,6 +16962,10 @@ func (m *GRPCAction) Size() (n int) {
 	n += 1 + sovGenerated(uint64(m.Port))
 	if m.Service != nil {
 		l = len(*m.Service)
+		n += 1 + l + sovGenerated(uint64(l))
+	}
+	if m.Mode != nil {
+		l = len(*m.Mode)
 		n += 1 + l + sovGenerated(uint64(l))
 	}
 	return n
@@ -16903,6 +17207,9 @@ func (m *KeyToPath) Size() (n int) {
 	n += 1 + l + sovGenerated(uint64(l))
 	if m.Mode != nil {
 		n += 1 + sovGenerated(uint64(*m.Mode))
+	}
+	if m.User != nil {
+		n += 1 + sovGenerated(uint64(*m.User))
 	}
 	return n
 }
@@ -17907,6 +18214,10 @@ func (m *PersistentVolumeClaimStatus) Size() (n int) {
 		l = m.ModifyVolumeStatus.Size()
 		n += 1 + l + sovGenerated(uint64(l))
 	}
+	if m.HealthStatus != nil {
+		l = m.HealthStatus.Size()
+		n += 1 + l + sovGenerated(uint64(l))
+	}
 	return n
 }
 
@@ -18268,6 +18579,9 @@ func (m *PodCertificateProjection) Size() (n int) {
 			mapEntrySize := 1 + len(k) + sovGenerated(uint64(len(k))) + 1 + len(v) + sovGenerated(uint64(len(v)))
 			n += mapEntrySize + 1 + sovGenerated(uint64(mapEntrySize))
 		}
+	}
+	if m.User != nil {
+		n += 1 + sovGenerated(uint64(*m.User))
 	}
 	return n
 }
@@ -18782,6 +19096,12 @@ func (m *PodSpec) Size() (n int) {
 		l = m.SchedulingGroup.Size()
 		n += 2 + l + sovGenerated(uint64(l))
 	}
+	if len(m.EvictionResponders) > 0 {
+		for _, e := range m.EvictionResponders {
+			l = e.Size()
+			n += 2 + l + sovGenerated(uint64(l))
+		}
+	}
 	return n
 }
 
@@ -18877,6 +19197,12 @@ func (m *PodStatus) Size() (n int) {
 			n += 2 + l + sovGenerated(uint64(l))
 		}
 	}
+	if len(m.VolumeHealth) > 0 {
+		for _, e := range m.VolumeHealth {
+			l = e.Size()
+			n += 2 + l + sovGenerated(uint64(l))
+		}
+	}
 	return n
 }
 
@@ -18919,6 +19245,25 @@ func (m *PodTemplateSpec) Size() (n int) {
 	l = m.ObjectMeta.Size()
 	n += 1 + l + sovGenerated(uint64(l))
 	l = m.Spec.Size()
+	n += 1 + l + sovGenerated(uint64(l))
+	return n
+}
+
+func (m *PodVolumeHealth) Size() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	l = len(m.Name)
+	n += 1 + l + sovGenerated(uint64(l))
+	if len(m.HealthConditions) > 0 {
+		for _, e := range m.HealthConditions {
+			l = e.Size()
+			n += 1 + l + sovGenerated(uint64(l))
+		}
+	}
+	l = m.LastTransitionTime.Size()
 	n += 1 + l + sovGenerated(uint64(l))
 	return n
 }
@@ -19053,6 +19398,9 @@ func (m *ProjectedVolumeSource) Size() (n int) {
 	}
 	if m.DefaultMode != nil {
 		n += 1 + sovGenerated(uint64(*m.DefaultMode))
+	}
+	if m.DefaultUser != nil {
+		n += 1 + sovGenerated(uint64(*m.DefaultUser))
 	}
 	return n
 }
@@ -19692,6 +20040,9 @@ func (m *SecretVolumeSource) Size() (n int) {
 	if m.Optional != nil {
 		n += 2
 	}
+	if m.DefaultUser != nil {
+		n += 1 + sovGenerated(uint64(*m.DefaultUser))
+	}
 	return n
 }
 
@@ -19828,6 +20179,9 @@ func (m *ServiceAccountTokenProjection) Size() (n int) {
 	}
 	l = len(m.Path)
 	n += 1 + l + sovGenerated(uint64(l))
+	if m.User != nil {
+		n += 1 + sovGenerated(uint64(*m.User))
+	}
 	return n
 }
 
@@ -20236,6 +20590,38 @@ func (m *VolumeDevice) Size() (n int) {
 	l = len(m.Name)
 	n += 1 + l + sovGenerated(uint64(l))
 	l = len(m.DevicePath)
+	n += 1 + l + sovGenerated(uint64(l))
+	return n
+}
+
+func (m *VolumeHealthCondition) Size() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	l = len(m.Status)
+	n += 1 + l + sovGenerated(uint64(l))
+	l = len(m.Reason)
+	n += 1 + l + sovGenerated(uint64(l))
+	l = len(m.Message)
+	n += 1 + l + sovGenerated(uint64(l))
+	return n
+}
+
+func (m *VolumeHealthStatus) Size() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	if len(m.HealthConditions) > 0 {
+		for _, e := range m.HealthConditions {
+			l = e.Size()
+			n += 1 + l + sovGenerated(uint64(l))
+		}
+	}
+	l = m.LastTransitionTime.Size()
 	n += 1 + l + sovGenerated(uint64(l))
 	return n
 }
@@ -20815,6 +21201,7 @@ func (this *ClusterTrustBundleProjection) String() string {
 		`LabelSelector:` + strings.Replace(fmt.Sprintf("%v", this.LabelSelector), "LabelSelector", "v1.LabelSelector", 1) + `,`,
 		`Path:` + fmt.Sprintf("%v", this.Path) + `,`,
 		`Optional:` + valueToStringGenerated(this.Optional) + `,`,
+		`User:` + valueToStringGenerated(this.User) + `,`,
 		`}`,
 	}, "")
 	return s
@@ -20981,6 +21368,7 @@ func (this *ConfigMapVolumeSource) String() string {
 		`Items:` + repeatedStringForItems + `,`,
 		`DefaultMode:` + valueToStringGenerated(this.DefaultMode) + `,`,
 		`Optional:` + valueToStringGenerated(this.Optional) + `,`,
+		`DefaultUser:` + valueToStringGenerated(this.DefaultUser) + `,`,
 		`}`,
 	}, "")
 	return s
@@ -21261,6 +21649,7 @@ func (this *DownwardAPIVolumeFile) String() string {
 		`FieldRef:` + strings.Replace(this.FieldRef.String(), "ObjectFieldSelector", "ObjectFieldSelector", 1) + `,`,
 		`ResourceFieldRef:` + strings.Replace(this.ResourceFieldRef.String(), "ResourceFieldSelector", "ResourceFieldSelector", 1) + `,`,
 		`Mode:` + valueToStringGenerated(this.Mode) + `,`,
+		`User:` + valueToStringGenerated(this.User) + `,`,
 		`}`,
 	}, "")
 	return s
@@ -21277,6 +21666,7 @@ func (this *DownwardAPIVolumeSource) String() string {
 	s := strings.Join([]string{`&DownwardAPIVolumeSource{`,
 		`Items:` + repeatedStringForItems + `,`,
 		`DefaultMode:` + valueToStringGenerated(this.DefaultMode) + `,`,
+		`DefaultUser:` + valueToStringGenerated(this.DefaultUser) + `,`,
 		`}`,
 	}, "")
 	return s
@@ -21567,6 +21957,17 @@ func (this *EventSource) String() string {
 	}, "")
 	return s
 }
+func (this *EvictionResponder) String() string {
+	if this == nil {
+		return "nil"
+	}
+	s := strings.Join([]string{`&EvictionResponder{`,
+		`Name:` + fmt.Sprintf("%v", this.Name) + `,`,
+		`Priority:` + valueToStringGenerated(this.Priority) + `,`,
+		`}`,
+	}, "")
+	return s
+}
 func (this *ExecAction) String() string {
 	if this == nil {
 		return "nil"
@@ -21683,6 +22084,7 @@ func (this *GRPCAction) String() string {
 	s := strings.Join([]string{`&GRPCAction{`,
 		`Port:` + fmt.Sprintf("%v", this.Port) + `,`,
 		`Service:` + valueToStringGenerated(this.Service) + `,`,
+		`Mode:` + valueToStringGenerated(this.Mode) + `,`,
 		`}`,
 	}, "")
 	return s
@@ -21856,6 +22258,7 @@ func (this *KeyToPath) String() string {
 		`Key:` + fmt.Sprintf("%v", this.Key) + `,`,
 		`Path:` + fmt.Sprintf("%v", this.Path) + `,`,
 		`Mode:` + valueToStringGenerated(this.Mode) + `,`,
+		`User:` + valueToStringGenerated(this.User) + `,`,
 		`}`,
 	}, "")
 	return s
@@ -22658,6 +23061,7 @@ func (this *PersistentVolumeClaimStatus) String() string {
 		`AllocatedResourceStatuses:` + mapStringForAllocatedResourceStatuses + `,`,
 		`CurrentVolumeAttributesClassName:` + valueToStringGenerated(this.CurrentVolumeAttributesClassName) + `,`,
 		`ModifyVolumeStatus:` + strings.Replace(this.ModifyVolumeStatus.String(), "ModifyVolumeStatus", "ModifyVolumeStatus", 1) + `,`,
+		`HealthStatus:` + strings.Replace(this.HealthStatus.String(), "VolumeHealthStatus", "VolumeHealthStatus", 1) + `,`,
 		`}`,
 	}, "")
 	return s
@@ -22889,6 +23293,7 @@ func (this *PodCertificateProjection) String() string {
 		`KeyPath:` + fmt.Sprintf("%v", this.KeyPath) + `,`,
 		`CertificateChainPath:` + fmt.Sprintf("%v", this.CertificateChainPath) + `,`,
 		`UserAnnotations:` + mapStringForUserAnnotations + `,`,
+		`User:` + valueToStringGenerated(this.User) + `,`,
 		`}`,
 	}, "")
 	return s
@@ -23192,6 +23597,11 @@ func (this *PodSpec) String() string {
 		repeatedStringForResourceClaims += strings.Replace(strings.Replace(f.String(), "PodResourceClaim", "PodResourceClaim", 1), `&`, ``, 1) + ","
 	}
 	repeatedStringForResourceClaims += "}"
+	repeatedStringForEvictionResponders := "[]EvictionResponder{"
+	for _, f := range this.EvictionResponders {
+		repeatedStringForEvictionResponders += strings.Replace(strings.Replace(f.String(), "EvictionResponder", "EvictionResponder", 1), `&`, ``, 1) + ","
+	}
+	repeatedStringForEvictionResponders += "}"
 	keysForNodeSelector := make([]string, 0, len(this.NodeSelector))
 	for k := range this.NodeSelector {
 		keysForNodeSelector = append(keysForNodeSelector, k)
@@ -23255,6 +23665,7 @@ func (this *PodSpec) String() string {
 		`Resources:` + strings.Replace(this.Resources.String(), "ResourceRequirements", "ResourceRequirements", 1) + `,`,
 		`HostnameOverride:` + valueToStringGenerated(this.HostnameOverride) + `,`,
 		`SchedulingGroup:` + strings.Replace(this.SchedulingGroup.String(), "PodSchedulingGroup", "PodSchedulingGroup", 1) + `,`,
+		`EvictionResponders:` + repeatedStringForEvictionResponders + `,`,
 		`}`,
 	}, "")
 	return s
@@ -23303,6 +23714,11 @@ func (this *PodStatus) String() string {
 		repeatedStringForNodeAllocatableResourceClaimStatuses += strings.Replace(strings.Replace(f.String(), "NodeAllocatableResourceClaimStatus", "NodeAllocatableResourceClaimStatus", 1), `&`, ``, 1) + ","
 	}
 	repeatedStringForNodeAllocatableResourceClaimStatuses += "}"
+	repeatedStringForVolumeHealth := "[]PodVolumeHealth{"
+	for _, f := range this.VolumeHealth {
+		repeatedStringForVolumeHealth += strings.Replace(strings.Replace(f.String(), "PodVolumeHealth", "PodVolumeHealth", 1), `&`, ``, 1) + ","
+	}
+	repeatedStringForVolumeHealth += "}"
 	keysForAllocatedResources := make([]string, 0, len(this.AllocatedResources))
 	for k := range this.AllocatedResources {
 		keysForAllocatedResources = append(keysForAllocatedResources, string(k))
@@ -23335,6 +23751,7 @@ func (this *PodStatus) String() string {
 		`AllocatedResources:` + mapStringForAllocatedResources + `,`,
 		`Resources:` + strings.Replace(this.Resources.String(), "ResourceRequirements", "ResourceRequirements", 1) + `,`,
 		`NodeAllocatableResourceClaimStatuses:` + repeatedStringForNodeAllocatableResourceClaimStatuses + `,`,
+		`VolumeHealth:` + repeatedStringForVolumeHealth + `,`,
 		`}`,
 	}, "")
 	return s
@@ -23373,6 +23790,23 @@ func (this *PodTemplateSpec) String() string {
 	s := strings.Join([]string{`&PodTemplateSpec{`,
 		`ObjectMeta:` + strings.Replace(strings.Replace(fmt.Sprintf("%v", this.ObjectMeta), "ObjectMeta", "v1.ObjectMeta", 1), `&`, ``, 1) + `,`,
 		`Spec:` + strings.Replace(strings.Replace(this.Spec.String(), "PodSpec", "PodSpec", 1), `&`, ``, 1) + `,`,
+		`}`,
+	}, "")
+	return s
+}
+func (this *PodVolumeHealth) String() string {
+	if this == nil {
+		return "nil"
+	}
+	repeatedStringForHealthConditions := "[]VolumeHealthCondition{"
+	for _, f := range this.HealthConditions {
+		repeatedStringForHealthConditions += strings.Replace(strings.Replace(f.String(), "VolumeHealthCondition", "VolumeHealthCondition", 1), `&`, ``, 1) + ","
+	}
+	repeatedStringForHealthConditions += "}"
+	s := strings.Join([]string{`&PodVolumeHealth{`,
+		`Name:` + fmt.Sprintf("%v", this.Name) + `,`,
+		`HealthConditions:` + repeatedStringForHealthConditions + `,`,
+		`LastTransitionTime:` + strings.Replace(strings.Replace(fmt.Sprintf("%v", this.LastTransitionTime), "Time", "v1.Time", 1), `&`, ``, 1) + `,`,
 		`}`,
 	}, "")
 	return s
@@ -23476,6 +23910,7 @@ func (this *ProjectedVolumeSource) String() string {
 	s := strings.Join([]string{`&ProjectedVolumeSource{`,
 		`Sources:` + repeatedStringForSources + `,`,
 		`DefaultMode:` + valueToStringGenerated(this.DefaultMode) + `,`,
+		`DefaultUser:` + valueToStringGenerated(this.DefaultUser) + `,`,
 		`}`,
 	}, "")
 	return s
@@ -23999,6 +24434,7 @@ func (this *SecretVolumeSource) String() string {
 		`Items:` + repeatedStringForItems + `,`,
 		`DefaultMode:` + valueToStringGenerated(this.DefaultMode) + `,`,
 		`Optional:` + valueToStringGenerated(this.Optional) + `,`,
+		`DefaultUser:` + valueToStringGenerated(this.DefaultUser) + `,`,
 		`}`,
 	}, "")
 	return s
@@ -24093,6 +24529,7 @@ func (this *ServiceAccountTokenProjection) String() string {
 		`Audience:` + fmt.Sprintf("%v", this.Audience) + `,`,
 		`ExpirationSeconds:` + valueToStringGenerated(this.ExpirationSeconds) + `,`,
 		`Path:` + fmt.Sprintf("%v", this.Path) + `,`,
+		`User:` + valueToStringGenerated(this.User) + `,`,
 		`}`,
 	}, "")
 	return s
@@ -24381,6 +24818,34 @@ func (this *VolumeDevice) String() string {
 	s := strings.Join([]string{`&VolumeDevice{`,
 		`Name:` + fmt.Sprintf("%v", this.Name) + `,`,
 		`DevicePath:` + fmt.Sprintf("%v", this.DevicePath) + `,`,
+		`}`,
+	}, "")
+	return s
+}
+func (this *VolumeHealthCondition) String() string {
+	if this == nil {
+		return "nil"
+	}
+	s := strings.Join([]string{`&VolumeHealthCondition{`,
+		`Status:` + fmt.Sprintf("%v", this.Status) + `,`,
+		`Reason:` + fmt.Sprintf("%v", this.Reason) + `,`,
+		`Message:` + fmt.Sprintf("%v", this.Message) + `,`,
+		`}`,
+	}, "")
+	return s
+}
+func (this *VolumeHealthStatus) String() string {
+	if this == nil {
+		return "nil"
+	}
+	repeatedStringForHealthConditions := "[]VolumeHealthCondition{"
+	for _, f := range this.HealthConditions {
+		repeatedStringForHealthConditions += strings.Replace(strings.Replace(f.String(), "VolumeHealthCondition", "VolumeHealthCondition", 1), `&`, ``, 1) + ","
+	}
+	repeatedStringForHealthConditions += "}"
+	s := strings.Join([]string{`&VolumeHealthStatus{`,
+		`HealthConditions:` + repeatedStringForHealthConditions + `,`,
+		`LastTransitionTime:` + strings.Replace(strings.Replace(fmt.Sprintf("%v", this.LastTransitionTime), "Time", "v1.Time", 1), `&`, ``, 1) + `,`,
 		`}`,
 	}, "")
 	return s
@@ -27788,6 +28253,26 @@ func (m *ClusterTrustBundleProjection) Unmarshal(dAtA []byte) error {
 			}
 			b := bool(v != 0)
 			m.Optional = &b
+		case 6:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field User", wireType)
+			}
+			var v int64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowGenerated
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				v |= int64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			m.User = &v
 		default:
 			iNdEx = preIndex
 			skippy, err := skipGenerated(dAtA[iNdEx:])
@@ -29422,6 +29907,26 @@ func (m *ConfigMapVolumeSource) Unmarshal(dAtA []byte) error {
 			}
 			b := bool(v != 0)
 			m.Optional = &b
+		case 5:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field DefaultUser", wireType)
+			}
+			var v int64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowGenerated
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				v |= int64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			m.DefaultUser = &v
 		default:
 			iNdEx = preIndex
 			skippy, err := skipGenerated(dAtA[iNdEx:])
@@ -32717,6 +33222,26 @@ func (m *DownwardAPIVolumeFile) Unmarshal(dAtA []byte) error {
 				}
 			}
 			m.Mode = &v
+		case 5:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field User", wireType)
+			}
+			var v int64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowGenerated
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				v |= int64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			m.User = &v
 		default:
 			iNdEx = preIndex
 			skippy, err := skipGenerated(dAtA[iNdEx:])
@@ -32821,6 +33346,26 @@ func (m *DownwardAPIVolumeSource) Unmarshal(dAtA []byte) error {
 				}
 			}
 			m.DefaultMode = &v
+		case 3:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field DefaultUser", wireType)
+			}
+			var v int64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowGenerated
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				v |= int64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			m.DefaultUser = &v
 		default:
 			iNdEx = preIndex
 			skippy, err := skipGenerated(dAtA[iNdEx:])
@@ -36144,6 +36689,108 @@ func (m *EventSource) Unmarshal(dAtA []byte) error {
 	}
 	return nil
 }
+func (m *EvictionResponder) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowGenerated
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= uint64(b&0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: EvictionResponder: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: EvictionResponder: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Name", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowGenerated
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthGenerated
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return ErrInvalidLengthGenerated
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.Name = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		case 2:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Priority", wireType)
+			}
+			var v int32
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowGenerated
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				v |= int32(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			m.Priority = &v
+		default:
+			iNdEx = preIndex
+			skippy, err := skipGenerated(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
+				return ErrInvalidLengthGenerated
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
 func (m *ExecAction) Unmarshal(dAtA []byte) error {
 	l := len(dAtA)
 	iNdEx := 0
@@ -37520,6 +38167,39 @@ func (m *GRPCAction) Unmarshal(dAtA []byte) error {
 			}
 			s := string(dAtA[iNdEx:postIndex])
 			m.Service = &s
+			iNdEx = postIndex
+		case 3:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Mode", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowGenerated
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthGenerated
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return ErrInvalidLengthGenerated
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			s := GRPCProbeMode(dAtA[iNdEx:postIndex])
+			m.Mode = &s
 			iNdEx = postIndex
 		default:
 			iNdEx = preIndex
@@ -39685,6 +40365,26 @@ func (m *KeyToPath) Unmarshal(dAtA []byte) error {
 				}
 			}
 			m.Mode = &v
+		case 4:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field User", wireType)
+			}
+			var v int64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowGenerated
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				v |= int64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			m.User = &v
 		default:
 			iNdEx = preIndex
 			skippy, err := skipGenerated(dAtA[iNdEx:])
@@ -48378,6 +49078,42 @@ func (m *PersistentVolumeClaimStatus) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
+		case 10:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field HealthStatus", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowGenerated
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthGenerated
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthGenerated
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if m.HealthStatus == nil {
+				m.HealthStatus = &VolumeHealthStatus{}
+			}
+			if err := m.HealthStatus.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
 		default:
 			iNdEx = preIndex
 			skippy, err := skipGenerated(dAtA[iNdEx:])
@@ -51483,6 +52219,26 @@ func (m *PodCertificateProjection) Unmarshal(dAtA []byte) error {
 			}
 			m.UserAnnotations[mapkey] = mapvalue
 			iNdEx = postIndex
+		case 8:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field User", wireType)
+			}
+			var v int64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowGenerated
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				v |= int64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			m.User = &v
 		default:
 			iNdEx = preIndex
 			skippy, err := skipGenerated(dAtA[iNdEx:])
@@ -55687,6 +56443,40 @@ func (m *PodSpec) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
+		case 44:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field EvictionResponders", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowGenerated
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthGenerated
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthGenerated
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.EvictionResponders = append(m.EvictionResponders, EvictionResponder{})
+			if err := m.EvictionResponders[len(m.EvictionResponders)-1].Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
 		default:
 			iNdEx = preIndex
 			skippy, err := skipGenerated(dAtA[iNdEx:])
@@ -56521,6 +57311,40 @@ func (m *PodStatus) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
+		case 22:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field VolumeHealth", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowGenerated
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthGenerated
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthGenerated
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.VolumeHealth = append(m.VolumeHealth, PodVolumeHealth{})
+			if err := m.VolumeHealth[len(m.VolumeHealth)-1].Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
 		default:
 			iNdEx = preIndex
 			skippy, err := skipGenerated(dAtA[iNdEx:])
@@ -56867,6 +57691,155 @@ func (m *PodTemplateSpec) Unmarshal(dAtA []byte) error {
 				return io.ErrUnexpectedEOF
 			}
 			if err := m.Spec.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		default:
+			iNdEx = preIndex
+			skippy, err := skipGenerated(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
+				return ErrInvalidLengthGenerated
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *PodVolumeHealth) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowGenerated
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= uint64(b&0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: PodVolumeHealth: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: PodVolumeHealth: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Name", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowGenerated
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthGenerated
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return ErrInvalidLengthGenerated
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.Name = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		case 2:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field HealthConditions", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowGenerated
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthGenerated
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthGenerated
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.HealthConditions = append(m.HealthConditions, VolumeHealthCondition{})
+			if err := m.HealthConditions[len(m.HealthConditions)-1].Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		case 3:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field LastTransitionTime", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowGenerated
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthGenerated
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthGenerated
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if err := m.LastTransitionTime.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
 				return err
 			}
 			iNdEx = postIndex
@@ -57999,6 +58972,26 @@ func (m *ProjectedVolumeSource) Unmarshal(dAtA []byte) error {
 				}
 			}
 			m.DefaultMode = &v
+		case 3:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field DefaultUser", wireType)
+			}
+			var v int64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowGenerated
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				v |= int64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			m.DefaultUser = &v
 		default:
 			iNdEx = preIndex
 			skippy, err := skipGenerated(dAtA[iNdEx:])
@@ -63949,6 +64942,26 @@ func (m *SecretVolumeSource) Unmarshal(dAtA []byte) error {
 			}
 			b := bool(v != 0)
 			m.Optional = &b
+		case 5:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field DefaultUser", wireType)
+			}
+			var v int64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowGenerated
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				v |= int64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			m.DefaultUser = &v
 		default:
 			iNdEx = preIndex
 			skippy, err := skipGenerated(dAtA[iNdEx:])
@@ -64991,6 +66004,26 @@ func (m *ServiceAccountTokenProjection) Unmarshal(dAtA []byte) error {
 			}
 			m.Path = string(dAtA[iNdEx:postIndex])
 			iNdEx = postIndex
+		case 4:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field User", wireType)
+			}
+			var v int64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowGenerated
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				v |= int64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			m.User = &v
 		default:
 			iNdEx = preIndex
 			skippy, err := skipGenerated(dAtA[iNdEx:])
@@ -68492,6 +69525,269 @@ func (m *VolumeDevice) Unmarshal(dAtA []byte) error {
 				return io.ErrUnexpectedEOF
 			}
 			m.DevicePath = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		default:
+			iNdEx = preIndex
+			skippy, err := skipGenerated(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
+				return ErrInvalidLengthGenerated
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *VolumeHealthCondition) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowGenerated
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= uint64(b&0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: VolumeHealthCondition: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: VolumeHealthCondition: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Status", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowGenerated
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthGenerated
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return ErrInvalidLengthGenerated
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.Status = VolumeHealthStatusType(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		case 2:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Reason", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowGenerated
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthGenerated
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return ErrInvalidLengthGenerated
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.Reason = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		case 3:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Message", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowGenerated
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthGenerated
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return ErrInvalidLengthGenerated
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.Message = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		default:
+			iNdEx = preIndex
+			skippy, err := skipGenerated(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
+				return ErrInvalidLengthGenerated
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *VolumeHealthStatus) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowGenerated
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= uint64(b&0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: VolumeHealthStatus: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: VolumeHealthStatus: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field HealthConditions", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowGenerated
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthGenerated
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthGenerated
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.HealthConditions = append(m.HealthConditions, VolumeHealthCondition{})
+			if err := m.HealthConditions[len(m.HealthConditions)-1].Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		case 2:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field LastTransitionTime", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowGenerated
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthGenerated
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthGenerated
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if err := m.LastTransitionTime.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
 			iNdEx = postIndex
 		default:
 			iNdEx = preIndex

@@ -705,6 +705,68 @@ type PersistentVolumeClaimCondition struct {
 	Message string
 }
 
+// VolumeHealthStatusType describes the health status category of a volume.
+type VolumeHealthStatusType string
+
+const (
+	// VolumeHealthInaccessible indicates the volume cannot be accessed.
+	VolumeHealthInaccessible VolumeHealthStatusType = "Inaccessible"
+	// VolumeHealthDataLoss indicates data loss has been detected on the volume.
+	VolumeHealthDataLoss VolumeHealthStatusType = "DataLoss"
+	// VolumeHealthDegraded indicates the volume is functioning but with reduced capability.
+	VolumeHealthDegraded VolumeHealthStatusType = "Degraded"
+)
+
+// VolumeHealthCondition represents an adverse health condition reported for a volume.
+type VolumeHealthCondition struct {
+	// status is the machine-parseable health category.
+	// Possible values:
+	// - "Inaccessible": the volume cannot be accessed.
+	// - "DataLoss": data loss has been detected on the volume.
+	// - "Degraded": the volume is functioning with reduced capability.
+	Status VolumeHealthStatusType
+	// reason is a brief CamelCase machine-parseable reason.
+	// Together with status it forms the unique identity of a condition entry.
+	Reason string
+	// message is a human-readable description.
+	// +optional
+	Message string
+}
+
+// VolumeHealthStatus contains health information for a volume reported
+// by the CSI controller plugin.
+type VolumeHealthStatus struct {
+	// conditions is the set of adverse conditions reported by
+	// the CSI controller plugin. An empty list means no adverse condition.
+	// At most 16 conditions may be reported.
+	// +optional
+	// +listType=map
+	// +listMapKey=status
+	// +listMapKey=reason
+	HealthConditions []VolumeHealthCondition
+	// lastTransitionTime is when the current set of conditions first appeared.
+	// +optional
+	LastTransitionTime metav1.Time
+}
+
+// PodVolumeHealth contains health information for a volume used by a pod,
+// reported by the CSI node plugin via the kubelet.
+type PodVolumeHealth struct {
+	// name matches an entry in pod.spec.volumes.
+	Name string
+	// conditions is the set of adverse conditions reported by
+	// the CSI node plugin for this volume on this node.
+	// At most 16 conditions may be reported.
+	// +optional
+	// +listType=map
+	// +listMapKey=status
+	// +listMapKey=reason
+	HealthConditions []VolumeHealthCondition
+	// lastTransitionTime is when the current set of conditions first appeared.
+	// +optional
+	LastTransitionTime metav1.Time
+}
+
 // PersistentVolumeClaimStatus represents the status of PV claim
 type PersistentVolumeClaimStatus struct {
 	// Phase represents the current phase of PersistentVolumeClaim
@@ -786,6 +848,11 @@ type PersistentVolumeClaimStatus struct {
 	// +featureGate=VolumeAttributesClass
 	// +optional
 	ModifyVolumeStatus *ModifyVolumeStatus
+	// healthStatus contains the latest controller-reported health information
+	// for the volume bound to this claim.
+	// +featureGate=CSIVolumeHealth
+	// +optional
+	HealthStatus *VolumeHealthStatus
 }
 
 // PersistentVolumeAccessMode defines various access modes for PV.
@@ -1193,6 +1260,12 @@ type SecretVolumeSource struct {
 	// Specify whether the Secret or its key must be defined
 	// +optional
 	Optional *bool
+	// The owner UID of the created files by default.
+	// The defaultUser field is only used as a fallback when the item-level user field is unset.
+	// (Alpha) This field requires the AtomicWriteVolumeUserFields feature gate to be enabled.
+	// +featureGate=AtomicWriteVolumeUserFields
+	// +optional
+	DefaultUser *int64
 }
 
 // SecretProjection adapts a secret into a projected volume.
@@ -1492,6 +1565,12 @@ type DownwardAPIVolumeSource struct {
 	// mode, like fsGroup, and the result can be other mode bits set.
 	// +optional
 	DefaultMode *int32
+	// The owner UID of the created files by default.
+	// The defaultUser field is only used as a fallback when the item-level user field is unset.
+	// (Alpha) This field requires the AtomicWriteVolumeUserFields feature gate to be enabled.
+	// +featureGate=AtomicWriteVolumeUserFields
+	// +optional
+	DefaultUser *int64
 }
 
 // DownwardAPIVolumeFile represents a single file containing information from the downward API
@@ -1511,6 +1590,12 @@ type DownwardAPIVolumeFile struct {
 	// mode, like fsGroup, and the result can be other mode bits set.
 	// +optional
 	Mode *int32
+	// The owner UID of the created file.
+	// If specified, the item-level user field takes precedence over defaultUser.
+	// (Alpha) This field requires the AtomicWriteVolumeUserFields feature gate to be enabled.
+	// +featureGate=AtomicWriteVolumeUserFields
+	// +optional
+	User *int64
 }
 
 // DownwardAPIProjection represents downward API info for projecting into a projected volume.
@@ -1789,6 +1874,12 @@ type ConfigMapVolumeSource struct {
 	// Specify whether the ConfigMap or its keys must be defined
 	// +optional
 	Optional *bool
+	// The owner UID of the created files by default.
+	// The defaultUser field is only used as a fallback when the item-level user field is unset.
+	// (Alpha) This field requires the AtomicWriteVolumeUserFields feature gate to be enabled.
+	// +featureGate=AtomicWriteVolumeUserFields
+	// +optional
+	DefaultUser *int64
 }
 
 // ConfigMapProjection adapts a ConfigMap into a projected volume.
@@ -1835,6 +1926,12 @@ type ServiceAccountTokenProjection struct {
 	// Path is the path relative to the mount point of the file to project the
 	// token into.
 	Path string
+	// The owner UID of the created file.
+	// If specified, the item-level user field takes precedence over defaultUser.
+	// (Alpha) This field requires the AtomicWriteVolumeUserFields feature gate to be enabled.
+	// +featureGate=AtomicWriteVolumeUserFields
+	// +optional
+	User *int64
 }
 
 // ClusterTrustBundleProjection allows a pod to access the
@@ -1858,6 +1955,13 @@ type ClusterTrustBundleProjection struct {
 
 	// Relative path from the volume root to write the bundle.
 	Path string
+
+	// The owner UID of the created file.
+	// If specified, the item-level user field takes precedence over defaultUser.
+	// (Alpha) This field requires the AtomicWriteVolumeUserFields feature gate to be enabled.
+	// +featureGate=AtomicWriteVolumeUserFields
+	// +optional
+	User *int64
 }
 
 // PodCertificateProjection provides a private key and X.509 certificate in
@@ -1928,6 +2032,13 @@ type PodCertificateProjection struct {
 	// Signers should document the keys and values they support. Signers should
 	// deny requests that contain keys they do not recognize.
 	UserAnnotations map[string]string
+
+	// The owner UID of the created file.
+	// If specified, the item-level user field takes precedence over defaultUser.
+	// (Alpha) This field requires the AtomicWriteVolumeUserFields feature gate to be enabled.
+	// +featureGate=AtomicWriteVolumeUserFields
+	// +optional
+	User *int64
 }
 
 // ProjectedVolumeSource represents a projected volume source
@@ -1941,6 +2052,12 @@ type ProjectedVolumeSource struct {
 	// mode, like fsGroup, and the result can be other mode bits set.
 	// +optional
 	DefaultMode *int32
+	// The owner UID of the created files by default.
+	// The defaultUser field is only used as a fallback when the item-level user field is unset.
+	// (Alpha) This field requires the AtomicWriteVolumeUserFields feature gate to be enabled.
+	// +featureGate=AtomicWriteVolumeUserFields
+	// +optional
+	DefaultUser *int64
 }
 
 // VolumeProjection that may be projected along with other supported volume types
@@ -1977,6 +2094,12 @@ type KeyToPath struct {
 	// mode, like fsGroup, and the result can be other mode bits set.
 	// +optional
 	Mode *int32
+	// The owner UID of the created file.
+	// If specified, the item-level user field takes precedence over defaultUser.
+	// (Alpha) This field requires the AtomicWriteVolumeUserFields feature gate to be enabled.
+	// +featureGate=AtomicWriteVolumeUserFields
+	// +optional
+	User *int64
 }
 
 // LocalVolumeSource represents directly-attached storage with node affinity
@@ -2813,7 +2936,28 @@ type GRPCAction struct {
 	// If this is not specified, the default behavior is to probe the server's overall health status.
 	// +optional
 	Service *string
+
+	// mode specifies the connection mode for the gRPC health probe.
+	// Set to "TLS" to use TLS without certificate verification.
+	// Set to "Plaintext" to use a plaintext (insecure) connection explicitly.
+	// If not specified, the probe uses a plaintext (insecure) connection.
+	// +featureGate=GRPCContainerProbeTLS
+	// +optional
+	Mode *GRPCProbeMode
 }
+
+// GRPCProbeMode describes the connection mode for a gRPC probe.
+// +enum
+type GRPCProbeMode string
+
+const (
+	// GRPCProbeModePlaintext indicates that the probe should use a plaintext
+	// (insecure) gRPC connection.
+	GRPCProbeModePlaintext GRPCProbeMode = "Plaintext"
+	// GRPCProbeModeTLS indicates that the probe should connect using TLS
+	// without certificate verification.
+	GRPCProbeModeTLS GRPCProbeMode = "TLS"
+)
 
 // Signal defines the stop signal of containers
 // +enum
@@ -3058,8 +3202,13 @@ type ContainerStatus struct {
 
 type ResourceStatus struct {
 	// Name of the resource. Must be unique within the pod and in case of non-DRA resource, match one of the resources from the pod spec.
-	// For DRA resources, the value must be "claim:<claim_name>/<request>".
-	// When this status is reported about a container, the "claim_name" and "request" must match one of the claims of this container.
+	// For DRA resources, the value must be "claim:<claim_name>/<request>" when
+	// container.resources.claims[*].request is set or "claim:<claim_name>" when
+	// container.resources.claims[*].request is empty.
+	// For DRA-backed extended resources, "claim:<claim_name>/<request>" is used
+	// when the claim name and request name are recorded in pod.status.extendedResourceClaimStatus.
+	// When this status is reported about a container, the "claim_name" and "request"
+	// must match one of the claims of this container.
 	// +required
 	Name ResourceName
 	// List of unique resources health. Each element in the list contains an unique resource ID and its health.
@@ -3991,7 +4140,6 @@ type PodSpec struct {
 	// - `hostNetwork` must be set to false.
 	//
 	// This field must be a valid DNS subdomain as defined in RFC 1123 and contain at most 64 characters.
-	// Requires the HostnameOverride feature gate to be enabled.
 	//
 	// +featureGate=HostnameOverride
 	// +optional
@@ -4012,6 +4160,25 @@ type PodSpec struct {
 	// +featureGate=GenericWorkload
 	// +optional
 	SchedulingGroup *PodSchedulingGroup
+
+	// evictionResponders reference responders that react to Evictions based on EvictionRequests.
+	// Responders should observe and communicate through the Eviction Resource API to help with
+	// the graceful termination of a pod. The responders are selected sequentially, according to
+	// their specified priority.
+	//
+	// Responders should periodically report on an eviction progress by updating the
+	// .status.responders[].heartbeatTime field of the Eviction object. If this field is not updated
+	// within the heartbeat deadline defined by the Eviction API (currently 20 minutes), the eviction
+	// is passed over to the next responder with a lower priority. If there is no other responder,
+	// the last default imperative-eviction.k8s.io/evictor responder with a priority of 100 will
+	// evict the pod using the imperative Eviction API (pods/<name>/eviction subresource).
+	//
+	// The maximum length of the responders list is 10.
+	// Responders are not supported when the pod is part of a PodGroup (.spec.schedulingGroup is set).
+	// This field can only be set on creation and is immutable afterwards.
+	// +featureGate=EvictionRequestAPI
+	// +optional
+	EvictionResponders []EvictionResponder
 }
 
 // PodResourceClaim references exactly one ResourceClaim through a ClaimSource.
@@ -4583,6 +4750,36 @@ type EphemeralContainer struct {
 	TargetContainerName string
 }
 
+// EvictionResponder allows you to specify the responder reacting to an Eviction.
+// Responders should observe and communicate through the Eviction Resource API to help with
+// the graceful eviction of a target (e.g. termination of a pod).
+// +structType=atomic
+type EvictionResponder struct {
+	// name allows you to identify the responder responding to the Eviction.
+	//
+	// It must be a valid domain-prefixed key (such as "acme.io/foo").
+	// Domain names *.k8s.io and *.kubernetes.io are reserved.
+	// This field must be unique for each responder.
+	// This field is required.
+	// +required
+	Name string
+
+	// priority for this responder. Higher priorities are selected first by the evictionrequest-controller.
+	// If there are responders with the same priority, the responder whose domain name comes first in the
+	// alphabetical higher domain order, will be picked. This means that the top domain labels are compared
+	// alphabetically first, followed by the lower domain labels. The key is compared last.
+	//
+	// The responder that is the managing controller of the pod should set the value of
+	// this field to 10000 to allow both for preemption or fallback registration by other
+	// responders.
+	//
+	// The minimum value is 0 and the maximum value is 100000.
+	// The interval 0-999 is reserved for responders with *.k8s.io suffix.
+	// This field is required.
+	// +required
+	Priority *int32
+}
+
 // PodStatus represents information about the status of a pod. Status may trail the actual
 // state of a system.
 type PodStatus struct {
@@ -4714,6 +4911,14 @@ type PodStatus struct {
 	// +optional
 	// +listType=atomic
 	NodeAllocatableResourceClaimStatuses []NodeAllocatableResourceClaimStatus
+
+	// volumeHealth contains node-reported health for each volume the pod is using.
+	// Populated by the kubelet on the pod's node.
+	// +featureGate=CSIVolumeHealth
+	// +optional
+	// +listType=map
+	// +listMapKey=name
+	VolumeHealth []PodVolumeHealth
 }
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object

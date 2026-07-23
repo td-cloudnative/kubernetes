@@ -112,6 +112,9 @@ const (
 	// ResourceSliceSelectorDriver can be used in a [metav1.ListOptions]
 	// field selector to filter based on [ResourceSliceSpec.Driver].
 	ResourceSliceSelectorDriver = "spec.driver"
+	// ResourceSliceSelectorPoolName can be used in a [metav1.ListOptions]
+	// field selector to filter based on [ResourceSliceSpec.Pool.Name].
+	ResourceSliceSelectorPoolName = "spec.pool.name"
 )
 
 // ResourceSliceSpec contains the information published by the driver in one ResourceSlice.
@@ -210,6 +213,21 @@ type ResourceSliceSpec struct {
 	// +zeroOrOneOf=ResourceSliceType
 	// +k8s:beta(since: "1.37")=+k8s:maxItems=8
 	SharedCounters []CounterSet `json:"sharedCounters,omitempty" protobuf:"bytes,8,name=sharedCounters"`
+
+	// PartitionTypeAttribute names a string device attribute (by fully
+	// qualified name, e.g. "gpu.example.com/profile") whose value labels
+	// each device with its partition type, such as "Full" or "Half" for a
+	// MIG-style GPU.
+	//
+	// When set, every partitionable device in the slice must carry the attribute
+	// and devices sharing a value must share the same ConsumesCounters cost.
+	//
+	// +optional
+	// +featureGate=DRAPartitionableDevicesType
+	// +k8s:ifDisabled(DRAPartitionableDevicesType)=+k8s:forbidden
+	// +k8s:ifEnabled(DRAPartitionableDevicesType)=+k8s:optional
+	// +k8s:ifEnabled(DRAPartitionableDevicesType)=+k8s:format=k8s-resource-fully-qualified-name
+	PartitionTypeAttribute *FullyQualifiedName `json:"partitionTypeAttribute,omitempty" protobuf:"bytes,9,opt,name=partitionTypeAttribute"`
 }
 
 // CounterSet defines a named set of counters
@@ -248,6 +266,8 @@ const DriverNameMaxLength = 63
 type ResourcePool struct {
 	// Name is used to identify the pool. For node-local devices, this
 	// is often the node name, but this is not required.
+	// A field selector can be used to list only ResourceSlice objects
+	// belonging to a certain pool.
 	//
 	// It must not be longer than 253 characters and must consist of one or more DNS sub-domains
 	// separated by slashes. This field is immutable.

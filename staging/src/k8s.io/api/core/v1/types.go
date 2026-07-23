@@ -765,6 +765,95 @@ type PersistentVolumeClaimCondition struct {
 	Message string `json:"message,omitempty" protobuf:"bytes,6,opt,name=message"`
 }
 
+// VolumeHealthStatusType describes the health status category of a volume.
+// +enum
+// +k8s:enum
+type VolumeHealthStatusType string
+
+const (
+	// VolumeHealthInaccessible indicates the volume cannot be accessed.
+	VolumeHealthInaccessible VolumeHealthStatusType = "Inaccessible"
+	// VolumeHealthDataLoss indicates data loss has been detected on the volume.
+	VolumeHealthDataLoss VolumeHealthStatusType = "DataLoss"
+	// VolumeHealthDegraded indicates the volume is functioning but with reduced capability.
+	VolumeHealthDegraded VolumeHealthStatusType = "Degraded"
+)
+
+// VolumeHealthCondition represents an adverse health condition reported for a volume.
+type VolumeHealthCondition struct {
+	// status is the machine-parseable health category.
+	// Possible values:
+	// - "Inaccessible": the volume cannot be accessed.
+	// - "DataLoss": data loss has been detected on the volume.
+	// - "Degraded": the volume is functioning with reduced capability.
+	// +required
+	// +k8s:required
+	Status VolumeHealthStatusType `json:"status" protobuf:"bytes,1,opt,name=status,casttype=VolumeHealthStatusType"`
+	// reason is a brief CamelCase machine-parseable reason.
+	// Together with status it forms the unique identity of a condition entry.
+	// Maximum permitted length of a reason is 256 bytes.
+	// +required
+	// +k8s:required
+	// +k8s:maxBytes=256
+	Reason string `json:"reason" protobuf:"bytes,2,opt,name=reason"`
+	// message is a human-readable description.
+	// Maximum permitted length of a message is 1024 bytes.
+	// +optional
+	// +k8s:optional
+	// +k8s:maxBytes=1024
+	Message string `json:"message,omitempty" protobuf:"bytes,3,opt,name=message"`
+}
+
+// VolumeHealthStatus contains health information for a volume reported
+// by the CSI controller plugin.
+type VolumeHealthStatus struct {
+	// conditions is the set of adverse conditions reported by
+	// the CSI controller plugin. An empty list means no adverse condition.
+	// At most 16 conditions may be reported.
+	// +optional
+	// +listType=map
+	// +listMapKey=status
+	// +patchMergeKey=status
+	// +patchStrategy=merge
+	// +listMapKey=reason
+	// +k8s:optional
+	// +k8s:listType=map
+	// +k8s:listMapKey=status
+	// +k8s:listMapKey=reason
+	// +k8s:maxItems=16
+	HealthConditions []VolumeHealthCondition `json:"healthConditions,omitempty" patchStrategy:"merge" patchMergeKey:"status" protobuf:"bytes,1,rep,name=healthConditions"`
+	// lastTransitionTime is when the current set of conditions first appeared.
+	// +optional
+	LastTransitionTime metav1.Time `json:"lastTransitionTime,omitempty" protobuf:"bytes,2,opt,name=lastTransitionTime"`
+}
+
+// PodVolumeHealth contains health information for a volume used by a pod,
+// reported by the CSI node plugin via the kubelet.
+type PodVolumeHealth struct {
+	// name matches an entry in pod.spec.volumes.
+	// +required
+	// +k8s:required
+	Name string `json:"name" protobuf:"bytes,1,opt,name=name"`
+	// conditions is the set of adverse conditions reported by
+	// the CSI node plugin for this volume on this node.
+	// At most 16 conditions may be reported.
+	// +optional
+	// +listType=map
+	// +listMapKey=status
+	// +patchMergeKey=status
+	// +patchStrategy=merge
+	// +listMapKey=reason
+	// +k8s:optional
+	// +k8s:listType=map
+	// +k8s:listMapKey=status
+	// +k8s:listMapKey=reason
+	// +k8s:maxItems=16
+	HealthConditions []VolumeHealthCondition `json:"healthConditions,omitempty" patchStrategy:"merge" patchMergeKey:"status" protobuf:"bytes,2,rep,name=healthConditions"`
+	// lastTransitionTime is when the current set of conditions first appeared.
+	// +optional
+	LastTransitionTime metav1.Time `json:"lastTransitionTime,omitempty" protobuf:"bytes,3,opt,name=lastTransitionTime"`
+}
+
 // PersistentVolumeClaimStatus is the current status of a persistent volume claim.
 type PersistentVolumeClaimStatus struct {
 	// phase represents the current phase of PersistentVolumeClaim.
@@ -858,6 +947,12 @@ type PersistentVolumeClaimStatus struct {
 	// +featureGate=VolumeAttributesClass
 	// +optional
 	ModifyVolumeStatus *ModifyVolumeStatus `json:"modifyVolumeStatus,omitempty" protobuf:"bytes,9,opt,name=modifyVolumeStatus"`
+	// healthStatus contains the latest controller-reported health information
+	// for the volume bound to this claim.
+	// +featureGate=CSIVolumeHealth
+	// +optional
+	// +k8s:optional
+	HealthStatus *VolumeHealthStatus `json:"healthStatus,omitempty" protobuf:"bytes,10,opt,name=healthStatus"`
 }
 
 // +enum
@@ -1455,6 +1550,12 @@ type SecretVolumeSource struct {
 	// optional field specify whether the Secret or its keys must be defined
 	// +optional
 	Optional *bool `json:"optional,omitempty" protobuf:"varint,4,opt,name=optional"`
+	// defaultUser is Optional: The owner UID of the created files by default.
+	// The defaultUser field is only used as a fallback when the item-level user field is unset.
+	// (Alpha) This field requires the AtomicWriteVolumeUserFields feature gate to be enabled.
+	// +featureGate=AtomicWriteVolumeUserFields
+	// +optional
+	DefaultUser *int64 `json:"defaultUser,omitempty" protobuf:"varint,5,opt,name=defaultUser"`
 }
 
 const (
@@ -1901,6 +2002,12 @@ type ConfigMapVolumeSource struct {
 	// optional specify whether the ConfigMap or its keys must be defined
 	// +optional
 	Optional *bool `json:"optional,omitempty" protobuf:"varint,4,opt,name=optional"`
+	// defaultUser is Optional: The owner UID of the created files by default.
+	// The defaultUser field is only used as a fallback when the item-level user field is unset.
+	// (Alpha) This field requires the AtomicWriteVolumeUserFields feature gate to be enabled.
+	// +featureGate=AtomicWriteVolumeUserFields
+	// +optional
+	DefaultUser *int64 `json:"defaultUser,omitempty" protobuf:"varint,5,opt,name=defaultUser"`
 }
 
 const (
@@ -1953,6 +2060,12 @@ type ServiceAccountTokenProjection struct {
 	// path is the path relative to the mount point of the file to project the
 	// token into.
 	Path string `json:"path" protobuf:"bytes,3,opt,name=path"`
+	// user is Optional: The owner UID of the created file.
+	// If specified, the item-level user field takes precedence over defaultUser.
+	// (Alpha) This field requires the AtomicWriteVolumeUserFields feature gate to be enabled.
+	// +featureGate=AtomicWriteVolumeUserFields
+	// +optional
+	User *int64 `json:"user,omitempty" protobuf:"varint,4,opt,name=user"`
 }
 
 // ClusterTrustBundleProjection describes how to select a set of
@@ -1987,6 +2100,13 @@ type ClusterTrustBundleProjection struct {
 
 	// Relative path from the volume root to write the bundle.
 	Path string `json:"path" protobuf:"bytes,4,rep,name=path"`
+
+	// user is Optional: The owner UID of the created file.
+	// If specified, the item-level user field takes precedence over defaultUser.
+	// (Alpha) This field requires the AtomicWriteVolumeUserFields feature gate to be enabled.
+	// +featureGate=AtomicWriteVolumeUserFields
+	// +optional
+	User *int64 `json:"user,omitempty" protobuf:"varint,6,opt,name=user"`
 }
 
 // PodCertificateProjection provides a private key and X.509 certificate in the
@@ -2075,6 +2195,13 @@ type PodCertificateProjection struct {
 	// Signers should document the keys and values they support. Signers should
 	// deny requests that contain keys they do not recognize.
 	UserAnnotations map[string]string `json:"userAnnotations,omitempty" protobuf:"bytes,7,rep,name=userAnnotations"`
+
+	// user is Optional: The owner UID of the created file.
+	// If specified, the item-level user field takes precedence over defaultUser.
+	// (Alpha) This field requires the AtomicWriteVolumeUserFields feature gate to be enabled.
+	// +featureGate=AtomicWriteVolumeUserFields
+	// +optional
+	User *int64 `json:"user,omitempty" protobuf:"varint,8,opt,name=user"`
 }
 
 // Represents a projected volume source
@@ -2092,6 +2219,12 @@ type ProjectedVolumeSource struct {
 	// mode, like fsGroup, and the result can be other mode bits set.
 	// +optional
 	DefaultMode *int32 `json:"defaultMode,omitempty" protobuf:"varint,2,opt,name=defaultMode"`
+	// defaultUser is Optional: The owner UID of the created files by default.
+	// The defaultUser field is only used as a fallback when the item-level user field is unset.
+	// (Alpha) This field requires the AtomicWriteVolumeUserFields feature gate to be enabled.
+	// +featureGate=AtomicWriteVolumeUserFields
+	// +optional
+	DefaultUser *int64 `json:"defaultUser,omitempty" protobuf:"varint,3,opt,name=defaultUser"`
 }
 
 // Projection that may be projected along with other supported volume types.
@@ -2190,6 +2323,12 @@ type KeyToPath struct {
 	// mode, like fsGroup, and the result can be other mode bits set.
 	// +optional
 	Mode *int32 `json:"mode,omitempty" protobuf:"varint,3,opt,name=mode"`
+	// user is Optional: The owner UID of the created file.
+	// If specified, the item-level user field takes precedence over defaultUser.
+	// (Alpha) This field requires the AtomicWriteVolumeUserFields feature gate to be enabled.
+	// +featureGate=AtomicWriteVolumeUserFields
+	// +optional
+	User *int64 `json:"user,omitempty" protobuf:"varint,4,opt,name=user"`
 }
 
 // Local represents directly-attached storage with node affinity
@@ -2718,7 +2857,28 @@ type GRPCAction struct {
 	// +optional
 	// +default=""
 	Service *string `json:"service" protobuf:"bytes,2,opt,name=service"`
+
+	// mode specifies the connection mode for the gRPC health probe.
+	// Set to "TLS" to use TLS without certificate verification.
+	// Set to "Plaintext" to use a plaintext (insecure) connection explicitly.
+	// If not specified, the probe uses a plaintext (insecure) connection.
+	// +featureGate=GRPCContainerProbeTLS
+	// +optional
+	Mode *GRPCProbeMode `json:"mode,omitempty" protobuf:"bytes,3,opt,name=mode,casttype=GRPCProbeMode"`
 }
+
+// GRPCProbeMode describes the connection mode for a gRPC probe.
+// +enum
+type GRPCProbeMode string
+
+const (
+	// GRPCProbeModePlaintext indicates that the probe should use a plaintext
+	// (insecure) gRPC connection.
+	GRPCProbeModePlaintext GRPCProbeMode = "Plaintext"
+	// GRPCProbeModeTLS indicates that the probe should connect using TLS
+	// without certificate verification.
+	GRPCProbeModeTLS GRPCProbeMode = "TLS"
+)
 
 // ExecAction describes a "run in container" action.
 type ExecAction struct {
@@ -3428,8 +3588,13 @@ type ContainerStatus struct {
 // ResourceStatus represents the status of a single resource allocated to a Pod.
 type ResourceStatus struct {
 	// Name of the resource. Must be unique within the pod and in case of non-DRA resource, match one of the resources from the pod spec.
-	// For DRA resources, the value must be "claim:<claim_name>/<request>".
-	// When this status is reported about a container, the "claim_name" and "request" must match one of the claims of this container.
+	// For DRA resources, the value must be "claim:<claim_name>/<request>" when
+	// container.resources.claims[*].request is set or "claim:<claim_name>" when
+	// container.resources.claims[*].request is empty.
+	// For DRA-backed extended resources, "claim:<claim_name>/<request>" is used
+	// when the claim name and request name are recorded in pod.status.extendedResourceClaimStatus.
+	// When this status is reported about a container, the "claim_name" and "request"
+	// must match one of the claims of this container.
 	// +required
 	Name ResourceName `json:"name" protobuf:"bytes,1,opt,name=name"`
 	// List of unique resources health. Each element in the list contains an unique resource ID and its health.
@@ -4491,7 +4656,6 @@ type PodSpec struct {
 	// - `hostNetwork` must be set to false.
 	//
 	// This field must be a valid DNS subdomain as defined in RFC 1123 and contain at most 64 characters.
-	// Requires the HostnameOverride feature gate to be enabled.
 	//
 	// +featureGate=HostnameOverride
 	// +optional
@@ -4517,6 +4681,34 @@ type PodSpec struct {
 	// +featureGate=GenericWorkload
 	// +optional
 	SchedulingGroup *PodSchedulingGroup `json:"schedulingGroup,omitempty" protobuf:"bytes,43,opt,name=schedulingGroup"`
+
+	// evictionResponders reference responders that react to Evictions based on EvictionRequests.
+	// Responders should observe and communicate through the Eviction Resource API to help with
+	// the graceful termination of a pod. The responders are selected sequentially, according to
+	// their specified priority.
+	//
+	// Responders should periodically report on an eviction progress by updating the
+	// .status.responders[].heartbeatTime field of the Eviction object. If this field is not updated
+	// within the heartbeat deadline defined by the Eviction API (currently 20 minutes), the eviction
+	// is passed over to the next responder with a lower priority. If there is no other responder,
+	// the last default imperative-eviction.k8s.io/evictor responder with a priority of 100 will
+	// evict the pod using the imperative Eviction API (pods/<name>/eviction subresource).
+	//
+	// The maximum length of the responders list is 10.
+	// Responders are not supported when the pod is part of a PodGroup (.spec.schedulingGroup is set).
+	// This field can only be set on creation and is immutable afterwards.
+	// +featureGate=EvictionRequestAPI
+	// +optional
+	// +patchMergeKey=name
+	// +patchStrategy=merge
+	// +listType=map
+	// +listMapKey=name
+	// +k8s:optional
+	// +k8s:listType=map
+	// +k8s:listMapKey=name
+	// +k8s:maxItems=10
+	// +k8s:alpha(since: "1.37")=+k8s:dependentForbidden("schedulingGroup")
+	EvictionResponders []EvictionResponder `json:"evictionResponders,omitempty" patchStrategy:"merge" patchMergeKey:"name" protobuf:"bytes,44,rep,name=evictionResponders"`
 }
 
 // PodResourceClaim references exactly one ResourceClaim, either directly
@@ -5317,6 +5509,43 @@ type EphemeralContainer struct {
 	TargetContainerName string `json:"targetContainerName,omitempty" protobuf:"bytes,2,opt,name=targetContainerName"`
 }
 
+// EvictionResponder allows you to specify the responder reacting to an Eviction.
+// Responders should observe and communicate through the Eviction Resource API to help with
+// the graceful eviction of a target (e.g. termination of a pod).
+// +structType=atomic
+type EvictionResponder struct {
+	// name allows you to identify the responder responding to the Eviction.
+	//
+	// It must be a valid domain-prefixed key (such as "acme.io/foo").
+	// Domain names *.k8s.io and *.kubernetes.io are reserved.
+	// This field must be unique for each responder.
+	// This field is required.
+	// +required
+	// +k8s:required
+	// +k8s:format=k8s-prefixed-label-key
+	// +k8s:customValidation
+	Name string `json:"name" protobuf:"bytes,1,opt,name=name"`
+
+	// priority for this responder. Higher priorities are selected first by the evictionrequest-controller.
+	// If there are responders with the same priority, the responder whose domain name comes first in the
+	// alphabetical higher domain order, will be picked. This means that the top domain labels are compared
+	// alphabetically first, followed by the lower domain labels. The key is compared last.
+	//
+	// The responder that is the managing controller of the pod should set the value of
+	// this field to 10000 to allow both for preemption or fallback registration by other
+	// responders.
+	//
+	// The minimum value is 0 and the maximum value is 100000.
+	// The interval 0-999 is reserved for responders with *.k8s.io suffix.
+	// This field is required.
+	// +required
+	// +k8s:required
+	// +k8s:minimum=0
+	// +k8s:maximum=100000
+	// +k8s:customValidation
+	Priority *int32 `json:"priority" protobuf:"varint,2,opt,name=priority"`
+}
+
 // PodStatus represents information about the status of a pod. Status may trail the actual
 // state of a system, especially if the node that hosts the pod cannot contact the control
 // plane.
@@ -5495,6 +5724,17 @@ type PodStatus struct {
 	// +optional
 	// +listType=atomic
 	NodeAllocatableResourceClaimStatuses []NodeAllocatableResourceClaimStatus `json:"nodeAllocatableResourceClaimStatuses,omitempty" protobuf:"bytes,21,rep,name=nodeAllocatableResourceClaimStatuses"`
+
+	// volumeHealth contains node-reported health for each volume the pod is using.
+	// Populated by the kubelet on the pod's node.
+	// +featureGate=CSIVolumeHealth
+	// +optional
+	// +listType=map
+	// +listMapKey=name
+	// +k8s:optional
+	// +k8s:listType=map
+	// +k8s:listMapKey=name
+	VolumeHealth []PodVolumeHealth `json:"volumeHealth,omitempty" protobuf:"bytes,22,rep,name=volumeHealth"`
 }
 
 // +genclient
@@ -8281,6 +8521,12 @@ type DownwardAPIVolumeSource struct {
 	// mode, like fsGroup, and the result can be other mode bits set.
 	// +optional
 	DefaultMode *int32 `json:"defaultMode,omitempty" protobuf:"varint,2,opt,name=defaultMode"`
+	// defaultUser is Optional: The owner UID of the created files by default.
+	// The defaultUser field is only used as a fallback when the item-level user field is unset.
+	// (Alpha) This field requires the AtomicWriteVolumeUserFields feature gate to be enabled.
+	// +featureGate=AtomicWriteVolumeUserFields
+	// +optional
+	DefaultUser *int64 `json:"defaultUser,omitempty" protobuf:"varint,3,opt,name=defaultUser"`
 }
 
 const (
@@ -8306,6 +8552,12 @@ type DownwardAPIVolumeFile struct {
 	// mode, like fsGroup, and the result can be other mode bits set.
 	// +optional
 	Mode *int32 `json:"mode,omitempty" protobuf:"varint,4,opt,name=mode"`
+	// user is Optional: The owner UID of the created file.
+	// If specified, the item-level user field takes precedence over defaultUser.
+	// (Alpha) This field requires the AtomicWriteVolumeUserFields feature gate to be enabled.
+	// +featureGate=AtomicWriteVolumeUserFields
+	// +optional
+	User *int64 `json:"user,omitempty" protobuf:"varint,5,opt,name=user"`
 }
 
 // Represents downward API info for projecting into a projected volume.

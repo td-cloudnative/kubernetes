@@ -1892,10 +1892,6 @@ func verifyActions(t *testing.T, expected, actual *podActions, desc string) {
 }
 
 func TestComputePodActionsWithInitContainers(t *testing.T) {
-	tCtx := ktesting.Init(t)
-	_, _, m, err := createTestRuntimeManager(tCtx)
-	require.NoError(t, err)
-
 	cpu400m := resource.MustParse("400m")
 	memory400Mi := resource.MustParse("400Mi")
 	cpu800m := resource.MustParse("800m")
@@ -2201,6 +2197,9 @@ func TestComputePodActionsWithInitContainers(t *testing.T) {
 				featuregatetesting.SetFeatureGateEmulationVersionDuringTest(t, utilfeature.DefaultFeatureGate, version.MustParse("1.36"))
 				featuregatetesting.SetFeatureGateDuringTest(t, utilfeature.DefaultFeatureGate, features.InPlacePodVerticalScalingInitContainers, false)
 			}
+
+			_, _, m, err := createTestRuntimeManager(tCtx)
+			require.NoError(t, err)
 
 			pod, status := makeBasePodAndStatusWithInitContainers()
 
@@ -2850,8 +2849,6 @@ func TestComputePodActionsWithContainerRestartRules(t *testing.T) {
 		containerRestartPolicyOnFailure = v1.ContainerRestartPolicyOnFailure
 		containerRestartPolicyNever     = v1.ContainerRestartPolicyNever
 	)
-	_, _, m, err := createTestRuntimeManager(tCtx)
-	require.NoError(t, err)
 
 	// Creating a pair reference pod and status for the test cases to refer
 	// the specific fields.
@@ -2965,6 +2962,8 @@ func TestComputePodActionsWithContainerRestartRules(t *testing.T) {
 			},
 		},
 	} {
+		_, _, m, err := createTestRuntimeManager(tCtx)
+		require.NoError(t, err)
 		pod, status := makeBasePodAndStatus()
 		if test.mutatePodFn != nil {
 			test.mutatePodFn(pod)
@@ -6411,101 +6410,54 @@ func TestOnPodSandboxReadyInvocation(t *testing.T) {
 	tCtx := ktesting.Init(t)
 
 	tests := []struct {
-		name                            string
-		onPodSandboxReadyShouldErr      bool
-		deviceAllocationShouldErr       bool
-		expectOnPodSandboxReady         bool
-		expectSyncPodSuccess            bool
-		expectDeviceAllocation          bool
-		enablePodReadyToStartContainers bool
-		description                     string
+		name                       string
+		onPodSandboxReadyShouldErr bool
+		deviceAllocationShouldErr  bool
+		expectOnPodSandboxReady    bool
+		expectSyncPodSuccess       bool
+		expectDeviceAllocation     bool
+		description                string
 	}{
 		{
-			name:                            "OnPodSandboxReady succeeds with feature enabled",
-			onPodSandboxReadyShouldErr:      false,
-			deviceAllocationShouldErr:       false,
-			expectOnPodSandboxReady:         true,
-			expectSyncPodSuccess:            true,
-			expectDeviceAllocation:          false,
-			enablePodReadyToStartContainers: true,
-			description:                     "Verifies OnPodSandboxReady is called and succeeds with PodReadyToStartContainersCondition feature gate enabled",
+			name:                       "OnPodSandboxReady succeeds",
+			onPodSandboxReadyShouldErr: false,
+			deviceAllocationShouldErr:  false,
+			expectOnPodSandboxReady:    true,
+			expectSyncPodSuccess:       true,
+			expectDeviceAllocation:     false,
+			description:                "Verifies OnPodSandboxReady is called and succeeds",
 		},
 		{
-			name:                            "OnPodSandboxReady succeeds with feature disabled",
-			onPodSandboxReadyShouldErr:      false,
-			deviceAllocationShouldErr:       false,
-			expectOnPodSandboxReady:         true,
-			expectSyncPodSuccess:            true,
-			expectDeviceAllocation:          false,
-			enablePodReadyToStartContainers: false,
-			description:                     "Verifies OnPodSandboxReady is called and succeeds with PodReadyToStartContainersCondition feature gate disabled",
+			name:                       "OnPodSandboxReady fails but SyncPod continues",
+			onPodSandboxReadyShouldErr: true,
+			deviceAllocationShouldErr:  false,
+			expectOnPodSandboxReady:    true,
+			expectSyncPodSuccess:       true, // SyncPod still succeed even if OnPodSandboxReady fails
+			expectDeviceAllocation:     false,
+			description:                "Verifies OnPodSandboxReady errors don't block pod creation",
 		},
 		{
-			name:                            "OnPodSandboxReady fails but SyncPod continues with feature enabled",
-			onPodSandboxReadyShouldErr:      true,
-			deviceAllocationShouldErr:       false,
-			expectOnPodSandboxReady:         true,
-			expectSyncPodSuccess:            true, // SyncPod still succeed even if OnPodSandboxReady fails
-			expectDeviceAllocation:          false,
-			enablePodReadyToStartContainers: true,
-			description:                     "Verifies OnPodSandboxReady errors don't block pod creation with PodReadyToStartContainersCondition feature gate enabled",
+			name:                       "PrepareDynamicResources (device allocation) called before OnPodSandboxReady",
+			onPodSandboxReadyShouldErr: false,
+			deviceAllocationShouldErr:  false,
+			expectOnPodSandboxReady:    true,
+			expectSyncPodSuccess:       true,
+			expectDeviceAllocation:     true,
+			description:                "Verifies the order (PrepareDynamicResources -> OnPodSandboxReady) in case of pod with ResourceClaims",
 		},
 		{
-			name:                            "OnPodSandboxReady fails but SyncPod continues with feature disabled",
-			onPodSandboxReadyShouldErr:      true,
-			deviceAllocationShouldErr:       false,
-			expectOnPodSandboxReady:         true,
-			expectSyncPodSuccess:            true, // SyncPod still succeed even if OnPodSandboxReady fails
-			expectDeviceAllocation:          false,
-			enablePodReadyToStartContainers: false,
-			description:                     "Verifies OnPodSandboxReady errors don't block pod creation with PodReadyToStartContainersCondition feature gate disabled",
-		},
-		{
-			name:                            "PrepareDynamicResources (device allocation) called before OnPodSandboxReady with feature enabled",
-			onPodSandboxReadyShouldErr:      false,
-			deviceAllocationShouldErr:       false,
-			expectOnPodSandboxReady:         true,
-			expectSyncPodSuccess:            true,
-			expectDeviceAllocation:          true,
-			enablePodReadyToStartContainers: true,
-			description:                     "Verifies the order (PrepareDynamicResources -> OnPodSandboxReady) in case of pod with ResourceClaims with PodReadyToStartContainersCondition feature gate enabled",
-		},
-		{
-			name:                            "PrepareDynamicResources (device allocation) called before OnPodSandboxReady with feature disabled",
-			onPodSandboxReadyShouldErr:      false,
-			deviceAllocationShouldErr:       false,
-			expectOnPodSandboxReady:         true,
-			expectSyncPodSuccess:            true,
-			expectDeviceAllocation:          true,
-			enablePodReadyToStartContainers: false,
-			description:                     "Verifies the order (PrepareDynamicResources -> OnPodSandboxReady) in case of pod with ResourceClaims with PodReadyToStartContainersCondition feature gate disabled",
-		},
-		{
-			name:                            "PrepareDynamicResources (device allocation) failure prevents sandbox creation with feature enabled",
-			onPodSandboxReadyShouldErr:      false,
-			deviceAllocationShouldErr:       true,
-			expectOnPodSandboxReady:         false,
-			expectSyncPodSuccess:            true, // SyncPod doesn't return error, just returns early if `PrepareDynamicResources` call ends up failing
-			expectDeviceAllocation:          true,
-			enablePodReadyToStartContainers: true,
-			description:                     "Verifies PrepareDynamicResources failure causes early return in case of pod with ResourceClaims with PodReadyToStartContainersCondition feature gate enabled",
-		},
-		{
-			name:                            "PrepareDynamicResources (device allocation) failure prevents sandbox creation with feature disabled",
-			onPodSandboxReadyShouldErr:      false,
-			deviceAllocationShouldErr:       true,
-			expectOnPodSandboxReady:         false,
-			expectSyncPodSuccess:            true, // SyncPod doesn't return error, just returns early if `PrepareDynamicResources` call ends up failing
-			expectDeviceAllocation:          true,
-			enablePodReadyToStartContainers: false,
-			description:                     "Verifies PrepareDynamicResources failure causes early return in case of pod with ResourceClaims with PodReadyToStartContainersCondition feature gate disabled",
+			name:                       "PrepareDynamicResources (device allocation) failure prevents sandbox creation",
+			onPodSandboxReadyShouldErr: false,
+			deviceAllocationShouldErr:  true,
+			expectOnPodSandboxReady:    false,
+			expectSyncPodSuccess:       true, // SyncPod doesn't return error, just returns early if `PrepareDynamicResources` call ends up failing
+			expectDeviceAllocation:     true,
+			description:                "Verifies PrepareDynamicResources failure causes early return in case of pod with ResourceClaims",
 		},
 	}
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			featuregatetesting.SetFeatureGateDuringTest(t, utilfeature.DefaultFeatureGate, features.PodReadyToStartContainersCondition, test.enablePodReadyToStartContainers)
-
 			// step 1 - setup test helper and inject errors
 			fakeRuntime, fakeImage, m, err := createTestRuntimeManager(tCtx)
 			require.NoError(t, err)
