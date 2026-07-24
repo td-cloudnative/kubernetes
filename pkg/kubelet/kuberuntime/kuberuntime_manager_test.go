@@ -1923,6 +1923,7 @@ func TestComputePodActionsWithInitContainers(t *testing.T) {
 		"no init containers have been started; start the first one": {
 			mutateStatusFn: func(status *kubecontainer.PodStatus) {
 				status.ContainerStatuses = nil
+				status.ActiveContainerStatuses = status.ContainerStatuses
 			},
 			actions: podActions{
 				SandboxID:             baseStatus.SandboxStatuses[0].Id,
@@ -2044,6 +2045,7 @@ func TestComputePodActionsWithInitContainers(t *testing.T) {
 			mutateStatusFn: func(status *kubecontainer.PodStatus) {
 				status.SandboxStatuses[0].State = runtimeapi.PodSandboxState_SANDBOX_NOTREADY
 				status.ContainerStatuses = []*kubecontainer.Status{}
+				status.ActiveContainerStatuses = status.ContainerStatuses
 			},
 			actions: podActions{
 				KillPod:               true,
@@ -2076,12 +2078,31 @@ func TestComputePodActionsWithInitContainers(t *testing.T) {
 			mutateStatusFn: func(status *kubecontainer.PodStatus) {
 				status.ContainerStatuses[2].State = kubecontainer.ContainerStateRunning
 				status.ContainerStatuses = status.ContainerStatuses[2:]
+				status.ActiveContainerStatuses = status.ContainerStatuses
 			},
 			actions: podActions{
 				KillPod:           false,
 				SandboxID:         baseStatus.SandboxStatuses[0].Id,
 				ContainersToStart: []int{},
 				ContainersToKill:  getKillMapWithInitContainers(basePod, baseStatus, []int{}),
+			},
+		},
+		"stale main container from a previous sandbox must not mark pod as initialized": {
+			mutateStatusFn: func(status *kubecontainer.PodStatus) {
+				status.ContainerStatuses = []*kubecontainer.Status{
+					{
+						ID:    kubecontainer.ContainerID{ID: "id1"},
+						Name:  "foo1",
+						State: kubecontainer.ContainerStateCreated,
+					},
+				}
+				status.ActiveContainerStatuses = nil
+			},
+			actions: podActions{
+				SandboxID:             baseStatus.SandboxStatuses[0].Id,
+				InitContainersToStart: []int{0},
+				ContainersToStart:     []int{},
+				ContainersToKill:      getKillMapWithInitContainers(basePod, baseStatus, []int{}),
 			},
 		},
 		"an init container is in the created state due to an unknown error when starting container; restart it": {
@@ -2106,6 +2127,7 @@ func TestComputePodActionsWithInitContainers(t *testing.T) {
 			},
 			mutateStatusFn: func(status *kubecontainer.PodStatus) {
 				status.ContainerStatuses = nil
+				status.ActiveContainerStatuses = status.ContainerStatuses
 			},
 			actions: podActions{
 				KillPod:               false,
@@ -2126,6 +2148,7 @@ func TestComputePodActionsWithInitContainers(t *testing.T) {
 			mutateStatusFn: func(status *kubecontainer.PodStatus) {
 				status.ContainerStatuses = status.ContainerStatuses[:1]
 				status.ContainerStatuses[0].State = kubecontainer.ContainerStateRunning
+				status.ActiveContainerStatuses = status.ContainerStatuses
 			},
 			actions: podActions{
 				KillPod:               false,
@@ -2174,6 +2197,7 @@ func TestComputePodActionsWithInitContainers(t *testing.T) {
 			mutateStatusFn: func(status *kubecontainer.PodStatus) {
 				status.ContainerStatuses = status.ContainerStatuses[:1]
 				status.ContainerStatuses[0].State = kubecontainer.ContainerStateRunning
+				status.ActiveContainerStatuses = status.ContainerStatuses
 			},
 			actions: podActions{
 				KillPod:               false,
@@ -2268,6 +2292,7 @@ func makeBasePodAndStatusWithInitContainers() (*v1.Pod, *kubecontainer.PodStatus
 			Hash: kubecontainer.HashContainer(&pod.Spec.InitContainers[2]),
 		},
 	}
+	status.ActiveContainerStatuses = status.ContainerStatuses
 	return pod, status
 }
 
@@ -2301,6 +2326,7 @@ func TestComputePodActionsWithRestartableInitContainers(t *testing.T) {
 		"no init containers have been started; start the first one": {
 			mutateStatusFn: func(pod *v1.Pod, status *kubecontainer.PodStatus) {
 				status.ContainerStatuses = nil
+				status.ActiveContainerStatuses = status.ContainerStatuses
 			},
 			actions: podActions{
 				SandboxID:             baseStatus.SandboxStatuses[0].Id,
@@ -2325,6 +2351,7 @@ func TestComputePodActionsWithRestartableInitContainers(t *testing.T) {
 			mutatePodFn: func(pod *v1.Pod) { pod.Spec.RestartPolicy = v1.RestartPolicyAlways },
 			mutateStatusFn: func(pod *v1.Pod, status *kubecontainer.PodStatus) {
 				status.ContainerStatuses = status.ContainerStatuses[:1]
+				status.ActiveContainerStatuses = status.ContainerStatuses
 			},
 			actions: podActions{
 				SandboxID:             baseStatus.SandboxStatuses[0].Id,
@@ -2338,6 +2365,7 @@ func TestComputePodActionsWithRestartableInitContainers(t *testing.T) {
 			mutateStatusFn: func(pod *v1.Pod, status *kubecontainer.PodStatus) {
 				m.livenessManager.Remove(status.ContainerStatuses[1].ID)
 				status.ContainerStatuses = status.ContainerStatuses[:2]
+				status.ActiveContainerStatuses = status.ContainerStatuses
 			},
 			actions: podActions{
 				SandboxID:             baseStatus.SandboxStatuses[0].Id,
@@ -2351,6 +2379,7 @@ func TestComputePodActionsWithRestartableInitContainers(t *testing.T) {
 			mutateStatusFn: func(pod *v1.Pod, status *kubecontainer.PodStatus) {
 				m.livenessManager.Set(status.ContainerStatuses[1].ID, proberesults.Unknown, basePod)
 				status.ContainerStatuses = status.ContainerStatuses[:2]
+				status.ActiveContainerStatuses = status.ContainerStatuses
 			},
 			actions: podActions{
 				SandboxID:             baseStatus.SandboxStatuses[0].Id,
@@ -2366,6 +2395,7 @@ func TestComputePodActionsWithRestartableInitContainers(t *testing.T) {
 			mutatePodFn: func(pod *v1.Pod) { pod.Spec.RestartPolicy = v1.RestartPolicyAlways },
 			mutateStatusFn: func(pod *v1.Pod, status *kubecontainer.PodStatus) {
 				status.ContainerStatuses = status.ContainerStatuses[:2]
+				status.ActiveContainerStatuses = status.ContainerStatuses
 			},
 			actions: podActions{
 				SandboxID:             baseStatus.SandboxStatuses[0].Id,
@@ -2394,6 +2424,7 @@ func TestComputePodActionsWithRestartableInitContainers(t *testing.T) {
 			mutateStatusFn: func(pod *v1.Pod, status *kubecontainer.PodStatus) {
 				m.startupManager.Remove(status.ContainerStatuses[1].ID)
 				status.ContainerStatuses = status.ContainerStatuses[:2]
+				status.ActiveContainerStatuses = status.ContainerStatuses
 			},
 			actions: noAction,
 		},
@@ -2402,6 +2433,7 @@ func TestComputePodActionsWithRestartableInitContainers(t *testing.T) {
 			mutateStatusFn: func(pod *v1.Pod, status *kubecontainer.PodStatus) {
 				m.startupManager.Set(status.ContainerStatuses[1].ID, proberesults.Unknown, basePod)
 				status.ContainerStatuses = status.ContainerStatuses[:2]
+				status.ActiveContainerStatuses = status.ContainerStatuses
 			},
 			actions: noAction,
 			resetStatusFn: func(status *kubecontainer.PodStatus) {
@@ -2412,6 +2444,7 @@ func TestComputePodActionsWithRestartableInitContainers(t *testing.T) {
 			mutatePodFn: func(pod *v1.Pod) { pod.Spec.RestartPolicy = v1.RestartPolicyAlways },
 			mutateStatusFn: func(pod *v1.Pod, status *kubecontainer.PodStatus) {
 				status.ContainerStatuses = status.ContainerStatuses[:2]
+				status.ActiveContainerStatuses = status.ContainerStatuses
 			},
 			actions: podActions{
 				SandboxID:             baseStatus.SandboxStatuses[0].Id,
@@ -2613,11 +2646,34 @@ func TestComputePodActionsWithRestartableInitContainers(t *testing.T) {
 			mutatePodFn: func(pod *v1.Pod) { pod.Spec.RestartPolicy = v1.RestartPolicyAlways },
 			mutateStatusFn: func(pod *v1.Pod, status *kubecontainer.PodStatus) {
 				status.ContainerStatuses = status.ContainerStatuses[2:]
+				status.ActiveContainerStatuses = status.ContainerStatuses
 			},
 			actions: podActions{
 				SandboxID:             baseStatus.SandboxStatuses[0].Id,
 				InitContainersToStart: []int{0, 1},
 				ContainersToStart:     []int{0, 1, 2},
+				ContainersToKill:      getKillMapWithInitContainers(basePod, baseStatus, []int{}),
+			},
+		},
+		"stale main container with mixed restartable and non-restartable init containers; start the first one": {
+			mutatePodFn: func(pod *v1.Pod) {
+				// Make the second init container non-restartable while keeping the others restartable.
+				pod.Spec.InitContainers[1].RestartPolicy = nil
+			},
+			mutateStatusFn: func(pod *v1.Pod, status *kubecontainer.PodStatus) {
+				status.ContainerStatuses = []*kubecontainer.Status{
+					{
+						ID:    kubecontainer.ContainerID{ID: "id1"},
+						Name:  "foo1",
+						State: kubecontainer.ContainerStateCreated,
+					},
+				}
+				status.ActiveContainerStatuses = nil
+			},
+			actions: podActions{
+				SandboxID:             baseStatus.SandboxStatuses[0].Id,
+				InitContainersToStart: []int{0},
+				ContainersToStart:     []int{},
 				ContainersToKill:      getKillMapWithInitContainers(basePod, baseStatus, []int{}),
 			},
 		},
@@ -2686,6 +2742,7 @@ func makeBasePodAndStatusWithRestartableInitContainers() (*v1.Pod, *kubecontaine
 			Hash: kubecontainer.HashContainer(&pod.Spec.InitContainers[2]),
 		},
 	}
+	status.ActiveContainerStatuses = status.ContainerStatuses
 	return pod, status
 }
 
@@ -3049,6 +3106,7 @@ func makeBasePodAndStatusWithInitAndEphemeralContainers() (*v1.Pod, *kubecontain
 		Name: "debug", State: kubecontainer.ContainerStateRunning,
 		Hash: kubecontainer.HashContainer((*v1.Container)(&pod.Spec.EphemeralContainers[0].EphemeralContainerCommon)),
 	})
+	status.ActiveContainerStatuses = status.ContainerStatuses
 	return pod, status
 }
 
@@ -6605,4 +6663,129 @@ func TestOnPodSandboxReadyTiming(t *testing.T) {
 	// verify the final state of pod
 	assert.Len(t, fakeRuntime.Sandboxes, 1, "final sandbox count")
 	assert.Len(t, fakeRuntime.Containers, 1, "final container count")
+}
+
+func TestSysctlFiltering(t *testing.T) {
+	tCtx := ktesting.Init(t)
+	featuregatetesting.SetFeatureGateDuringTest(t, utilfeature.DefaultFeatureGate, features.DefaultPodSysctls, true)
+	_, _, m, err := createTestRuntimeManager(tCtx)
+	require.NoError(t, err)
+	m.defaultPodSysctls = map[string]string{
+		"net.somaxconn":            "1024",
+		"kernel.msgmax":            "true",
+		"fs.mqueue.msg_max":        "1024",
+		"kernel.domainname":        "my-name",
+		"non.whitelisted":          "true",
+		"net/ipv4/ip_forward":      "1",
+		"kernel/sem":               "250 32000 32 128",
+		"user.max_user_namespaces": "1000",
+	}
+
+	createTestPodFunc := func(hostNetwork, hostIPC bool, hostUsers *bool) *v1.Pod {
+		return &v1.Pod{
+			ObjectMeta: metav1.ObjectMeta{
+				UID:       "12345678",
+				Name:      "foo",
+				Namespace: "new",
+			},
+			Spec: v1.PodSpec{
+				HostNetwork: hostNetwork,
+				HostIPC:     hostIPC,
+				HostUsers:   hostUsers,
+				Containers: []v1.Container{
+					{
+						Name:            "foo1",
+						Image:           "busybox",
+						ImagePullPolicy: v1.PullIfNotPresent,
+					},
+				},
+			},
+		}
+	}
+
+	tests := []struct {
+		name            string
+		hostNetwork     bool
+		hostIPC         bool
+		hostUsers       *bool
+		expectedSysctls map[string]string
+	}{
+		{
+			name: "default",
+			expectedSysctls: map[string]string{
+				"net.somaxconn":            "1024",
+				"net.ipv4.ip_forward":      "1",
+				"kernel.msgmax":            "true",
+				"fs.mqueue.msg_max":        "1024",
+				"kernel.sem":               "250 32000 32 128",
+				"kernel.domainname":        "my-name",
+				"user.max_user_namespaces": "1000",
+			},
+		},
+		{
+			name:        "hostNetwork",
+			hostNetwork: true,
+			expectedSysctls: map[string]string{
+				"kernel.msgmax":            "true",
+				"fs.mqueue.msg_max":        "1024",
+				"kernel.sem":               "250 32000 32 128",
+				"user.max_user_namespaces": "1000",
+			},
+		},
+		{
+			name:    "hostIPC",
+			hostIPC: true,
+			expectedSysctls: map[string]string{
+				"net.somaxconn":            "1024",
+				"net.ipv4.ip_forward":      "1",
+				"kernel.domainname":        "my-name",
+				"user.max_user_namespaces": "1000",
+			},
+		},
+		{
+			name:        "hostNetwork and hostIPC",
+			hostNetwork: true,
+			hostIPC:     true,
+			expectedSysctls: map[string]string{
+				"user.max_user_namespaces": "1000",
+			},
+		},
+		{
+			name:      "pod uses userNS",
+			hostUsers: new(false),
+			expectedSysctls: map[string]string{
+				"net.somaxconn":            "1024",
+				"net.ipv4.ip_forward":      "1",
+				"kernel.msgmax":            "true",
+				"fs.mqueue.msg_max":        "1024",
+				"kernel.sem":               "250 32000 32 128",
+				"kernel.domainname":        "my-name",
+				"user.max_user_namespaces": "1000",
+			},
+		},
+		{
+			name:      "pod uses hostUsers",
+			hostUsers: new(true),
+			expectedSysctls: map[string]string{
+				"net.somaxconn":       "1024",
+				"net.ipv4.ip_forward": "1",
+				"kernel.msgmax":       "true",
+				"fs.mqueue.msg_max":   "1024",
+				"kernel.sem":          "250 32000 32 128",
+				"kernel.domainname":   "my-name",
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			tCtx := ktesting.Init(t)
+			pod := createTestPodFunc(test.hostNetwork, test.hostIPC, test.hostUsers)
+			config, err := m.generatePodSandboxLinuxConfig(tCtx, pod)
+			require.NoError(t, err)
+			if !reflect.DeepEqual(test.expectedSysctls, config.Sysctls) {
+				t.Errorf("Expected sysctls %v, got %v", test.expectedSysctls, config.Sysctls)
+			}
+		})
+	}
 }

@@ -96,7 +96,8 @@
           },
           "emptyDir": {
             "medium": "mediumValue",
-            "sizeLimit": "0"
+            "sizeLimit": "0",
+            "mode": 3
           },
           "gcePersistentDisk": {
             "pdName": "pdNameValue",
@@ -613,7 +614,10 @@
               "mountPath": "mountPathValue",
               "subPath": "subPathValue",
               "mountPropagation": "mountPropagationValue",
-              "subPathExpr": "subPathExprValue"
+              "subPathExpr": "subPathExprValue",
+              "bindMountOptions": [
+                "bindMountOptionsValue"
+              ]
             }
           ],
           "volumeDevices": [
@@ -935,7 +939,10 @@
               "mountPath": "mountPathValue",
               "subPath": "subPathValue",
               "mountPropagation": "mountPropagationValue",
-              "subPathExpr": "subPathExprValue"
+              "subPathExpr": "subPathExprValue",
+              "bindMountOptions": [
+                "bindMountOptionsValue"
+              ]
             }
           ],
           "volumeDevices": [
@@ -1257,7 +1264,10 @@
               "mountPath": "mountPathValue",
               "subPath": "subPathValue",
               "mountPropagation": "mountPropagationValue",
-              "subPathExpr": "subPathExprValue"
+              "subPathExpr": "subPathExprValue",
+              "bindMountOptions": [
+                "bindMountOptionsValue"
+              ]
             }
           ],
           "volumeDevices": [

@@ -382,7 +382,9 @@ spec:
     - devicePath: devicePathValue
       name: nameValue
     volumeMounts:
-    - mountPath: mountPathValue
+    - bindMountOptions:
+      - bindMountOptionsValue
+      mountPath: mountPathValue
       mountPropagation: mountPropagationValue
       name: nameValue
       readOnly: true
@@ -619,7 +621,9 @@ spec:
     - devicePath: devicePathValue
       name: nameValue
     volumeMounts:
-    - mountPath: mountPathValue
+    - bindMountOptions:
+      - bindMountOptionsValue
+      mountPath: mountPathValue
       mountPropagation: mountPropagationValue
       name: nameValue
       readOnly: true
@@ -860,7 +864,9 @@ spec:
     - devicePath: devicePathValue
       name: nameValue
     volumeMounts:
-    - mountPath: mountPathValue
+    - bindMountOptions:
+      - bindMountOptionsValue
+      mountPath: mountPathValue
       mountPropagation: mountPropagationValue
       name: nameValue
       readOnly: true
@@ -1023,6 +1029,7 @@ spec:
         user: 5
     emptyDir:
       medium: mediumValue
+      mode: 3
       sizeLimit: "0"
     ephemeral:
       volumeClaimTemplate:
@@ -1492,9 +1499,14 @@ status:
   nodeAllocatableResourceClaimStatuses:
   - containers:
     - containersValue
+    mapping:
+    - name: nameValue
+      quantity: "0"
+    overhead:
+    - name: nameValue
+      perContainer: "0"
+      perPod: "0"
     resourceClaimName: resourceClaimNameValue
-    resources:
-      resourcesKey: "0"
   nominatedNodeName: nominatedNodeNameValue
   observedGeneration: 17
   phase: phaseValue
