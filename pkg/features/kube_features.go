@@ -203,6 +203,12 @@ const (
 	// DRAConsumableCapacity
 	DRAConsumableCapacity featuregate.Feature = "DRAConsumableCapacity"
 
+	// owner: @gauravkghildiyal
+	// kep: http://kep.k8s.io/6080
+	//
+	// Enables support for derived attributes in Dynamic Resource Allocation (DRA).
+	DRADerivedAttributes featuregate.Feature = "DRADerivedAttributes"
+
 	// owner: @KobayashiD27
 	// kep: http://kep.k8s.io/5007
 	// alpha: v1.34
@@ -253,6 +259,13 @@ const (
 	//
 	// Enables support for node allocatable resources backed by DRA.
 	DRANodeAllocatableResources featuregate.Feature = "DRANodeAllocatableResources"
+
+	// owner: @troychiu
+	// kep: http://kep.k8s.io/5945
+	//
+	// Enables support for declaring that node-local operations (preparation and
+	// clean-up) are optional for devices.
+	DRAOptionalNodeOperations featuregate.Feature = "DRAOptionalNodeOperations"
 
 	// owner: @mortent, @cici37
 	// kep: http://kep.k8s.io/4815
@@ -601,6 +614,7 @@ const (
 	KubeletFineGrainedAuthz featuregate.Feature = "KubeletFineGrainedAuthz"
 
 	// owner: @AkihiroSuda
+	// kep: https://kep.k8s.io/2033
 	//
 	// Enables support for running kubelet in a user namespace.
 	// The user namespace has to be created before running kubelet.
@@ -1420,6 +1434,10 @@ var defaultVersionedKubernetesFeatureGates = map[featuregate.Feature]featuregate
 		{Version: version.MustParse("1.36"), Default: true, PreRelease: featuregate.Beta},
 	},
 
+	DRADerivedAttributes: {
+		{Version: version.MustParse("1.37"), Default: false, PreRelease: featuregate.Alpha},
+	},
+
 	DRADeviceBindingConditions: {
 		{Version: version.MustParse("1.34"), Default: false, PreRelease: featuregate.Alpha},
 		{Version: version.MustParse("1.36"), Default: true, PreRelease: featuregate.Beta},
@@ -1454,6 +1472,10 @@ var defaultVersionedKubernetesFeatureGates = map[featuregate.Feature]featuregate
 
 	DRANodeAllocatableResources: {
 		{Version: version.MustParse("1.36"), Default: false, PreRelease: featuregate.Alpha},
+	},
+
+	DRAOptionalNodeOperations: {
+		{Version: version.MustParse("1.37"), Default: false, PreRelease: featuregate.Alpha},
 	},
 
 	DRAPartitionableDevices: {
@@ -1713,6 +1735,7 @@ var defaultVersionedKubernetesFeatureGates = map[featuregate.Feature]featuregate
 
 	KubeletInUserNamespace: {
 		{Version: version.MustParse("1.22"), Default: false, PreRelease: featuregate.Alpha},
+		{Version: version.MustParse("1.37"), Default: true, PreRelease: featuregate.Beta},
 	},
 
 	KubeletPSI: {
@@ -2524,6 +2547,8 @@ var defaultKubernetesFeatureGateDependencies = map[featuregate.Feature][]feature
 
 	DRAConsumableCapacity: {DynamicResourceAllocation},
 
+	DRADerivedAttributes: {DynamicResourceAllocation},
+
 	DRADeviceBindingConditions: {DynamicResourceAllocation, DRAResourceClaimDeviceStatus},
 
 	DRADeviceTaintRules: {DRADeviceTaints}, // DynamicResourceAllocation is indirect.
@@ -2537,6 +2562,8 @@ var defaultKubernetesFeatureGateDependencies = map[featuregate.Feature][]feature
 	DRAListTypeAttributes: {DynamicResourceAllocation},
 
 	DRANodeAllocatableResources: {DynamicResourceAllocation},
+
+	DRAOptionalNodeOperations: {DynamicResourceAllocation, NodeDeclaredFeatures},
 
 	DRAPartitionableDevices: {DynamicResourceAllocation},
 
