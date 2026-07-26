@@ -558,6 +558,11 @@ const (
 	// Enables scheduler-triggered preemption for deferred in-place pod vertical scaling pods.
 	InPlacePodVerticalScalingSchedulerPreemption featuregate.Feature = "InPlacePodVerticalScalingSchedulerPreemption"
 
+	// owner: @tetianakh
+	//
+	// Enables the fast path for inter-pod affinity calculations when the topology key is kubernetes.io/hostname.
+	InterPodAffinityHostnameFastPath featuregate.Feature = "InterPodAffinityHostnameFastPath"
+
 	// owner: @mimowo
 	// kep: https://kep.k8s.io/4368
 	//
@@ -1060,6 +1065,12 @@ const (
 	// Improves scheduling queue behavior by popping pods from the backoffQ when the activeQ is empty.
 	// This allows to process potentially schedulable pods ASAP, eliminating a penalty effect of the backoff queue.
 	SchedulerPopFromBackoffQ featuregate.Feature = "SchedulerPopFromBackoffQ"
+
+	// owner: @geetasg
+	// kep: https://kep.k8s.io/6132
+	//
+	// Enables PreQueueingHint extension point to narrow pod evaluation on events.
+	SchedulerPreQueueingHints featuregate.Feature = "SchedulerPreQueueingHints"
 
 	// owner: @atosatto @yuanchen8911
 	// kep: http://kep.k8s.io/3902
@@ -1692,6 +1703,10 @@ var defaultVersionedKubernetesFeatureGates = map[featuregate.Feature]featuregate
 		{Version: version.MustParse("1.37"), Default: false, PreRelease: featuregate.Alpha},
 	},
 
+	InterPodAffinityHostnameFastPath: {
+		{Version: version.MustParse("1.37"), Default: false, PreRelease: featuregate.Alpha},
+	},
+
 	JobManagedBy: {
 		{Version: version.MustParse("1.30"), Default: false, PreRelease: featuregate.Alpha},
 		{Version: version.MustParse("1.32"), Default: true, PreRelease: featuregate.Beta},
@@ -2084,6 +2099,9 @@ var defaultVersionedKubernetesFeatureGates = map[featuregate.Feature]featuregate
 
 	SchedulerPopFromBackoffQ: {
 		{Version: version.MustParse("1.33"), Default: true, PreRelease: featuregate.Beta},
+	},
+	SchedulerPreQueueingHints: {
+		{Version: version.MustParse("1.37"), Default: true, PreRelease: featuregate.Beta},
 	},
 
 	SeparateTaintEvictionController: {
@@ -2651,6 +2669,8 @@ var defaultKubernetesFeatureGateDependencies = map[featuregate.Feature][]feature
 
 	InPlacePodVerticalScalingSchedulerPreemption: {InPlacePodVerticalScaling},
 
+	InterPodAffinityHostnameFastPath: {},
+
 	JobManagedBy: {},
 
 	KubeProxyIPVS: {},
@@ -2803,7 +2823,8 @@ var defaultKubernetesFeatureGateDependencies = map[featuregate.Feature][]feature
 
 	SchedulerAsyncPreemption: {},
 
-	SchedulerPopFromBackoffQ: {},
+	SchedulerPopFromBackoffQ:  {},
+	SchedulerPreQueueingHints: {},
 
 	SeparateTaintEvictionController: {},
 
