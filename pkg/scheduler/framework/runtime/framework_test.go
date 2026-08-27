@@ -1226,7 +1226,7 @@ func TestRunPlacementFeasiblePlugins(t *testing.T) {
 				{name: "p1", status: fwk.NewStatus(fwk.Skip, "error")},
 				{name: "p2", status: nil},
 			},
-			expectedStatus: fwk.AsStatus(fmt.Errorf("unexpected status from PlacementFeasible plugin: Skip")).WithPlugin("p1"),
+			expectedStatus: fwk.AsStatus(fmt.Errorf("unexpected status code (Skip) from PlacementFeasible plugin: error")).WithPlugin("p1"),
 			expectedCalled: []bool{true, false},
 		},
 	}
@@ -5767,7 +5767,7 @@ func TestPluginEvaluationTotalMetric(t *testing.T) {
 		t.Fatalf("RunFilterPlugins returned unexpected status: %v", st)
 	}
 
-	want := `# HELP scheduler_plugin_evaluation_total Number of attempts to schedule pods by each plugin and the extension point (available only in PreFilter, Filter, PreScore, and Score).
+	want := `# HELP scheduler_plugin_evaluation_total Number of attempts to schedule pods by each plugin and the extension point (available only in PreFilter, Filter, PreScore, and Score), by scheduler profile.
 # TYPE scheduler_plugin_evaluation_total counter
 scheduler_plugin_evaluation_total{extension_point="Filter",plugin="plugin-eval-filter-a",profile="test-profile"} 1
 scheduler_plugin_evaluation_total{extension_point="Filter",plugin="plugin-eval-filter-b",profile="test-profile-2"} 1
