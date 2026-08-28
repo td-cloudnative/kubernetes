@@ -17569,6 +17569,55 @@ func TestValidateNodeAllocatableResourceClaimStatus(t *testing.T) {
 			errorField:  "status.nodeAllocatableResourceClaimStatuses[0].overhead[0].name",
 			errorMsg:    "must be a node allocatable resource name",
 		},
+		{
+			name: "Valid ResourceClaimName from ExtendedResourceClaimStatus",
+			spec: core.PodSpec{
+				Containers: []core.Container{
+					{Name: "c1", Image: "image"},
+				},
+			},
+			podStatus: core.PodStatus{
+				ExtendedResourceClaimStatus: &core.PodExtendedResourceClaimStatus{
+					ResourceClaimName: "extended-claim1",
+				},
+				NodeAllocatableResourceClaimStatuses: []core.NodeAllocatableResourceClaimStatus{
+					{
+						ResourceClaimName: "extended-claim1",
+						Containers:        []string{"c1"},
+						Mapping: []core.NodeAllocatableMappedResources{
+							{Name: core.ResourceCPU, Quantity: new(resource.MustParse("1"))},
+						},
+					},
+				},
+			},
+			expectError: false,
+		},
+		{
+			name: "Invalid ResourceClaimName not matching ExtendedResourceClaimStatus",
+			spec: core.PodSpec{
+				Containers: []core.Container{
+					{Name: "c1", Image: "image"},
+				},
+			},
+			podStatus: core.PodStatus{
+				ExtendedResourceClaimStatus: &core.PodExtendedResourceClaimStatus{
+					ResourceClaimName: "extended-claim1",
+				},
+				NodeAllocatableResourceClaimStatuses: []core.NodeAllocatableResourceClaimStatus{
+					{
+						ResourceClaimName: "some-other-claim",
+						Containers:        []string{"c1"},
+						Mapping: []core.NodeAllocatableMappedResources{
+							{Name: core.ResourceCPU, Quantity: new(resource.MustParse("1"))},
+						},
+					},
+				},
+			},
+			expectError: true,
+			errorType:   field.ErrorTypeInvalid,
+			errorField:  "status.nodeAllocatableResourceClaimStatuses[0].resourceClaimName",
+			errorMsg:    "no mapping found in pod reference",
+		},
 	}
 
 	for _, tc := range testCases {
@@ -19716,33 +19765,6 @@ func TestValidateReplicationControllerUpdate(t *testing.T) {
 				field.Required(field.NewPath("spec.template"), ""),
 			},
 		},
-		"negative replicas": {
-			old: mkValidReplicationController(func(rc *core.ReplicationController) {}),
-			update: mkValidReplicationController(func(rc *core.ReplicationController) {
-				rc.Spec.Replicas = ptr.To[int32](-1)
-			}),
-			expectedErrs: field.ErrorList{
-				field.Invalid(field.NewPath("spec.replicas"), nil, "").WithOrigin("minimum"),
-			},
-		},
-		"nil replicas": {
-			old: mkValidReplicationController(func(rc *core.ReplicationController) {}),
-			update: mkValidReplicationController(func(rc *core.ReplicationController) {
-				rc.Spec.Replicas = nil
-			}),
-			expectedErrs: field.ErrorList{
-				field.Required(field.NewPath("spec.replicas"), ""),
-			},
-		},
-		"negative minReadySeconds": {
-			old: mkValidReplicationController(func(rc *core.ReplicationController) {}),
-			update: mkValidReplicationController(func(rc *core.ReplicationController) {
-				rc.Spec.MinReadySeconds = -1
-			}),
-			expectedErrs: field.ErrorList{
-				field.Invalid(field.NewPath("spec.minReadySeconds"), nil, "").WithOrigin("minimum"),
-			},
-		},
 	}
 	for k, tc := range errorCases {
 		t.Run(k, func(t *testing.T) {
@@ -19826,24 +19848,6 @@ func TestValidateReplicationController(t *testing.T) {
 			input: mkValidReplicationController(func(rc *core.ReplicationController) { rc.Spec.Template = nil }),
 			expectedErrs: field.ErrorList{
 				field.Required(field.NewPath("spec.template"), ""),
-			},
-		},
-		"negative replicas": {
-			input: mkValidReplicationController(func(rc *core.ReplicationController) { rc.Spec.Replicas = ptr.To[int32](-1) }),
-			expectedErrs: field.ErrorList{
-				field.Invalid(field.NewPath("spec.replicas"), nil, "").WithOrigin("minimum"),
-			},
-		},
-		"negative minReadySeconds": {
-			input: mkValidReplicationController(func(rc *core.ReplicationController) { rc.Spec.MinReadySeconds = -1 }),
-			expectedErrs: field.ErrorList{
-				field.Invalid(field.NewPath("spec.minReadySeconds"), nil, "").WithOrigin("minimum"),
-			},
-		},
-		"nil replicas": {
-			input: mkValidReplicationController(func(rc *core.ReplicationController) { rc.Spec.Replicas = nil }),
-			expectedErrs: field.ErrorList{
-				field.Required(field.NewPath("spec.replicas"), ""),
 			},
 		},
 		"invalid label": {

@@ -6334,6 +6334,14 @@ func validateNodeAllocatableResourceClaimStatus(podStatus core.PodStatus, podSpe
 				}
 			}
 		}
+		// Extended resources backed by DRA are satisfied by a scheduler-created
+		// ResourceClaim that is not referenced in podSpec.ResourceClaims nor in
+		// podStatus.ResourceClaimStatuses. Its name is recorded in
+		// podStatus.ExtendedResourceClaimStatus instead.
+		if !found && podStatus.ExtendedResourceClaimStatus != nil &&
+			podStatus.ExtendedResourceClaimStatus.ResourceClaimName == nodeAllocatableStatus.ResourceClaimName {
+			found = true
+		}
 
 		if !found {
 			allErrs = append(allErrs, field.Invalid(statusFldPath.Child("resourceClaimName"), nodeAllocatableStatus.ResourceClaimName, "no mapping found in pod reference"))
@@ -7480,13 +7488,8 @@ func ValidatePodTemplateSpecForRC(template *core.PodTemplateSpec, selectorMap ma
 // ValidateReplicationControllerSpec tests if required fields in the replication controller spec are set.
 func ValidateReplicationControllerSpec(spec, oldSpec *core.ReplicationControllerSpec, fldPath *field.Path, opts PodValidationOptions) field.ErrorList {
 	allErrs := field.ErrorList{}
-	allErrs = append(allErrs, ValidateNonnegativeField(int64(spec.MinReadySeconds), fldPath.Child("minReadySeconds")).MarkCoveredByDeclarative()...)
+	// replicas and minReadySeconds are covered by declarative validation.
 	allErrs = append(allErrs, ValidateNonEmptySelector(spec.Selector, fldPath.Child("selector"))...)
-	if spec.Replicas == nil {
-		allErrs = append(allErrs, field.Required(fldPath.Child("replicas"), "").MarkCoveredByDeclarative())
-	} else {
-		allErrs = append(allErrs, ValidateNonnegativeField(int64(*spec.Replicas), fldPath.Child("replicas")).MarkCoveredByDeclarative()...)
-	}
 	allErrs = append(allErrs, ValidatePodTemplateSpecForRC(spec.Template, spec.Selector, fldPath.Child("template"), opts)...)
 	return allErrs
 }

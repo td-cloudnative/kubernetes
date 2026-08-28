@@ -635,7 +635,7 @@ func TestSkipPodGroupPodSchedule(t *testing.T) {
 	}
 
 	podGroupInfo := &framework.QueuedPodGroupInfo{
-		QueuedPodInfos: map[fwk.EntityKey][]*framework.QueuedPodInfo{fwk.MustParseEntityKey("podgroup/default/pg"): {qInfo1, qInfo2, qInfo3}},
+		QueuedPodInfos: map[fwk.EntityKey][]*framework.QueuedPodInfo{fwk.PodGroupKey("default", "pg"): {qInfo1, qInfo2, qInfo3}},
 		PodGroupInfo: &framework.PodGroupInfo{
 			Name:            "pg",
 			Namespace:       "default",
@@ -685,8 +685,8 @@ func TestSkipPodGroupPodSchedule(t *testing.T) {
 	if podGroupInfo.Size() != 1 {
 		t.Errorf("Expected 1 queued pod left, got %d", podGroupInfo.Size())
 	}
-	if podGroupInfo.QueuedPodInfos[fwk.MustParseEntityKey("podgroup/default/pg")][0].Pod.Name != "p1" {
-		t.Errorf("Expected p1 to be left in queued pods, got %s", podGroupInfo.QueuedPodInfos[fwk.MustParseEntityKey("podgroup/default/pg")][0].Pod.Name)
+	if podGroupInfo.QueuedPodInfos[fwk.PodGroupKey("default", "pg")][0].Pod.Name != "p1" {
+		t.Errorf("Expected p1 to be left in queued pods, got %s", podGroupInfo.QueuedPodInfos[fwk.PodGroupKey("default", "pg")][0].Pod.Name)
 	}
 	if len(podGroupInfo.UnscheduledPods) != 1 {
 		t.Errorf("Expected 1 unscheduled pod left, got %d", len(podGroupInfo.UnscheduledPods))
@@ -790,7 +790,7 @@ func TestScheduleOnePodGroup_FinishesAttemptWhenAllPoppedPodsAreAssumed(t *testi
 			if len(requeuedPodGroup.QueuedPodInfos) != 1 {
 				t.Errorf("Expected 1 key in QueuedPodInfos, got %v", requeuedPodGroup.QueuedPodInfos)
 			}
-			infos := requeuedPodGroup.QueuedPodInfos[fwk.MustParseEntityKey("podgroup/default/pg")]
+			infos := requeuedPodGroup.QueuedPodInfos[fwk.PodGroupKey("default", "pg")]
 			if len(infos) != 1 || infos[0].Pod.UID != p2.UID {
 				t.Errorf("Expected queued PodGroup to contain pod %q, got %v", p2.Name, infos)
 			}
@@ -809,7 +809,7 @@ func TestPodGroupCycle_UpdateSnapshotError(t *testing.T) {
 	}
 
 	podGroupInfo := &framework.QueuedPodGroupInfo{
-		QueuedPodInfos: map[fwk.EntityKey][]*framework.QueuedPodInfo{fwk.MustParseEntityKey("podgroup/default/pg"): {qInfo1, qInfo2}},
+		QueuedPodInfos: map[fwk.EntityKey][]*framework.QueuedPodInfo{fwk.PodGroupKey("default", "pg"): {qInfo1, qInfo2}},
 		PodGroupInfo: &framework.PodGroupInfo{
 			Name:            "pg",
 			Namespace:       "default",
@@ -893,7 +893,7 @@ func TestPodGroupCycle_FillsPodResultsOnFewerResults(t *testing.T) {
 	queuedPodInfos := []*framework.QueuedPodInfo{qInfo1, qInfo2, qInfo3}
 
 	podGroupInfo := &framework.QueuedPodGroupInfo{
-		QueuedPodInfos: map[fwk.EntityKey][]*framework.QueuedPodInfo{fwk.MustParseEntityKey("podgroup/default/pg"): queuedPodInfos},
+		QueuedPodInfos: map[fwk.EntityKey][]*framework.QueuedPodInfo{fwk.PodGroupKey("default", "pg"): queuedPodInfos},
 		PodGroupInfo: &framework.PodGroupInfo{
 			Name:            "pg",
 			Namespace:       "default",
@@ -976,7 +976,7 @@ func TestPodGroupCycle_FillsPodResultsOnFewerResults(t *testing.T) {
 	sched.SchedulePod = sched.schedulePod
 
 	resultsMap := sched.runRootSchedulingAlgorithm(ctx, schedFwk, framework.NewCycleState(), podGroupInfo)
-	schedulePodResult := resultsMap[pgKey(podGroupInfo.PodGroupInfo)]
+	schedulePodResult := resultsMap[podGroupInfo.PodGroupInfo.GetKey()]
 	if len(schedulePodResult.podResults) != 2 {
 		t.Errorf("Expected 2 pod results, got %d", len(schedulePodResult.podResults))
 	}
@@ -1055,7 +1055,7 @@ func TestPodGroupCycle_PodGroupPostFilter(t *testing.T) {
 			qInfo2 := &framework.QueuedPodInfo{PodInfo: &framework.PodInfo{Pod: p2}}
 
 			podGroupInfo := &framework.QueuedPodGroupInfo{
-				QueuedPodInfos: map[fwk.EntityKey][]*framework.QueuedPodInfo{fwk.MustParseEntityKey("podgroup/default/pg"): {qInfo1, qInfo2}},
+				QueuedPodInfos: map[fwk.EntityKey][]*framework.QueuedPodInfo{fwk.PodGroupKey("default", "pg"): {qInfo1, qInfo2}},
 				PodGroupInfo: &framework.PodGroupInfo{
 					Name:            "pg",
 					Namespace:       "default",
@@ -1183,7 +1183,7 @@ func TestPodGroupSchedulingAlgorithm(t *testing.T) {
 	queuedPodInfos := []*framework.QueuedPodInfo{qInfo1, qInfo2, qInfo3}
 
 	podGroupInfo := &framework.QueuedPodGroupInfo{
-		QueuedPodInfos: map[fwk.EntityKey][]*framework.QueuedPodInfo{fwk.MustParseEntityKey("podgroup/default/pg"): queuedPodInfos},
+		QueuedPodInfos: map[fwk.EntityKey][]*framework.QueuedPodInfo{fwk.PodGroupKey("default", "pg"): queuedPodInfos},
 		PodGroupInfo: &framework.PodGroupInfo{
 			Name:            "pg",
 			Namespace:       "default",
@@ -1513,7 +1513,7 @@ func TestPodGroupSchedulingAlgorithm(t *testing.T) {
 					}
 
 					resultsMap := sched.runRootSchedulingAlgorithm(ctx, schedFwk, framework.NewCycleState(), podGroupInfo)
-					result := resultsMap[pgKey(podGroupInfo.PodGroupInfo)]
+					result := resultsMap[podGroupInfo.PodGroupInfo.GetKey()]
 
 					if result.status.Code() != tt.expectedGroupStatusCode {
 						t.Errorf("Expected group status code: %v, got: %v", tt.expectedGroupStatusCode, result.status.Code())
@@ -1975,7 +1975,7 @@ func TestSubmitPodGroupAlgorithmResult(t *testing.T) {
 				algorithmResult.podResults = append(algorithmResult.podResults, result)
 			}
 
-			sched.submitPodGroupAlgorithmResult(ctx, schedFwk, podGroupCycleState, podGroupInfo, map[fwk.EntityKey]*podGroupAlgorithmResult{pgKey(algorithmResult.podGroupInfo): &algorithmResult}, time.Now(), tt.status)
+			sched.submitPodGroupAlgorithmResult(ctx, schedFwk, podGroupCycleState, podGroupInfo, map[fwk.EntityKey]*podGroupAlgorithmResult{algorithmResult.podGroupInfo.GetKey(): &algorithmResult}, time.Now(), tt.status)
 
 			if err := wait.PollUntilContextTimeout(ctx, time.Millisecond*200, wait.ForeverTestTimeout, false, func(ctx context.Context) (bool, error) {
 				lock.Lock()
@@ -2394,11 +2394,11 @@ func TestUpdatePodGroupCondition(t *testing.T) {
 // fakePlacementPlugin simulates Filter, PlacementGenerate and PlacementScore behaviors for PodGroup placement scheduling testing.
 type fakePlacementPlugin struct {
 	name                     string
-	filterStatus             map[string]*fwk.Status            // node name to status
-	generatePlacementsResult map[string]map[string][]string    // PodGroupInfo key to placement name to list of node names
-	generatePlacementsStatus map[string]*fwk.Status            // PodGroupInfo key to status
-	scorePlacementsResult    map[string]map[string]int64       // PodGroupInfo key to placement name to score
-	scorePlacementsStatus    map[string]map[string]*fwk.Status // PodGroupInfo key to placement name to status
+	filterStatus             map[string]*fwk.Status                   // node name to status
+	generatePlacementsResult map[fwk.EntityKey]map[string][]string    // PodGroupInfo key to placement name to list of node names
+	generatePlacementsStatus map[fwk.EntityKey]*fwk.Status            // PodGroupInfo key to status
+	scorePlacementsResult    map[fwk.EntityKey]map[string]int64       // PodGroupInfo key to placement name to score
+	scorePlacementsStatus    map[fwk.EntityKey]map[string]*fwk.Status // PodGroupInfo key to placement name to status
 	podPerNode               bool
 	reservedNodes            sets.Set[string]
 }
@@ -2518,9 +2518,10 @@ func TestPodGroupSchedulingPlacementAlgorithm(t *testing.T) {
 	}
 	podGroupPodInfo := &framework.QueuedPodInfo{PodInfo: podInfo}
 
+	pgKeyVal := fwk.PodGroupKey("default", "pg")
 	queuedPodInfos := []*framework.QueuedPodInfo{{PodInfo: &framework.PodInfo{Pod: podGroupPod}}}
 	pgInfo := &framework.QueuedPodGroupInfo{
-		QueuedPodInfos: map[fwk.EntityKey][]*framework.QueuedPodInfo{fwk.MustParseEntityKey("podgroup/default/pg"): queuedPodInfos},
+		QueuedPodInfos: map[fwk.EntityKey][]*framework.QueuedPodInfo{pgKeyVal: queuedPodInfos},
 		PodGroupInfo: &framework.PodGroupInfo{
 			Name:            "pg",
 			Namespace:       "default",
@@ -2542,14 +2543,14 @@ func TestPodGroupSchedulingPlacementAlgorithm(t *testing.T) {
 			expectedGeneratedPlacements: 2,
 			expectedFeasibleEvaluations: 2,
 			placementPlugin: fakePlacementPlugin{
-				generatePlacementsResult: map[string]map[string][]string{
-					pgInfo.GetKey(): {
+				generatePlacementsResult: map[fwk.EntityKey]map[string][]string{
+					pgKeyVal: {
 						"placement1": {nodes[0].Name},
 						"placement2": {nodes[1].Name},
 					},
 				},
-				scorePlacementsResult: map[string]map[string]int64{
-					pgInfo.GetKey(): {
+				scorePlacementsResult: map[fwk.EntityKey]map[string]int64{
+					pgKeyVal: {
 						"placement1": 2,
 						"placement2": 1,
 					},
@@ -2573,14 +2574,14 @@ func TestPodGroupSchedulingPlacementAlgorithm(t *testing.T) {
 			expectedGeneratedPlacements: 2,
 			expectedFeasibleEvaluations: 2,
 			placementPlugin: fakePlacementPlugin{
-				generatePlacementsResult: map[string]map[string][]string{
-					pgInfo.GetKey(): {
+				generatePlacementsResult: map[fwk.EntityKey]map[string][]string{
+					pgKeyVal: {
 						"placement1": {nodes[0].Name},
 						"placement2": {nodes[1].Name},
 					},
 				},
-				scorePlacementsResult: map[string]map[string]int64{
-					pgInfo.GetKey(): {
+				scorePlacementsResult: map[fwk.EntityKey]map[string]int64{
+					pgKeyVal: {
 						"placement1": 1,
 						"placement2": 2,
 					},
@@ -2602,7 +2603,7 @@ func TestPodGroupSchedulingPlacementAlgorithm(t *testing.T) {
 		},
 		"when no placements are generated, returns unschedulable": {
 			placementPlugin: fakePlacementPlugin{
-				generatePlacementsResult: map[string]map[string][]string{},
+				generatePlacementsResult: map[fwk.EntityKey]map[string][]string{},
 			},
 			expectedResult: podGroupAlgorithmResult{
 				status: fwk.NewStatus(fwk.Unschedulable, "no feasible placements found").WithPlugin("FakePlacementPlugin_Ordered"),
@@ -2612,14 +2613,14 @@ func TestPodGroupSchedulingPlacementAlgorithm(t *testing.T) {
 			expectedGeneratedPlacements:   2,
 			expectedInfeasibleEvaluations: 2,
 			placementPlugin: fakePlacementPlugin{
-				generatePlacementsResult: map[string]map[string][]string{
-					pgInfo.GetKey(): {
+				generatePlacementsResult: map[fwk.EntityKey]map[string][]string{
+					pgKeyVal: {
 						"placement1": {nodes[0].Name},
 						"placement2": {nodes[1].Name},
 					},
 				},
-				scorePlacementsResult: map[string]map[string]int64{
-					pgInfo.GetKey(): {
+				scorePlacementsResult: map[fwk.EntityKey]map[string]int64{
+					pgKeyVal: {
 						"placement1": 1,
 						"placement2": 2,
 					},
@@ -2651,14 +2652,14 @@ func TestPodGroupSchedulingPlacementAlgorithm(t *testing.T) {
 			expectedGeneratedPlacements:   2,
 			expectedInfeasibleEvaluations: 2,
 			placementPlugin: fakePlacementPlugin{
-				generatePlacementsResult: map[string]map[string][]string{
-					pgInfo.GetKey(): {
+				generatePlacementsResult: map[fwk.EntityKey]map[string][]string{
+					pgKeyVal: {
 						"placement1": {nodes[0].Name},
 						"placement2": {nodes[1].Name},
 					},
 				},
-				scorePlacementsResult: map[string]map[string]int64{
-					pgInfo.GetKey(): {
+				scorePlacementsResult: map[fwk.EntityKey]map[string]int64{
+					pgKeyVal: {
 						"placement1": 1,
 						"placement2": 2,
 					},
@@ -2692,14 +2693,14 @@ func TestPodGroupSchedulingPlacementAlgorithm(t *testing.T) {
 			expectedFeasibleEvaluations:   1,
 			expectedInfeasibleEvaluations: 1,
 			placementPlugin: fakePlacementPlugin{
-				generatePlacementsResult: map[string]map[string][]string{
-					pgInfo.GetKey(): {
+				generatePlacementsResult: map[fwk.EntityKey]map[string][]string{
+					pgKeyVal: {
 						"placement1": {nodes[0].Name},
 						"placement2": {nodes[1].Name},
 					},
 				},
-				scorePlacementsResult: map[string]map[string]int64{
-					pgInfo.GetKey(): {
+				scorePlacementsResult: map[fwk.EntityKey]map[string]int64{
+					pgKeyVal: {
 						"placement1": 1,
 					},
 				},
@@ -2730,14 +2731,14 @@ func TestPodGroupSchedulingPlacementAlgorithm(t *testing.T) {
 			expectedFeasibleEvaluations:   1,
 			expectedInfeasibleEvaluations: 1,
 			placementPlugin: fakePlacementPlugin{
-				generatePlacementsResult: map[string]map[string][]string{
-					pgInfo.GetKey(): {
+				generatePlacementsResult: map[fwk.EntityKey]map[string][]string{
+					pgKeyVal: {
 						"placement1": {nodes[0].Name},
 						"placement2": {nodes[1].Name},
 					},
 				},
-				scorePlacementsResult: map[string]map[string]int64{
-					pgInfo.GetKey(): {
+				scorePlacementsResult: map[fwk.EntityKey]map[string]int64{
+					pgKeyVal: {
 						"placement1": 1,
 						"placement2": 2,
 					},
@@ -2766,7 +2767,7 @@ func TestPodGroupSchedulingPlacementAlgorithm(t *testing.T) {
 		},
 		"when generate plugin fails, returns error": {
 			placementPlugin: fakePlacementPlugin{
-				generatePlacementsStatus: map[string]*fwk.Status{pgInfo.GetKey(): fwk.NewStatus(fwk.Error, "error for test")},
+				generatePlacementsStatus: map[fwk.EntityKey]*fwk.Status{pgKeyVal: fwk.NewStatus(fwk.Error, "error for test")},
 			},
 			expectedResult: podGroupAlgorithmResult{
 				status: fwk.NewStatus(fwk.Error, "error for test").WithPlugin("FakePlacementPlugin"),
@@ -2776,19 +2777,19 @@ func TestPodGroupSchedulingPlacementAlgorithm(t *testing.T) {
 			expectedGeneratedPlacements: 2,
 			expectedFeasibleEvaluations: 2,
 			placementPlugin: fakePlacementPlugin{
-				generatePlacementsResult: map[string]map[string][]string{
-					pgInfo.GetKey(): {
+				generatePlacementsResult: map[fwk.EntityKey]map[string][]string{
+					pgKeyVal: {
 						"placement1": {nodes[0].Name},
 						"placement2": {nodes[1].Name},
 					},
 				},
-				scorePlacementsResult: map[string]map[string]int64{
-					pgInfo.GetKey(): {
+				scorePlacementsResult: map[fwk.EntityKey]map[string]int64{
+					pgKeyVal: {
 						"placement1": 1,
 					},
 				},
-				scorePlacementsStatus: map[string]map[string]*fwk.Status{
-					pgInfo.GetKey(): {
+				scorePlacementsStatus: map[fwk.EntityKey]map[string]*fwk.Status{
+					pgKeyVal: {
 						"placement2": fwk.NewStatus(fwk.Error, "error for test"),
 					},
 				},
@@ -2800,13 +2801,13 @@ func TestPodGroupSchedulingPlacementAlgorithm(t *testing.T) {
 		"when a placement evaluation errors, returns error": {
 			expectedGeneratedPlacements: 1,
 			placementPlugin: fakePlacementPlugin{
-				generatePlacementsResult: map[string]map[string][]string{
-					pgInfo.GetKey(): {
+				generatePlacementsResult: map[fwk.EntityKey]map[string][]string{
+					pgKeyVal: {
 						"placement1": {nodes[0].Name},
 					},
 				},
-				scorePlacementsResult: map[string]map[string]int64{
-					pgInfo.GetKey(): {
+				scorePlacementsResult: map[fwk.EntityKey]map[string]int64{
+					pgKeyVal: {
 						"placement1": 1,
 					},
 				},
@@ -2904,7 +2905,7 @@ func TestPodGroupSchedulingPlacementAlgorithm(t *testing.T) {
 				metrics.PlacementEvaluationDuration.Reset()
 
 				resultsMap := sched.runRootSchedulingAlgorithm(ctx, schedFwk, framework.NewCycleState(), pgInfo)
-				result := resultsMap[pgKey(pgInfo.PodGroupInfo)]
+				result := resultsMap[pgInfo.PodGroupInfo.GetKey()]
 
 				if result.podGroupInfo != pgInfo.PodGroupInfo {
 					t.Errorf("Unexpected podGroupInfo field (-want,+got):\n- %v\n+ %v", pgInfo, result.podGroupInfo)
@@ -3027,9 +3028,10 @@ func TestPodGroupSchedulingPlacementAlgorithm_Scoring(t *testing.T) {
 				informerFactory := informers.NewSharedInformerFactory(clientsetfake.NewClientset(), 0)
 				queue := internalqueue.NewSchedulingQueue(nil, informerFactory)
 
+				pgKeyVal := fwk.PodGroupKey("default", "pg")
 				queuedPodInfos := []*framework.QueuedPodInfo{{PodInfo: &framework.PodInfo{Pod: podGroupPod}}}
 				pgInfo := &framework.QueuedPodGroupInfo{
-					QueuedPodInfos: map[fwk.EntityKey][]*framework.QueuedPodInfo{fwk.MustParseEntityKey("podgroup/default/pg"): queuedPodInfos},
+					QueuedPodInfos: map[fwk.EntityKey][]*framework.QueuedPodInfo{pgKeyVal: queuedPodInfos},
 					PodGroupInfo: &framework.PodGroupInfo{
 						Name:            "pg",
 						Namespace:       "default",
@@ -3040,8 +3042,8 @@ func TestPodGroupSchedulingPlacementAlgorithm_Scoring(t *testing.T) {
 
 				placementPlugin := fakePlacementPlugin{
 					name: "FakeGeneratorPlugin",
-					generatePlacementsResult: map[string]map[string][]string{
-						pgInfo.GetKey(): placements,
+					generatePlacementsResult: map[fwk.EntityKey]map[string][]string{
+						pgKeyVal: placements,
 					},
 				}
 
@@ -3057,11 +3059,11 @@ func TestPodGroupSchedulingPlacementAlgorithm_Scoring(t *testing.T) {
 				for i, placementScorePluginData := range tt.pluginData {
 					plugin := fakePlacementPlugin{
 						name: fmt.Sprintf("FakeScorePlugin[%d]", i),
-						scorePlacementsResult: map[string]map[string]int64{
-							pgInfo.GetKey(): placementScorePluginData.scorePlacementResult,
+						scorePlacementsResult: map[fwk.EntityKey]map[string]int64{
+							pgKeyVal: placementScorePluginData.scorePlacementResult,
 						},
-						scorePlacementsStatus: map[string]map[string]*fwk.Status{
-							pgInfo.GetKey(): placementScorePluginData.scorePlacementStatus,
+						scorePlacementsStatus: map[fwk.EntityKey]map[string]*fwk.Status{
+							pgKeyVal: placementScorePluginData.scorePlacementStatus,
 						},
 					}
 
@@ -3279,7 +3281,7 @@ func TestPlacementCycleStateLifecycle(t *testing.T) {
 
 			queuedPodInfos := []*framework.QueuedPodInfo{{PodInfo: &framework.PodInfo{Pod: podGroupPod}}}
 			pgInfo := &framework.QueuedPodGroupInfo{
-				QueuedPodInfos: map[fwk.EntityKey][]*framework.QueuedPodInfo{fwk.MustParseEntityKey("podgroup/default/pg"): queuedPodInfos},
+				QueuedPodInfos: map[fwk.EntityKey][]*framework.QueuedPodInfo{fwk.PodGroupKey("default", "pg"): queuedPodInfos},
 				PodGroupInfo: &framework.PodGroupInfo{
 					Name:            "pg",
 					Namespace:       "default",
@@ -3326,7 +3328,7 @@ type multiLevelPlacementStateTracker struct {
 	placementFeasibleTrajectories [][]string
 	placementScoreTrajectories    [][]string
 	filterTrajectories            [][]string
-	generatePlacementsResult      map[string][]string
+	generatePlacementsResult      map[fwk.EntityKey][]string
 }
 
 func (p *multiLevelPlacementStateTracker) Name() string {
@@ -3422,7 +3424,7 @@ func (p *multiLevelPlacementStateTracker) GeneratePlacements(ctx context.Context
 		}
 		p.placementGenerateTrajectories = append(p.placementGenerateTrajectories, trajectory)
 	}
-	state.Write(hierarchyKey, &hierarchyData{id: podGroup.GetKey()})
+	state.Write(hierarchyKey, &hierarchyData{id: podGroup.GetKey().String()})
 	placements := []*fwk.Placement{}
 	for _, placementName := range p.generatePlacementsResult[podGroup.GetKey()] {
 		placements = append(placements, &fwk.Placement{Name: placementName, Nodes: parentPlacement.Nodes})
@@ -3480,7 +3482,7 @@ func TestPlacementCycleStateLifecycle_MultiLevel(t *testing.T) {
 	queue := internalqueue.NewSchedulingQueue(nil, informerFactory)
 
 	tracker := &multiLevelPlacementStateTracker{
-		generatePlacementsResult: map[string][]string{
+		generatePlacementsResult: map[fwk.EntityKey][]string{
 			rootPGInfo.GetKey(): {
 				"placement1",
 				"placement2",
@@ -3548,13 +3550,13 @@ func TestPlacementCycleStateLifecycle_MultiLevel(t *testing.T) {
 
 	cpgQueuedInfo := &framework.QueuedPodGroupInfo{
 		QueuedPodInfos: map[fwk.EntityKey][]*framework.QueuedPodInfo{
-			fwk.MustParseEntityKey(leafPGInfo.GetKey()): {queuedPodInfo1},
+			leafPGInfo.GetKey(): {queuedPodInfo1},
 		},
 		PodGroupInfo: rootPGInfo,
 	}
 
 	results := sched.runRootSchedulingAlgorithm(ctx, schedFwk, framework.NewCycleState(), cpgQueuedInfo)
-	if result, ok := results[pgKey(rootPGInfo)]; !ok || !result.status.IsSuccess() {
+	if result, ok := results[rootPGInfo.GetKey()]; !ok || !result.status.IsSuccess() {
 		t.Fatalf("Expected success for root pod group, got: %v", result.status)
 	}
 
@@ -3660,7 +3662,7 @@ func TestCPGSchedulingPlacementAlgorithm(t *testing.T) {
 		Children:          []*framework.PodGroupInfo{childPGInfo1, childPGInfo2},
 	}
 
-	defaultPlacementResults := map[string]map[string][]string{
+	defaultPlacementResults := map[fwk.EntityKey]map[string][]string{
 		rootPGInfo.GetKey(): {
 			"placement1": {nodes[0].Name, nodes[1].Name},
 			"placement2": {nodes[2].Name, nodes[3].Name},
@@ -3682,12 +3684,12 @@ func TestCPGSchedulingPlacementAlgorithm(t *testing.T) {
 	tests := map[string]struct {
 		placementPlugin           fakePlacementPlugin
 		placementFeasibleStatuses [][]fwk.Code
-		expectedResults           map[string]podGroupAlgorithmResult
+		expectedResults           map[fwk.EntityKey]podGroupAlgorithmResult
 	}{
 		"respects higher score of parent placement": {
 			placementPlugin: fakePlacementPlugin{
 				generatePlacementsResult: defaultPlacementResults,
-				scorePlacementsResult: map[string]map[string]int64{
+				scorePlacementsResult: map[fwk.EntityKey]map[string]int64{
 					rootPGInfo.GetKey(): {
 						"placement1": 1,
 						"placement2": 2,
@@ -3706,7 +3708,7 @@ func TestCPGSchedulingPlacementAlgorithm(t *testing.T) {
 					},
 				},
 			},
-			expectedResults: map[string]podGroupAlgorithmResult{
+			expectedResults: map[fwk.EntityKey]podGroupAlgorithmResult{
 				rootPGInfo.GetKey(): {},
 				childPGInfo1.GetKey(): {
 					podResults: []algorithmResult{
@@ -3737,7 +3739,7 @@ func TestCPGSchedulingPlacementAlgorithm(t *testing.T) {
 		"discards infeasible placements": {
 			placementPlugin: fakePlacementPlugin{
 				generatePlacementsResult: defaultPlacementResults,
-				scorePlacementsResult: map[string]map[string]int64{
+				scorePlacementsResult: map[fwk.EntityKey]map[string]int64{
 					rootPGInfo.GetKey(): {
 						"placement1": 2,
 						"placement2": 1,
@@ -3761,7 +3763,7 @@ func TestCPGSchedulingPlacementAlgorithm(t *testing.T) {
 				{fwk.Unschedulable, fwk.Unschedulable, fwk.Unschedulable},
 				// success for the remaining placements
 			},
-			expectedResults: map[string]podGroupAlgorithmResult{
+			expectedResults: map[fwk.EntityKey]podGroupAlgorithmResult{
 				rootPGInfo.GetKey(): {},
 				childPGInfo1.GetKey(): {
 					podResults: []algorithmResult{
@@ -3792,7 +3794,7 @@ func TestCPGSchedulingPlacementAlgorithm(t *testing.T) {
 		"returns unschedulable if no pods got scheduled": {
 			placementPlugin: fakePlacementPlugin{
 				generatePlacementsResult: defaultPlacementResults,
-				scorePlacementsResult: map[string]map[string]int64{
+				scorePlacementsResult: map[fwk.EntityKey]map[string]int64{
 					rootPGInfo.GetKey(): {
 						"placement1": 2,
 						"placement2": 1,
@@ -3817,7 +3819,7 @@ func TestCPGSchedulingPlacementAlgorithm(t *testing.T) {
 					nodes[3].Name: fwk.NewStatus(fwk.Unschedulable, "node4 rejected"),
 				},
 			},
-			expectedResults: map[string]podGroupAlgorithmResult{
+			expectedResults: map[fwk.EntityKey]podGroupAlgorithmResult{
 				rootPGInfo.GetKey(): {
 					status: fwk.NewStatus(fwk.Unschedulable, "no pods were schedulable"),
 				},
@@ -3842,7 +3844,7 @@ func TestCPGSchedulingPlacementAlgorithm(t *testing.T) {
 		"returns unschedulable if no pods got scheduled and placement feasible rejected pods": {
 			placementPlugin: fakePlacementPlugin{
 				generatePlacementsResult: defaultPlacementResults,
-				scorePlacementsResult: map[string]map[string]int64{
+				scorePlacementsResult: map[fwk.EntityKey]map[string]int64{
 					rootPGInfo.GetKey(): {
 						"placement1": 2,
 						"placement2": 1,
@@ -3889,7 +3891,7 @@ func TestCPGSchedulingPlacementAlgorithm(t *testing.T) {
 				// pg2, p4
 				{fwk.Wait, fwk.Unschedulable},
 			},
-			expectedResults: map[string]podGroupAlgorithmResult{
+			expectedResults: map[fwk.EntityKey]podGroupAlgorithmResult{
 				rootPGInfo.GetKey(): {
 					status: fwk.NewStatus(fwk.Unschedulable, "0/2 placements are available, first placement status: injected placementFeasible status"),
 				},
@@ -3918,7 +3920,7 @@ func TestCPGSchedulingPlacementAlgorithm(t *testing.T) {
 				generatePlacementsResult: defaultPlacementResults,
 				podPerNode:               true,
 				reservedNodes:            sets.New[string](),
-				scorePlacementsResult: map[string]map[string]int64{
+				scorePlacementsResult: map[fwk.EntityKey]map[string]int64{
 					rootPGInfo.GetKey(): {
 						"placement1": 1,
 					},
@@ -3934,7 +3936,7 @@ func TestCPGSchedulingPlacementAlgorithm(t *testing.T) {
 				},
 				filterStatus: map[string]*fwk.Status{},
 			},
-			expectedResults: map[string]podGroupAlgorithmResult{
+			expectedResults: map[fwk.EntityKey]podGroupAlgorithmResult{
 				rootPGInfo.GetKey(): {},
 				childPGInfo1.GetKey(): {
 					podResults: []algorithmResult{
@@ -3961,11 +3963,11 @@ func TestCPGSchedulingPlacementAlgorithm(t *testing.T) {
 		"when generate plugin fails at CPG, returns error": {
 			placementPlugin: fakePlacementPlugin{
 				generatePlacementsResult: defaultPlacementResults,
-				generatePlacementsStatus: map[string]*fwk.Status{
+				generatePlacementsStatus: map[fwk.EntityKey]*fwk.Status{
 					rootPGInfo.GetKey(): fwk.AsStatus(fmt.Errorf("injected error")),
 				},
 			},
-			expectedResults: map[string]podGroupAlgorithmResult{
+			expectedResults: map[fwk.EntityKey]podGroupAlgorithmResult{
 				rootPGInfo.GetKey(): {
 					status: fwk.NewStatus(fwk.Error, "injected error"),
 				},
@@ -3974,10 +3976,10 @@ func TestCPGSchedulingPlacementAlgorithm(t *testing.T) {
 		"when generate plugin fails at PG, returns error": {
 			placementPlugin: fakePlacementPlugin{
 				generatePlacementsResult: defaultPlacementResults,
-				generatePlacementsStatus: map[string]*fwk.Status{
+				generatePlacementsStatus: map[fwk.EntityKey]*fwk.Status{
 					childPGInfo2.GetKey(): fwk.AsStatus(fmt.Errorf("injected error")),
 				},
-				scorePlacementsResult: map[string]map[string]int64{
+				scorePlacementsResult: map[fwk.EntityKey]map[string]int64{
 					rootPGInfo.GetKey(): {
 						"placement1": 1,
 					},
@@ -3991,7 +3993,7 @@ func TestCPGSchedulingPlacementAlgorithm(t *testing.T) {
 					},
 				},
 			},
-			expectedResults: map[string]podGroupAlgorithmResult{
+			expectedResults: map[fwk.EntityKey]podGroupAlgorithmResult{
 				rootPGInfo.GetKey(): {
 					status: fwk.NewStatus(fwk.Error, "composite pod group evaluation failed due to child error: injected error"),
 				},
@@ -4086,17 +4088,17 @@ func TestCPGSchedulingPlacementAlgorithm(t *testing.T) {
 
 			cpgInfo := &framework.QueuedPodGroupInfo{
 				QueuedPodInfos: map[fwk.EntityKey][]*framework.QueuedPodInfo{
-					fwk.MustParseEntityKey(childPGInfo1.GetKey()): {queuedPodInfo1},
-					fwk.MustParseEntityKey(childPGInfo2.GetKey()): {queuedPodInfo2},
+					childPGInfo1.GetKey(): {queuedPodInfo1},
+					childPGInfo2.GetKey(): {queuedPodInfo2},
 				},
 				PodGroupInfo: rootPGInfo,
 			}
 
 			results := sched.runRootSchedulingAlgorithm(ctx, schedFwk, framework.NewCycleState(), cpgInfo)
-			gotResults := make(map[string]podGroupAlgorithmResult, len(results))
+			gotResults := make(map[fwk.EntityKey]podGroupAlgorithmResult, len(results))
 			for k, v := range results {
 				if v != nil {
-					gotResults[k.String()] = *v
+					gotResults[k] = *v
 				}
 			}
 
@@ -4173,7 +4175,7 @@ func TestCPGSchedulingPlacementAlgorithm_Scoring(t *testing.T) {
 		Children:          []*framework.PodGroupInfo{childPGInfo1, childPGInfo2},
 	}
 
-	placements := map[string]map[string][]string{
+	placements := map[fwk.EntityKey]map[string][]string{
 		rootPGInfo.GetKey(): {
 			"placement1": {nodes[0].Name, nodes[1].Name},
 			"placement2": {nodes[2].Name, nodes[3].Name},
@@ -4194,8 +4196,8 @@ func TestCPGSchedulingPlacementAlgorithm_Scoring(t *testing.T) {
 
 	type pluginData struct {
 		weight                int32
-		scorePlacementsResult map[string]map[string]int64
-		scorePlacementsStatus map[string]map[string]*fwk.Status
+		scorePlacementsResult map[fwk.EntityKey]map[string]int64
+		scorePlacementsStatus map[fwk.EntityKey]map[string]*fwk.Status
 	}
 
 	tests := map[string]struct {
@@ -4206,7 +4208,7 @@ func TestCPGSchedulingPlacementAlgorithm_Scoring(t *testing.T) {
 			pluginData: []pluginData{
 				{
 					weight: 1,
-					scorePlacementsResult: map[string]map[string]int64{
+					scorePlacementsResult: map[fwk.EntityKey]map[string]int64{
 						rootPGInfo.GetKey(): {
 							"placement1": 50,
 							"placement2": 75,
@@ -4227,7 +4229,7 @@ func TestCPGSchedulingPlacementAlgorithm_Scoring(t *testing.T) {
 				},
 				{
 					weight: 2,
-					scorePlacementsResult: map[string]map[string]int64{
+					scorePlacementsResult: map[fwk.EntityKey]map[string]int64{
 						rootPGInfo.GetKey(): {
 							"placement1": 25,
 							"placement2": 10,
@@ -4256,7 +4258,7 @@ func TestCPGSchedulingPlacementAlgorithm_Scoring(t *testing.T) {
 			pluginData: []pluginData{
 				{
 					weight: 1,
-					scorePlacementsResult: map[string]map[string]int64{
+					scorePlacementsResult: map[fwk.EntityKey]map[string]int64{
 						rootPGInfo.GetKey(): {
 							"placement1": 75,
 							"placement2": 50,
@@ -4277,7 +4279,7 @@ func TestCPGSchedulingPlacementAlgorithm_Scoring(t *testing.T) {
 				},
 				{
 					weight: 2,
-					scorePlacementsResult: map[string]map[string]int64{
+					scorePlacementsResult: map[fwk.EntityKey]map[string]int64{
 						rootPGInfo.GetKey(): {
 							"placement1": 10,
 							"placement2": 25,
@@ -4328,8 +4330,7 @@ func TestCPGSchedulingPlacementAlgorithm_Scoring(t *testing.T) {
 				tf.RegisterFilterPlugin(placementPlugin.Name(), func(_ context.Context, _ runtime.Object, _ fwk.Handle) (fwk.Plugin, error) {
 					return &placementPlugin, nil
 				}),
-				tf.RegisterPermitPlugin(gangscheduling.Name, gangPluginFactory),
-				tf.RegisterPluginAsExtensions(gangscheduling.Name, gangPluginFactory, "PlacementFeasible"),
+				tf.RegisterPreEnqueuePlugin(gangscheduling.Name, gangPluginFactory),
 			}
 
 			for i, placementScorePluginData := range tt.pluginData {
@@ -4384,8 +4385,8 @@ func TestCPGSchedulingPlacementAlgorithm_Scoring(t *testing.T) {
 
 			cpgInfo := &framework.QueuedPodGroupInfo{
 				QueuedPodInfos: map[fwk.EntityKey][]*framework.QueuedPodInfo{
-					fwk.MustParseEntityKey(childPGInfo1.GetKey()): {queuedPodInfo1},
-					fwk.MustParseEntityKey(childPGInfo2.GetKey()): {queuedPodInfo2},
+					childPGInfo1.GetKey(): {queuedPodInfo1},
+					childPGInfo2.GetKey(): {queuedPodInfo2},
 				},
 				PodGroupInfo: rootPGInfo,
 			}
@@ -4424,7 +4425,7 @@ func TestPodGroupCycle_NominatedNodes(t *testing.T) {
 	qInfo2 := &framework.QueuedPodInfo{PodInfo: &framework.PodInfo{Pod: p2}}
 
 	podGroupInfo := &framework.QueuedPodGroupInfo{
-		QueuedPodInfos: map[fwk.EntityKey][]*framework.QueuedPodInfo{fwk.MustParseEntityKey("podgroup/default/pg"): {qInfo1, qInfo2}},
+		QueuedPodInfos: map[fwk.EntityKey][]*framework.QueuedPodInfo{fwk.PodGroupKey("default", "pg"): {qInfo1, qInfo2}},
 		PodGroupInfo: &framework.PodGroupInfo{
 			Name:            "pg",
 			Namespace:       "default",
@@ -4549,7 +4550,7 @@ func TestScheduleOnePodGroup_PodGroupNotFound(t *testing.T) {
 	qInfo2 := &framework.QueuedPodInfo{PodInfo: &framework.PodInfo{Pod: p2}}
 
 	podGroupInfo := &framework.QueuedPodGroupInfo{
-		QueuedPodInfos: map[fwk.EntityKey][]*framework.QueuedPodInfo{fwk.MustParseEntityKey("podgroup/default/pg"): {qInfo1, qInfo2}},
+		QueuedPodInfos: map[fwk.EntityKey][]*framework.QueuedPodInfo{fwk.PodGroupKey("default", "pg"): {qInfo1, qInfo2}},
 		PodGroupInfo: &framework.PodGroupInfo{
 			Name:            "pg",
 			Namespace:       "default",
@@ -4628,7 +4629,7 @@ func TestScheduleOnePodGroup_SchedulerNameMismatchUpdatesStatus(t *testing.T) {
 	qInfo2 := &framework.QueuedPodInfo{PodInfo: &framework.PodInfo{Pod: p2}}
 	testPodGroup := st.MakePodGroup().Name("pg").Namespace("default").Obj()
 	podGroupInfo := &framework.QueuedPodGroupInfo{
-		QueuedPodInfos: map[fwk.EntityKey][]*framework.QueuedPodInfo{fwk.MustParseEntityKey("podgroup/default/pg"): {qInfo1, qInfo2}},
+		QueuedPodInfos: map[fwk.EntityKey][]*framework.QueuedPodInfo{fwk.PodGroupKey("default", "pg"): {qInfo1, qInfo2}},
 		PodGroupInfo: &framework.PodGroupInfo{
 			Name:      "pg",
 			Namespace: "default",
@@ -4706,10 +4707,257 @@ func TestScheduleOnePodGroup_SchedulerNameMismatchUpdatesStatus(t *testing.T) {
 		Reason:  schedulingapi.PodGroupReasonSchedulerError,
 		Message: `all pods in a single pod group should have the same .spec.schedulerName set, got: "sched2" and "sched1"`,
 	}
-
 	matchedCondition := apimeta.FindStatusCondition(pg.Status.Conditions, schedulingapi.PodGroupInitiallyScheduled)
 	if diff := cmp.Diff(&expectedCondition, matchedCondition, cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime", "ObservedGeneration")); diff != "" {
 		t.Errorf("Unexpected condition (-want +got):\n%s", diff)
+	}
+}
+
+type podGroupStateTrackerPlugin struct {
+	name             string
+	podToTrack       string
+	failReserveOnPod string
+	failBind         bool
+
+	mu                  sync.Mutex
+	syncReserveCount    int
+	asyncReserveCount   int
+	asyncPermitCount    int
+	syncUnreserveCount  int
+	asyncUnreserveCount int
+}
+
+var _ fwk.ReservePlugin = &podGroupStateTrackerPlugin{}
+var _ fwk.PermitPlugin = &podGroupStateTrackerPlugin{}
+var _ fwk.BindPlugin = &podGroupStateTrackerPlugin{}
+
+func (u *podGroupStateTrackerPlugin) Name() string { return u.name }
+
+func (u *podGroupStateTrackerPlugin) Reserve(ctx context.Context, state fwk.CycleState, p *v1.Pod, nodeName string) *fwk.Status {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	if p.Name == u.podToTrack {
+		if state.GetPodGroupSchedulingCycle() != nil {
+			u.syncReserveCount++
+		} else {
+			u.asyncReserveCount++
+		}
+	}
+	if u.failReserveOnPod != "" && p.Name == u.failReserveOnPod {
+		return fwk.NewStatus(fwk.Error, fmt.Sprintf("simulated reserve error for %s", p.Name))
+	}
+	return nil
+}
+
+func (u *podGroupStateTrackerPlugin) Permit(ctx context.Context, state fwk.CycleState, p *v1.Pod, nodeName string) (*fwk.Status, time.Duration) {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	if p.Name == u.podToTrack {
+		if state.GetPodGroupSchedulingCycle() == nil {
+			u.asyncPermitCount++
+		}
+	}
+	return nil, 0
+}
+
+func (u *podGroupStateTrackerPlugin) Unreserve(ctx context.Context, state fwk.CycleState, p *v1.Pod, nodeName string) {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	if p.Name == u.podToTrack {
+		if state.GetPodGroupSchedulingCycle() != nil {
+			u.syncUnreserveCount++
+		} else {
+			u.asyncUnreserveCount++
+		}
+	}
+}
+
+func (u *podGroupStateTrackerPlugin) Bind(ctx context.Context, state fwk.CycleState, p *v1.Pod, nodeName string) *fwk.Status {
+	if u.failBind {
+		return fwk.NewStatus(fwk.Error, "simulated bind error")
+	}
+	return nil
+}
+
+// Verify that PodGroupCycleState is accessible to Reserve plugins during synchronous Reserve and Unreserve
+// (e.g. gang scheduling rollback), but is stripped prior to Permit, preparation for binding, and asynchronous binding.
+// IMPORTANT: The dynamicresources (DRA / devicemanagement) plugin relies on this contract in Unreserve
+// to distinguish synchronous gang rollbacks from asynchronous binding failures when releasing pending allocations.
+func TestScheduleOnePodGroup_PodGroupStateAvailability(t *testing.T) {
+	featuregatetesting.SetFeatureGateDuringTest(t, utilfeature.DefaultFeatureGate, features.GenericWorkload, true)
+
+	tests := []struct {
+		name                 string
+		podToTrack           string
+		failReserveOnPod     string
+		failBind             bool
+		expectSyncReserve    int
+		expectAsyncReserve   int
+		expectPermit         int
+		expectSyncUnreserve  int
+		expectAsyncUnreserve int
+	}{
+		{
+			name:                 "sync Unreserve has PodGroupState available",
+			podToTrack:           "p1",
+			failReserveOnPod:     "p2",
+			failBind:             false,
+			expectSyncReserve:    1,
+			expectAsyncReserve:   0,
+			expectPermit:         0,
+			expectSyncUnreserve:  1,
+			expectAsyncUnreserve: 0,
+		},
+		{
+			name:                 "async Unreserve does not have PodGroupState available",
+			podToTrack:           "p1",
+			failReserveOnPod:     "",
+			failBind:             true,
+			expectSyncReserve:    1,
+			expectAsyncReserve:   1,
+			expectPermit:         1,
+			expectSyncUnreserve:  1,
+			expectAsyncUnreserve: 1,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			logger, ctx := ktesting.NewTestContext(t)
+			ctx, cancel := context.WithCancel(ctx)
+			defer cancel()
+
+			p1 := st.MakePod().Name("p1").Namespace("default").UID("p1").PodGroupName("pg").SchedulerName("test-scheduler").Obj()
+			p2 := st.MakePod().Name("p2").Namespace("default").UID("p2").PodGroupName("pg").SchedulerName("test-scheduler").Obj()
+			qInfo1 := &framework.QueuedPodInfo{PodInfo: &framework.PodInfo{Pod: p1}}
+			qInfo2 := &framework.QueuedPodInfo{PodInfo: &framework.PodInfo{Pod: p2}}
+			testPodGroup := st.MakePodGroup().Name("pg").Namespace("default").MinCount(2).Obj()
+			podGroupInfo := &framework.QueuedPodGroupInfo{
+				QueuedPodInfos: map[fwk.EntityKey][]*framework.QueuedPodInfo{fwk.PodGroupKey("default", "pg"): {qInfo1, qInfo2}},
+				PodGroupInfo: &framework.PodGroupInfo{
+					Name:            "pg",
+					Namespace:       "default",
+					Type:            fwk.PodGroupKeyType,
+					PodGroup:        testPodGroup,
+					UnscheduledPods: []*v1.Pod{p1, p2},
+				},
+			}
+
+			trackerPlugin := &podGroupStateTrackerPlugin{
+				name:             "podgroup-state-tracker",
+				podToTrack:       tt.podToTrack,
+				failReserveOnPod: tt.failReserveOnPod,
+				failBind:         tt.failBind,
+			}
+
+			registry := frameworkruntime.Registry{
+				queuesort.Name: queuesort.New,
+				trackerPlugin.Name(): func(_ context.Context, _ runtime.Object, _ fwk.Handle) (fwk.Plugin, error) {
+					return trackerPlugin, nil
+				},
+			}
+			profileCfg := config.KubeSchedulerProfile{
+				SchedulerName: "test-scheduler",
+				Plugins: &config.Plugins{
+					QueueSort: config.PluginSet{
+						Enabled: []config.Plugin{{Name: queuesort.Name}},
+					},
+					Reserve: config.PluginSet{
+						Enabled: []config.Plugin{{Name: trackerPlugin.Name()}},
+					},
+					Permit: config.PluginSet{
+						Enabled: []config.Plugin{{Name: trackerPlugin.Name()}},
+					},
+					Bind: config.PluginSet{
+						Enabled: []config.Plugin{{Name: trackerPlugin.Name()}},
+					},
+				},
+			}
+
+			snapshot := internalcache.NewEmptySnapshot()
+			client := clientsetfake.NewClientset(testPodGroup)
+			informerFactory := informers.NewSharedInformerFactory(client, 0)
+			informerFactory.Start(ctx.Done())
+			informerFactory.WaitForCacheSync(ctx.Done())
+
+			cache := internalcache.New(ctx, nil, true, false /* CompositePodGroup */)
+			cache.AddPodGroup(testPodGroup)
+			queue := internalqueue.NewTestQueue(ctx, nil)
+
+			schedFwk, err := frameworkruntime.NewFramework(ctx, registry, &profileCfg,
+				frameworkruntime.WithClientSet(client),
+				frameworkruntime.WithInformerFactory(informerFactory),
+				frameworkruntime.WithEventRecorder(events.NewFakeRecorder(100)),
+				frameworkruntime.WithSnapshotSharedLister(snapshot),
+				frameworkruntime.WithPodGroupManager(cache),
+				frameworkruntime.WithPodActivator(queue),
+				frameworkruntime.WithPodNominator(queue),
+				frameworkruntime.WithWaitingPods(frameworkruntime.NewWaitingPodsMap()),
+				frameworkruntime.WithPodsInPreBind(frameworkruntime.NewPodsInPreBindMap()),
+			)
+			if err != nil {
+				t.Fatalf("Failed to create new framework: %v", err)
+			}
+
+			var (
+				failedPodsMu    sync.Mutex
+				failedPodsCount int
+			)
+
+			sched := &Scheduler{
+				Profiles:         profile.Map{"test-scheduler": schedFwk},
+				SchedulingQueue:  queue,
+				Cache:            cache,
+				nodeInfoSnapshot: snapshot,
+				client:           client,
+				FailureHandler: func(ctx context.Context, fwk framework.Framework, p *framework.QueuedPodInfo, status *fwk.Status, ni *fwk.NominatingInfo, start time.Time) {
+					failedPodsMu.Lock()
+					failedPodsCount++
+					failedPodsMu.Unlock()
+				},
+			}
+			sched.SchedulePod = func(ctx context.Context, fwk framework.Framework, state fwk.CycleState, podInfo *framework.QueuedPodInfo) (ScheduleResult, error) {
+				return ScheduleResult{SuggestedHost: "node1"}, nil
+			}
+
+			if err := sched.Cache.UpdateSnapshot(logger, sched.nodeInfoSnapshot); err != nil {
+				t.Fatalf("Failed to update snapshot: %v", err)
+			}
+
+			sched.scheduleOnePodGroup(ctx, podGroupInfo)
+
+			if err := wait.PollUntilContextTimeout(ctx, 10*time.Millisecond, wait.ForeverTestTimeout, false, func(ctx context.Context) (bool, error) {
+				failedPodsMu.Lock()
+				defer failedPodsMu.Unlock()
+				return failedPodsCount == len(podGroupInfo.PodGroupInfo.UnscheduledPods), nil
+			}); err != nil {
+				t.Fatalf("Timed out waiting for pod group scheduling cycle to complete: %v", err)
+			}
+
+			trackerPlugin.mu.Lock()
+			syncReserveCount := trackerPlugin.syncReserveCount
+			asyncReserveCount := trackerPlugin.asyncReserveCount
+			permitCount := trackerPlugin.asyncPermitCount
+			syncUnreserveCount := trackerPlugin.syncUnreserveCount
+			asyncUnreserveCount := trackerPlugin.asyncUnreserveCount
+			trackerPlugin.mu.Unlock()
+
+			if syncReserveCount != tt.expectSyncReserve {
+				t.Errorf("Expected sync Reserve count to be %d, got %d", tt.expectSyncReserve, syncReserveCount)
+			}
+			if asyncReserveCount != tt.expectAsyncReserve {
+				t.Errorf("Expected async Reserve count to be %d, got %d", tt.expectAsyncReserve, asyncReserveCount)
+			}
+			if permitCount != tt.expectPermit {
+				t.Errorf("Expected Permit count to be %d, got %d", tt.expectPermit, permitCount)
+			}
+			if syncUnreserveCount != tt.expectSyncUnreserve {
+				t.Errorf("Expected sync Unreserve count to be %d, got %d", tt.expectSyncUnreserve, syncUnreserveCount)
+			}
+			if asyncUnreserveCount != tt.expectAsyncUnreserve {
+				t.Errorf("Expected async Unreserve count to be %d, got %d", tt.expectAsyncUnreserve, asyncUnreserveCount)
+			}
+		})
 	}
 }
 
@@ -4752,9 +5000,9 @@ func TestCPGHierarchicalScheduling_ScheduleOnePodGroup(t *testing.T) {
 	qInfo2 := &framework.QueuedPodInfo{PodInfo: &framework.PodInfo{Pod: p2}}
 	qInfo3 := &framework.QueuedPodInfo{PodInfo: &framework.PodInfo{Pod: p3}}
 	queuedPodInfosMap := map[fwk.EntityKey][]*framework.QueuedPodInfo{
-		fwk.MustParseEntityKey("podgroup/default/pg1"): {qInfo1},
-		fwk.MustParseEntityKey("podgroup/default/pg2"): {qInfo2},
-		fwk.MustParseEntityKey("podgroup/default/pg3"): {qInfo3},
+		fwk.PodGroupKey("default", "pg1"): {qInfo1},
+		fwk.PodGroupKey("default", "pg2"): {qInfo2},
+		fwk.PodGroupKey("default", "pg3"): {qInfo3},
 	}
 
 	cpgRootInfo := &framework.QueuedPodGroupInfo{
@@ -5117,8 +5365,7 @@ func TestCPGHierarchicalScheduling_Internal(t *testing.T) {
 		}),
 		tf.RegisterQueueSortPlugin(queuesort.Name, queuesort.New),
 		tf.RegisterBindPlugin(defaultbinder.Name, defaultbinder.New),
-		tf.RegisterPermitPlugin(gangscheduling.Name, gangPluginFactory),
-		tf.RegisterPluginAsExtensions(gangscheduling.Name, gangPluginFactory, "PlacementFeasible"),
+		tf.RegisterPreEnqueuePlugin(gangscheduling.Name, gangPluginFactory),
 	}
 
 	clientObjs := []runtime.Object{testNode, rootCPG, cpgSub1, cpgSub2, cpgSub3, pg1, pg2, pg3, pg4, pg5, pg6, pg7}
@@ -5354,8 +5601,7 @@ func TestCPGMinGroupCount_Internal(t *testing.T) {
 		}),
 		tf.RegisterQueueSortPlugin(queuesort.Name, queuesort.New),
 		tf.RegisterBindPlugin(defaultbinder.Name, defaultbinder.New),
-		tf.RegisterPermitPlugin(gangscheduling.Name, gangPluginFactory),
-		tf.RegisterPluginAsExtensions(gangscheduling.Name, gangPluginFactory, "PlacementFeasible"),
+		tf.RegisterPreEnqueuePlugin(gangscheduling.Name, gangPluginFactory),
 	}
 
 	queue := internalqueue.NewSchedulingQueue(nil, informerFactory)
@@ -5581,8 +5827,7 @@ func TestCPGBasicWithGangChildren_Internal(t *testing.T) {
 		}),
 		tf.RegisterQueueSortPlugin(queuesort.Name, queuesort.New),
 		tf.RegisterBindPlugin(defaultbinder.Name, defaultbinder.New),
-		tf.RegisterPermitPlugin(gangscheduling.Name, gangPluginFactory),
-		tf.RegisterPluginAsExtensions(gangscheduling.Name, gangPluginFactory, "PlacementFeasible"),
+		tf.RegisterPreEnqueuePlugin(gangscheduling.Name, gangPluginFactory),
 	}
 
 	queue := internalqueue.NewSchedulingQueue(nil, informerFactory)
@@ -5985,7 +6230,7 @@ func TestScorePlacementPodGroupAssignments(t *testing.T) {
 					pgi.Type = fwk.PodGroupKeyType
 					pgi.PodGroup = st.MakePodGroup().Name(node.name).Namespace("default").Obj()
 				}
-				nameToKey[node.name] = pgKey(pgi)
+				nameToKey[node.name] = pgi.GetKey()
 				return pgi
 			}
 
