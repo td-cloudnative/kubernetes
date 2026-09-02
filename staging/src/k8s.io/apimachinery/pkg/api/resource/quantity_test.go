@@ -718,6 +718,24 @@ func TestQuantityString(t *testing.T) {
 		{decQuantity(10800, -4, DecimalSI), "1080m", ""},
 		{decQuantity(300, 6, DecimalSI), "300M", ""},
 		{decQuantity(1, 12, DecimalSI), "1T", ""},
+		// DecimalSI has no suffix beyond "E" (10^18). Larger exponents must fall
+		// back to exponent notation instead of dropping the magnitude, otherwise
+		// e.g. "1000E" would serialize to "1" (a 10^21 corruption).
+		{decQuantity(1, 18, DecimalSI), "1E", ""},
+		{decQuantity(1, 21, DecimalSI), "1e21", "1000E"},
+		{decQuantity(5, 21, DecimalSI), "5e21", "5000E"},
+		{decQuantity(1, 24, DecimalSI), "1e24", "1000000E"},
+		// BinarySI has no suffix beyond "Ei" (2^60). A value whose canonical
+		// base-1024 exponent exceeds that has no binary suffix, so it must
+		// fall back to an exact decimal representation instead of dropping
+		// the suffix, otherwise e.g. 2^70 would serialize to "1". Exponent
+		// notation is used when trailing decimal zeros allow it; a plain
+		// integer like 2^70 serializes as its full decimal digits (see
+		// TestBinarySIPastEiArithmeticRoundTrip). These values round-trip
+		// through parse.
+		{decQuantity(1, 70, BinarySI), "10e69", ""},
+		{decQuantity(2, 70, BinarySI), "20e69", ""},
+		{decQuantity(1, 72, BinarySI), "1e72", ""},
 		{decQuantity(1234567, 6, DecimalSI), "1234567M", ""},
 		{decQuantity(1234567, -3, BinarySI), "1234567m", ""},
 		{decQuantity(3, 3, DecimalSI), "3k", ""},
@@ -782,6 +800,59 @@ func TestQuantityString(t *testing.T) {
 		q := item.in
 		q.d = infDecAmount{desired.Neg(q.AsDec())}
 		if e, a := "-"+item.expect, q.String(); e != a {
+			t.Errorf("%#v: expected %v, got %v", item.in, e, a)
+		}
+	}
+}
+
+// A valid BinarySI quantity grown past Ei by arithmetic has no binary
+// suffix; before the fallback it serialized as "1", silently losing the
+// magnitude. 2^70 has no trailing decimal zeros, so the fallback emits the
+// exact base-10 integer rather than exponent notation.
+func TestBinarySIPastEiArithmeticRoundTrip(t *testing.T) {
+	q := MustParse("1Ei")
+	q.Mul(1024) // 2^70
+
+	if e, a := "1180591620717411303424", q.String(); e != a {
+		t.Errorf("String() = %q, want %q", a, e)
+	}
+
+	data, err := q.MarshalJSON()
+	if err != nil {
+		t.Fatalf("MarshalJSON: %v", err)
+	}
+	if e, a := `"1180591620717411303424"`, string(data); e != a {
+		t.Errorf("MarshalJSON = %s, want %s", a, e)
+	}
+
+	var back Quantity
+	if err := back.UnmarshalJSON(data); err != nil {
+		t.Fatalf("UnmarshalJSON: %v", err)
+	}
+	if q.Cmp(back) != 0 {
+		t.Errorf("JSON round trip changed the value: %s vs %s", q.String(), back.String())
+	}
+
+	reparsed := MustParse(q.String())
+	if q.Cmp(reparsed) != 0 {
+		t.Errorf("String round trip changed the value: %s vs %s", q.String(), reparsed.String())
+	}
+}
+func TestQuantityStringBelowNano(t *testing.T) {
+	// DecimalSI has no suffix below "n" (10^-9), so these values take the same
+	// exponent-notation fallback as the >"E" cases above. They are not reachable
+	// from a parse (parsing rounds up to nano), only from Go callers such as
+	// NewScaledQuantity, which is why they are not in the TestQuantityString
+	// table: its round-trip checks require parse-stable strings.
+	table := []struct {
+		in     Quantity
+		expect string
+	}{
+		{decQuantity(1, -12, DecimalSI), "1e-12"},
+		{decQuantity(1, -10, DecimalSI), "100e-12"},
+	}
+	for _, item := range table {
+		if e, a := item.expect, item.in.String(); e != a {
 			t.Errorf("%#v: expected %v, got %v", item.in, e, a)
 		}
 	}
@@ -1095,6 +1166,55 @@ func TestScaledValue(t *testing.T) {
 		q := NewScaledQuantity(1, item.fromScale)
 		if e, a := item.expected, q.ScaledValue(item.toScale); e != a {
 			t.Errorf("%v to %v: Expected %v, got %v", item.fromScale, item.toScale, e, a)
+		}
+	}
+}
+
+func TestNegativeValueRoundsAwayFromZero(t *testing.T) {
+	// Value() and MilliValue() are documented to round to the nearest integer
+	// away from zero, but the big.Int-backed rounding path used for quantities
+	// parsed via the inf.Dec code path was rounding toward positive infinity,
+	// producing 1 for small negative values like -.484785E-7466. See #110653.
+	table := []struct {
+		input       string
+		expectValue int64
+		expectMilli int64
+	}{
+		// small negative values parsed via the inf.Dec path (large exponent
+		// forces the canonicalization to round to -1n)
+		{"-.484785E-7466", -1, -1},
+		{".484785E-7466", 1, 1},
+
+		// values representable via the int64 fast path
+		{"-.484785E-1", -1, -49},
+		{".484785E-1", 1, 49},
+		{"-0.0005", -1, -1},
+		{"0.0005", 1, 1},
+		{"-1500m", -2, -1500},
+		{"1500m", 2, 1500},
+
+		// binary-suffix values with a fractional part large enough to force the
+		// big.Int rounding path with a non-zero remainder
+		// exact value is +/-10200547328.1073741824
+		{"-9.5000000001Gi", -10200547329, -10200547328108},
+		{"9.5000000001Gi", 10200547329, 10200547328108},
+
+		// exact integers, no rounding
+		{"-1", -1, -1000},
+		{"1", 1, 1000},
+		{"0", 0, 0},
+	}
+	for _, item := range table {
+		q, err := ParseQuantity(item.input)
+		if err != nil {
+			t.Errorf("ParseQuantity(%q) unexpected error: %v", item.input, err)
+			continue
+		}
+		if got := q.Value(); got != item.expectValue {
+			t.Errorf("ParseQuantity(%q).Value() = %d, want %d", item.input, got, item.expectValue)
+		}
+		if got := q.MilliValue(); got != item.expectMilli {
+			t.Errorf("ParseQuantity(%q).MilliValue() = %d, want %d", item.input, got, item.expectMilli)
 		}
 	}
 }
