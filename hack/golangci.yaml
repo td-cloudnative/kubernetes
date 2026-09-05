@@ -256,7 +256,7 @@ linters:
       # OptionalOrRequired is being enabled over time. For now, each API group should be added to this list until we comb through each group and fix the missing tags.
       # The nonpointerstructs linter is included here as well as these two should be enabled hand-in-hand on each API group.
       - text: "must be marked as optional or required|is a non-pointer struct with no required fields."
-        path: "staging/src/k8s.io/api/(admissionregistration|autoscaling|certificates|core|extensions|networking|storage)"
+        path: "staging/src/k8s.io/api/(admissionregistration|autoscaling|certificates|core|extensions|networking)"
       
       # OptionalOrRequired - Existing fields that are marked as both optional and required (based on standard optional vs kubebuilder:validation:Required) and should not be fixed.
       - text: "field (PortStatus|IngressPortStatus)\\.Error must not be marked as both optional and required"
@@ -304,6 +304,10 @@ linters:
         path: "staging/src/k8s.io/api/lifecycle/v1alpha1/types.go"
       - text: "optionalfields: field Eviction.Status should be a pointer."
         path: "staging/src/k8s.io/api/lifecycle/v1alpha1/types.go"
+      # VolumeAttachmentSpec.Source is a union type. Validation requires one of its child fields to be set,
+      # but nonpointerstructs does not understand that invariant.
+      - text: "nonpointerstructs: field VolumeAttachmentSpec.Source is a non-pointer struct with no required fields."
+        path: "staging/src/k8s.io/api/storage/(v1|v1alpha1|v1beta1)/types.go"
 
       - linters:
         - forbidigo
@@ -329,8 +333,8 @@ linters:
   settings: # please keep this alphabetized
     custom:
       logcheck:
-        # Installed there by hack/verify-golangci-lint.sh.
-        path: _output/local/bin/logcheck.so
+        # hack/tools/golangci-lint/main.go compiles this linter into golangci-lint.
+        type: module
         description: structured logging checker
         original-url: k8s.io/logtools/logcheck
         settings:
@@ -404,8 +408,8 @@ linters:
             # API design needed).
             -contextual k8s.io/client-go/plugin/pkg/client/auth/.*
       sorted:
-        # Installed there by hack/verify-golangci-lint.sh.
-        path: _output/local/bin/sorted.so
+        # hack/tools/golangci-lint/main.go compiles this linter into golangci-lint.
+        type: module
         description: check if feature gates are sorted
         original-url: k8s.io/kubernetes/hack/tools/golangci-lint/sorted
         settings:
@@ -419,7 +423,8 @@ linters:
             - test/e2e/feature/feature.go
             - test/e2e/environment/environment.go
       kubeapilinter:
-        path: _output/local/bin/kube-api-linter.so
+        # hack/tools/golangci-lint/main.go compiles this linter into golangci-lint.
+        type: module
         description: kube-api-linter and lints Kube like APIs based on API conventions and best practices.
         original-url: sigs.k8s.io/kube-api-linter
         settings:
@@ -574,12 +579,6 @@ linters:
         # consistency with existing code
         # and it's just syntactic sugar.
         - any
-        # Replace []byte(fmt.Sprintf) with fmt.Appendf.
-        #
-        # A useful hint for new code, but
-        # should only be updated in old code
-        # where it really matters.
-        - fmtappendf
         # Replace explicit loops over maps with calls to maps package.
         #
         # Completely disabled because the benefit
@@ -589,12 +588,23 @@ linters:
         #
         # A useful hint for new code.
         - minmax
-        # simplify code by using go1.26's new(expr)
-        # should only be updated in old code where it really matters.
+
+        # Disable things that should only be updated in old code where it really matters.
+
+        # go 1.26: can simplify with new(expr)
         - newexpr
-        # use iterators instead of Len/At-style APIs
-        # should only be updated in old code where it really matters.
+        # go 1.26: can use iterators instead of Len/At-style APIs
         - stditerators
+        # go 1.27: can declare embedded fields inline
+        - embedlit
+        # go 1.27: can simplify with reflect.TypeAssert
+        - reflecttypeassert
+        # go 1.27: can simplify atomic int assignment/access
+        - atomictypes
+        # go 1.27: can simplify with errors.AsType
+        - errorsastype
+        # go 1.27: can simplify with slices.Backward
+        - slicesbackward
         # Suggest replacing omitempty with omitzero for struct fields.
         #
         # Disabled because might interfere
@@ -642,7 +652,7 @@ linters:
         #
         # A useful hint leading to shorter code.
         # Makes wait.Group obsolete.
-        - waitgroup
+        - waitgroupgo
 
     revive:
       # Only these rules are enabled.
