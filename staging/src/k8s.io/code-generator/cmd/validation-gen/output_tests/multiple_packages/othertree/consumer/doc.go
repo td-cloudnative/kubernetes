@@ -1,5 +1,5 @@
 /*
-Copyright 2022 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -14,12 +14,15 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package internal
+// The same as ../../consumer, but in ../external's tree: validators must call
+// ../external, the nearest copy, instead of the canonical (registered) one.
+// +k8s:validation-gen=TypesWithField=TypeMeta
+// +k8s:validation-gen-scheme-registry=k8s.io/code-generator/cmd/validation-gen/testscheme.Scheme
 
-// Used by tests to selectively disable experimental JSON unmarshaler
-var UseOptimizedJSONUnmarshaling bool = true
-var UseOptimizedJSONUnmarshalingV3 bool = true
+// This is a test package.
+// +k8s:validation-gen-nolint
+package consumer
 
-// Used by tests to selectively disable experimental JSON marshaler
-var UseOptimizedJSONMarshaling bool = true
-var UseOptimizedJSONMarshalingV3 bool = true
+import "k8s.io/code-generator/cmd/validation-gen/testscheme"
+
+var localSchemeBuilder = testscheme.New()
