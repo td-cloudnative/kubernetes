@@ -1,5 +1,5 @@
 /*
-Copyright 2022 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -14,12 +14,14 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-// +k8s:deepcopy-gen=package
-// +k8s:protobuf-gen=package
-// +k8s:openapi-gen=true
-// +k8s:prerelease-lifecycle-gen=true
-// +k8s:openapi-model-package=io.k8s.api.apidiscovery.v2beta1
+package podlogs
 
-// +groupName=apidiscovery.k8s.io
+import (
+	"testing"
 
-package v2beta1
+	"k8s.io/kubernetes/test/integration/framework"
+)
+
+func TestMain(m *testing.M) {
+	framework.EtcdMain(m.Run)
+}
