@@ -17515,7 +17515,7 @@ func schema_k8sio_api_certificates_v1_CertificateSigningRequestSpec(ref common.R
 							},
 						},
 						SchemaProps: spec.SchemaProps{
-							Description: "usages specifies a set of key usages requested in the issued certificate.\n\nRequests for TLS client certificates typically request: \"digital signature\", \"key encipherment\", \"client auth\".\n\nRequests for TLS serving certificates typically request: \"key encipherment\", \"digital signature\", \"server auth\".\n\nValid values are:\n \"signing\", \"digital signature\", \"content commitment\",\n \"key encipherment\", \"key agreement\", \"data encipherment\",\n \"cert sign\", \"crl sign\", \"encipher only\", \"decipher only\", \"any\",\n \"server auth\", \"client auth\",\n \"code signing\", \"email protection\", \"s/mime\",\n \"ipsec end system\", \"ipsec tunnel\", \"ipsec user\",\n \"timestamping\", \"ocsp signing\", \"microsoft sgc\", \"netscape sgc\"",
+							Description: "usages specifies a set of key usages requested in the issued certificate.\n\nRequests for TLS client certificates typically request: \"digital signature\", \"client auth\".\n\nRequests for TLS serving certificates typically request: \"digital signature\", \"server auth\".\n\nValid values are:\n \"signing\", \"digital signature\", \"content commitment\",\n \"key encipherment\", \"key agreement\", \"data encipherment\",\n \"cert sign\", \"crl sign\", \"encipher only\", \"decipher only\", \"any\",\n \"server auth\", \"client auth\",\n \"code signing\", \"email protection\", \"s/mime\",\n \"ipsec end system\", \"ipsec tunnel\", \"ipsec user\",\n \"timestamping\", \"ocsp signing\", \"microsoft sgc\", \"netscape sgc\"\n\nWhen request contains a x509 certificate signing request signed with an ML-DSA key, usages must contain at least one of \"digital signature\", \"content commitment\", \"cert sign\", or \"crl sign\" and must not contain \"key encipherment\", \"key agreement\", \"data encipherment\", \"encipher only\", or \"decipher only\".",
 							Type:        []string{"array"},
 							Items: &spec.SchemaOrArray{
 								Schema: &spec.Schema{
@@ -19599,7 +19599,7 @@ func schema_k8sio_api_core_v1_AttachedVolume(ref common.ReferenceCallback) commo
 					},
 					"devicePath": {
 						SchemaProps: spec.SchemaProps{
-							Description: "devicePath represents the device path where the volume should be available",
+							Description: "devicePath represents the path where the attached volume is available on the node. On Linux nodes, this is the host block-device node (e.g. /dev/xvdX) that the kubelet uses to mount and format the volume. On Windows nodes there is no /dev device tree, so this carries the CSI VolumeID (the attach identity reported by the CSI driver) instead of a device path.",
 							Default:     "",
 							Type:        []string{"string"},
 							Format:      "",
