@@ -253,25 +253,68 @@ func (w *WatchCacheStorage) Get(obj interface{}) (interface{}, bool, error) {
 	return w.get(&Element{Key: key, Object: object})
 }
 
-// UpdateStoreLocked executes a mutation (Add, Update, Delete) on the underlying store.
+func (w *WatchCacheStorage) get(obj interface{}) (item interface{}, exists bool, err error) {
+	w.lock.RLock()
+	defer w.lock.RUnlock()
+	return w.store.Get(obj)
+}
+
+// GetByKey returns pointer to <storeElement>.
+func (w *WatchCacheStorage) GetByKey(key string) (item interface{}, exists bool, err error) {
+	w.lock.RLock()
+	defer w.lock.RUnlock()
+	return w.store.GetByKey(key)
+}
+
+func (w *WatchCacheStorage) OrderedListPrefix(prefix, continueKey string) ([]interface{}, error) {
+	w.lock.RLock()
+	defer w.lock.RUnlock()
+	return w.store.OrderedListPrefix(prefix, continueKey)
+}
+
+func (w *WatchCacheStorage) ListKeys() []string {
+	w.lock.RLock()
+	defer w.lock.RUnlock()
+	return w.store.ListKeys()
+}
+
+// List returns list of pointers to <Element> objects.
+func (w *WatchCacheStorage) List() []interface{} {
+	w.lock.RLock()
+	defer w.lock.RUnlock()
+	return w.store.List()
+}
+
+func (w *WatchCacheStorage) ByIndex(indexName, indexValue string) ([]interface{}, error) {
+	w.lock.RLock()
+	defer w.lock.RUnlock()
+	return w.indexer.ByIndex(indexName, indexValue)
+}
+
+// UpdateStore executes a mutation (Add, Update, Delete) on the underlying store.
 // It returns the element that was previously stored under the same key, if any.
-func (w *WatchCacheStorage) UpdateStoreLocked(eventType watch.EventType, elem *Element, resourceVersion uint64) (prev *Element, err error) {
-	// TODO: Remove taking a lock for second time
+func (w *WatchCacheStorage) UpdateStore(eventType watch.EventType, elem *Element, resourceVersion uint64) (prev *Element, err error) {
+	if elem == nil {
+		return nil, fmt.Errorf("elem cannot be nil")
+	}
+	w.lock.Lock()
+	defer w.lock.Unlock()
 	switch eventType {
-	case watch.Added:
-		prev, err = w.Add(elem)
-	case watch.Modified:
-		prev, err = w.Update(elem)
+	case watch.Added, watch.Modified:
+		prev = w.store.addOrUpdateElem(elem)
+		err = w.indexer.updateElem(elem.Key, prev, elem)
 	case watch.Deleted:
-		prev, err = w.Delete(elem)
+		var existed bool
+		prev, existed = w.store.deleteElem(elem)
+		if existed {
+			err = w.indexer.updateElem(elem.Key, prev, nil)
+		}
 	default:
 		err = fmt.Errorf("unexpected event type: %v", eventType)
 	}
 	if err != nil {
 		return nil, err
 	}
-	w.lock.Lock()
-	defer w.lock.Unlock()
 	if w.snapshottingEnabled {
 		w.snapshots.Add(resourceVersion, w.store.Clone())
 	}
@@ -284,10 +327,11 @@ func (w *WatchCacheStorage) CompactSnapshotsLocked(oldestRV uint64) {
 }
 
 // Replace replaces the elements in the underlying store and resets snapshots.
-func (w *WatchCacheStorage) Replace(toReplace []interface{}, resourceVersion string, version uint64) error {
+func (w *WatchCacheStorage) Replace(toReplace []*Element, version uint64) error {
 	w.lock.Lock()
 	defer w.lock.Unlock()
-	if err := w.replaceLocked(toReplace, resourceVersion); err != nil {
+	w.store.Replace(toReplace)
+	if err := w.indexer.Replace(toReplace); err != nil {
 		return err
 	}
 	w.snapshots.Reset()
