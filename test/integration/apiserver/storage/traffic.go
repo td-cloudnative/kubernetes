@@ -43,11 +43,18 @@ const (
 	RequestTypeCreate                 RequestType = "Create"
 	RequestTypeDelete                 RequestType = "Delete"
 	RequestTypeDeleteUIDPrecondition  RequestType = "DeleteUIDPrecondition"
+	RequestTypeDeleteRVPrecondition   RequestType = "DeleteRVPrecondition"
 	RequestTypeGet                    RequestType = "Get"
+	RequestTypeGetIgnoreNotFound      RequestType = "GetIgnoreNotFound"
+	RequestTypeList                   RequestType = "List"
+	RequestTypeListNamespace          RequestType = "ListNamespace"
+	RequestTypeListNonRecursive       RequestType = "ListNonRecursive"
 	RequestTypeUpdate                 RequestType = "Update"
 	RequestTypeUpdateUIDPrecondition  RequestType = "UpdateUIDPrecondition"
+	RequestTypeUpdateRVPrecondition   RequestType = "UpdateRVPrecondition"
 	RequestTypeUpdateNoOp             RequestType = "UpdateNoOp"
 	RequestTypeUpdateWithCachedObject RequestType = "UpdateWithCachedObject"
+	RequestTypeUpdateIgnoreNotFound   RequestType = "UpdateIgnoreNotFound"
 )
 
 // WatchRequestType selects the resource version a watch starts from.
@@ -140,7 +147,7 @@ func RunUnaryTraffic(ctx context.Context, store storage.Interface, cfg UnaryConf
 				start := time.Now()
 				response := runTraffic(ctx, store, request)
 				end := time.Now()
-				if response.Object != nil {
+				if response.Object != nil && request.Op != correctness.OpList && response.Object.(*api.Pod).Name != "" {
 					cachedObj = response.Object
 				}
 
@@ -200,6 +207,7 @@ func randomRequest(keys []types.NamespacedName, ops []ChoiceWeight[RequestType],
 	switch selectedOp {
 	case RequestTypeCreate:
 		obj := validPod(key.Namespace, key.Name)
+		obj.UID = uuid.NewUUID()
 		return &correctness.Request{
 			Op:  correctness.OpCreate,
 			Key: storageKey(key),
@@ -228,30 +236,66 @@ func randomRequest(keys []types.NamespacedName, ops []ChoiceWeight[RequestType],
 				Preconditions: &storage.Preconditions{UID: &uid},
 			},
 		}
+	case RequestTypeDeleteRVPrecondition:
+		if cached == nil {
+			return nil
+		}
+		accessor, err := meta.Accessor(cached)
+		if err != nil {
+			panic(err)
+		}
+		rv := accessor.GetResourceVersion()
+		return &correctness.Request{
+			Op:  correctness.OpDelete,
+			Key: storageKey(key),
+			Delete: correctness.DeleteRequest{
+				Preconditions: &storage.Preconditions{ResourceVersion: &rv},
+			},
+		}
 	case RequestTypeGet:
-		getOpts := storage.GetOptions{}
+		return &correctness.Request{
+			Op:  correctness.OpGet,
+			Key: storageKey(key),
+		}
+	case RequestTypeGetIgnoreNotFound:
 		return &correctness.Request{
 			Op:  correctness.OpGet,
 			Key: storageKey(key),
 			Get: correctness.GetRequest{
-				Options: getOpts,
+				Options: storage.GetOptions{IgnoreNotFound: true},
+			},
+		}
+	case RequestTypeList:
+		return &correctness.Request{
+			Op:  correctness.OpList,
+			Key: "/pods/",
+			List: correctness.ListRequest{
+				Options: storage.ListOptions{Predicate: storage.Everything, Recursive: true},
+			},
+		}
+	case RequestTypeListNamespace:
+		return &correctness.Request{
+			Op:  correctness.OpList,
+			Key: "/pods/" + key.Namespace,
+			List: correctness.ListRequest{
+				Options: storage.ListOptions{Predicate: storage.Everything, Recursive: true},
+			},
+		}
+	case RequestTypeListNonRecursive:
+		return &correctness.Request{
+			Op:  correctness.OpList,
+			Key: storageKey(key),
+			List: correctness.ListRequest{
+				Options: storage.ListOptions{Predicate: storage.Everything},
 			},
 		}
 	case RequestTypeUpdate:
-		version := fmt.Sprintf("%d", rand.Intn(10000))
 		return &correctness.Request{
 			Op:  correctness.OpUpdate,
 			Key: storageKey(key),
 			Update: correctness.UpdateRequest{
 				IgnoreNotFound: false,
-				UpdateFunc: storage.SimpleUpdate(func(obj runtime.Object) (runtime.Object, error) {
-					pod := obj.(*api.Pod).DeepCopy()
-					if pod.Annotations == nil {
-						pod.Annotations = make(map[string]string)
-					}
-					pod.Annotations["version"] = version
-					return pod, nil
-				}),
+				UpdateFunc:     randomUpdate(key),
 			},
 		}
 	case RequestTypeUpdateUIDPrecondition:
@@ -263,21 +307,31 @@ func randomRequest(keys []types.NamespacedName, ops []ChoiceWeight[RequestType],
 			panic(err)
 		}
 		uid := accessor.GetUID()
-		version := fmt.Sprintf("%d", rand.Intn(10000))
 		return &correctness.Request{
 			Op:  correctness.OpUpdate,
 			Key: storageKey(key),
 			Update: correctness.UpdateRequest{
 				IgnoreNotFound: false,
 				Preconditions:  &storage.Preconditions{UID: &uid},
-				UpdateFunc: storage.SimpleUpdate(func(obj runtime.Object) (runtime.Object, error) {
-					pod := obj.(*api.Pod).DeepCopy()
-					if pod.Annotations == nil {
-						pod.Annotations = make(map[string]string)
-					}
-					pod.Annotations["version"] = version
-					return pod, nil
-				}),
+				UpdateFunc:     randomUpdate(key),
+			},
+		}
+	case RequestTypeUpdateRVPrecondition:
+		if cached == nil {
+			return nil
+		}
+		accessor, err := meta.Accessor(cached)
+		if err != nil {
+			panic(err)
+		}
+		rv := accessor.GetResourceVersion()
+		return &correctness.Request{
+			Op:  correctness.OpUpdate,
+			Key: storageKey(key),
+			Update: correctness.UpdateRequest{
+				IgnoreNotFound: false,
+				Preconditions:  &storage.Preconditions{ResourceVersion: &rv},
+				UpdateFunc:     randomUpdate(key),
 			},
 		}
 	case RequestTypeUpdateNoOp:
@@ -295,21 +349,22 @@ func randomRequest(keys []types.NamespacedName, ops []ChoiceWeight[RequestType],
 		if cached == nil {
 			return nil
 		}
-		version := fmt.Sprintf("%d", rand.Intn(10000))
 		return &correctness.Request{
 			Op:  correctness.OpUpdate,
 			Key: storageKey(key),
 			Update: correctness.UpdateRequest{
 				IgnoreNotFound:       false,
 				CachedExistingObject: cached.DeepCopyObject(),
-				UpdateFunc: storage.SimpleUpdate(func(obj runtime.Object) (runtime.Object, error) {
-					pod := obj.(*api.Pod).DeepCopy()
-					if pod.Annotations == nil {
-						pod.Annotations = make(map[string]string)
-					}
-					pod.Annotations["version"] = version
-					return pod, nil
-				}),
+				UpdateFunc:           randomUpdate(key),
+			},
+		}
+	case RequestTypeUpdateIgnoreNotFound:
+		return &correctness.Request{
+			Op:  correctness.OpUpdate,
+			Key: storageKey(key),
+			Update: correctness.UpdateRequest{
+				IgnoreNotFound: true,
+				UpdateFunc:     randomUpdate(key),
 			},
 		}
 	default:
@@ -321,8 +376,23 @@ func storageKey(key types.NamespacedName) string {
 	return "/pods/" + key.String()
 }
 
+func randomUpdate(key types.NamespacedName) storage.UpdateFunc {
+	version := strconv.Itoa(rand.Intn(10000))
+	return func(obj runtime.Object, res storage.ResponseMeta) (runtime.Object, *uint64, error) {
+		pod := obj.(*api.Pod).DeepCopy()
+		if pod.Name == "" {
+			pod = validPod(key.Namespace, key.Name)
+		}
+		if pod.Annotations == nil {
+			pod.Annotations = make(map[string]string)
+		}
+		pod.Annotations["version"] = version
+		return pod, nil, nil
+	}
+}
+
 func runTraffic(ctx context.Context, store storage.Interface, request *correctness.Request) correctness.Response {
-	out := &api.Pod{}
+	var out runtime.Object = &api.Pod{}
 	var err error
 	key := request.Key
 	switch request.Op {
@@ -332,6 +402,9 @@ func runTraffic(ctx context.Context, store storage.Interface, request *correctne
 		err = store.Delete(ctx, key, out, request.Delete.Preconditions, storage.ValidateAllObjectFunc, nil, storage.DeleteOptions{})
 	case correctness.OpGet:
 		err = store.Get(ctx, key, request.Get.Options, out)
+	case correctness.OpList:
+		out = &api.PodList{}
+		err = store.GetList(ctx, key, request.List.Options, out)
 	case correctness.OpUpdate:
 		err = store.GuaranteedUpdate(ctx, key, out, request.Update.IgnoreNotFound, request.Update.Preconditions, request.Update.UpdateFunc, request.Update.CachedExistingObject)
 	default:
@@ -413,6 +486,13 @@ func runWatch(ctx context.Context, store storage.Interface, req correctness.Watc
 				event.Object = cacheable.GetObject()
 			}
 			events = append(events, event)
+			if event.Type == watch.Error {
+				_, open := <-w.ResultChan()
+				if open {
+					return correctness.WatchResponse{Events: events, Err: errors.New("watch channel was not closed after watch.Error")}
+				}
+				return correctness.WatchResponse{Events: events}
+			}
 			if cfg.MaxEvents > 0 && len(events) >= cfg.MaxEvents {
 				return correctness.WatchResponse{Events: events}
 			}
@@ -427,7 +507,6 @@ func validPod(namespace, name string) *api.Pod {
 		ObjectMeta: metav1.ObjectMeta{
 			Namespace: namespace,
 			Name:      name,
-			UID:       uuid.NewUUID(),
 		},
 		Spec: api.PodSpec{
 			RestartPolicy:                 api.RestartPolicyAlways,
