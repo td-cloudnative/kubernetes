@@ -30,21 +30,26 @@ import (
 	"k8s.io/apiserver/pkg/storage"
 )
 
-// WatchValidator checks watch streams against the changes the model derived
-// from the recorded operations.
+// WatchValidator checks watch streams against the replayed model history.
 type WatchValidator struct {
 	versioner storage.Versioner
 	keyFunc   func(runtime.Object) (string, error)
-	history   []Change
+	replay    *Replay
 }
 
 // NewWatchValidator returns a validator for the given history of changes.
 // keyFunc must be the same one the operations that produced history were keyed by.
-func NewWatchValidator(versioner storage.Versioner, keyFunc func(runtime.Object) (string, error), history []Change) WatchValidator {
-	return WatchValidator{versioner: versioner, keyFunc: keyFunc, history: history}
+func NewWatchValidator(versioner storage.Versioner, replay *Replay, keyFunc func(runtime.Object) (string, error)) WatchValidator {
+	return WatchValidator{versioner: versioner, replay: replay, keyFunc: keyFunc}
 }
 
 func (v WatchValidator) ValidateWatch(request WatchRequest, response WatchResponse) error {
+	if err := v.checkWatch(request); err != nil {
+		if !reflect.DeepEqual(err, response.Err) {
+			return fmt.Errorf("watch %+v: expected error %v, got %v", request, err, response.Err)
+		}
+		return nil
+	}
 	if response.Err != nil {
 		return fmt.Errorf("watch %+v: unexpected error: %w", request, response.Err)
 	}
@@ -56,6 +61,35 @@ func (v WatchValidator) ValidateWatch(request WatchRequest, response WatchRespon
 	}
 	if err := v.validateBookmarks(response.Events); err != nil {
 		return fmt.Errorf("watch %+v: Broke bookmarks %w", request, err)
+	}
+	return nil
+}
+
+// checkWatch returns the error storage returns for an invalid watch and panics
+// on watches the model can't reproduce.
+func (v WatchValidator) checkWatch(request WatchRequest) error {
+	opts := request.Options
+	if err := checkKey(request.Key, opts.Recursive); err != nil {
+		return err
+	}
+	if _, err := v.versioner.ParseResourceVersion(opts.ResourceVersion); err != nil {
+		return err
+	}
+	if opts.Predicate.Label == nil || opts.Predicate.Field == nil {
+		// etcd3 and the cacher call methods on both selectors.
+		panic("nil label or field selector is not supported, use storage.Everything to match everything")
+	}
+	if opts.Predicate.Limit != 0 || opts.Predicate.Continue != "" {
+		panic("pagination (limit, continue) is not supported")
+	}
+	if !opts.Predicate.Empty() && opts.Predicate.GetAttrs == nil {
+		panic("selectors without GetAttrs are not supported")
+	}
+	if opts.RecordTimestamps {
+		panic("recordTimestamps is not supported, it wraps objects in storage-internal types")
+	}
+	if opts.SendInitialEvents != nil && *opts.SendInitialEvents {
+		panic("initial events are not supported, set sendInitialEvents=false for resourceVersion \"\" or \"0\"")
 	}
 	return nil
 }
@@ -84,7 +118,7 @@ func (v WatchValidator) validateReliable(request WatchRequest, response WatchRes
 	if err != nil {
 		return err
 	}
-	expected, err := v.filterEvents(request, rangeRV)
+	expected, err := v.replay.Events(request, rangeRV)
 	if err != nil {
 		return err
 	}
@@ -146,7 +180,7 @@ func (v WatchValidator) toEventReference(events []watch.Event) ([]eventReference
 		if err != nil {
 			return nil, err
 		}
-		rv, err := objectRV(event.Object, v.versioner)
+		rv, err := objectRV(event.Object, v.replay.versioner)
 		if err != nil {
 			return nil, err
 		}
@@ -157,23 +191,6 @@ func (v WatchValidator) toEventReference(events []watch.Event) ([]eventReference
 		})
 	}
 	return refs, nil
-}
-
-func (v WatchValidator) filterEvents(request WatchRequest, rvRange *ResourceVersionRange) ([]watch.Event, error) {
-	filtered := make([]watch.Event, 0, len(v.history))
-	for _, change := range v.history {
-		if change.ResourceVersion < rvRange.Min || change.ResourceVersion >= rvRange.Max {
-			continue
-		}
-		watchEvent, err := change.toWatchEvent(v.versioner, request.Predicate)
-		if err != nil {
-			return nil, err
-		}
-		if watchEvent != nil {
-			filtered = append(filtered, *watchEvent)
-		}
-	}
-	return filtered, nil
 }
 
 func (c Change) toWatchEvent(versioner storage.Versioner, pred storage.SelectionPredicate) (*watch.Event, error) {
@@ -230,8 +247,8 @@ func watchRevisionRange(versioner storage.Versioner, request WatchRequest, event
 			maxRV = max(maxRV, rv+1)
 		}
 	}
-	if request.ResourceVersion != "0" && request.ResourceVersion != "" {
-		requestedRV, err := versioner.ParseResourceVersion(request.ResourceVersion)
+	if request.Options.ResourceVersion != "0" && request.Options.ResourceVersion != "" {
+		requestedRV, err := versioner.ParseResourceVersion(request.Options.ResourceVersion)
 		if err != nil {
 			return nil, err
 		}
