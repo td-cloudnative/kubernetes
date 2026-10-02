@@ -28,7 +28,8 @@ import (
 
 func TestCorrectness(t *testing.T) {
 	versioner := &storage.APIObjectVersioner{}
-	model := NewEmptyModel("", func() runtime.Object { return &example.Pod{} }, func() runtime.Object { return &example.PodList{} }, versioner)
+	newPod := func() runtime.Object { return &example.Pod{} }
+	model := NewEmptyModel("", newPod, func() runtime.Object { return &example.PodList{} }, versioner)
 	steps := correctnessTestSteps()
 	history := make([]Operation, len(steps))
 	for i, step := range steps {
@@ -64,17 +65,17 @@ func TestCorrectness(t *testing.T) {
 		})
 	}
 	require.Equal(t, expectEvents, gotEvents)
-}
 
-// TestOptionsInvalid checks the model expects the same error storage returns
-// for watches it rejects. Invalid requests are covered by correctnessTestSteps.
-func TestOptionsInvalid(t *testing.T) {
-	versioner := storage.APIObjectVersioner{}
-	validator := NewWatchValidator(versioner, &Replay{versioner: versioner}, getKey)
-	for _, step := range watchTestCasesInvalid() {
-		t.Run(step.Name, func(t *testing.T) {
-			require.NoError(t, validator.ValidateWatch(step.Request, WatchResponse{Err: step.ExpectError}))
-			require.Error(t, validator.ValidateWatch(step.Request, WatchResponse{}))
+	validator := NewWatchValidator(versioner, replay, getKey)
+	for _, tc := range watchTestCases() {
+		t.Run(tc.Name, func(t *testing.T) {
+			if tc.ExpectError != nil {
+				require.NoError(t, validator.ValidateWatch(tc.Request, WatchResponse{Err: tc.ExpectError}))
+				return
+			}
+			events, err := replay.Watch(tc.Request)
+			require.NoError(t, err)
+			require.NoError(t, validator.ValidateWatch(tc.Request, WatchResponse{Events: events}))
 		})
 	}
 }

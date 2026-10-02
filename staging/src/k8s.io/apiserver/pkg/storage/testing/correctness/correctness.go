@@ -1235,22 +1235,131 @@ type watchTestCase struct {
 	ExpectError error
 }
 
-func watchTestCasesInvalid() []watchTestCase {
+func watchTestCases() []watchTestCase {
 	_, invalidRVErr := storage.APIObjectVersioner{}.ParseResourceVersion("abc")
+	watch := func(rv string, match metav1.ResourceVersionMatch) storage.ListOptions {
+		pred := storage.Everything
+		pred.AllowWatchBookmarks = false
+		return storage.ListOptions{ResourceVersion: rv, ResourceVersionMatch: match, Predicate: pred, Recursive: true, SendInitialEvents: new(false)}
+	}
+	watchList := func(rv string) storage.ListOptions {
+		pred := storage.Everything
+		pred.AllowWatchBookmarks = true
+		return storage.ListOptions{ResourceVersion: rv, ResourceVersionMatch: metav1.ResourceVersionMatchNotOlderThan, Predicate: pred, Recursive: true, SendInitialEvents: new(true)}
+	}
 	return []watchTestCase{
 		{
+			Name:    "Watch everything",
+			Request: WatchRequest{Key: "/pods/", Options: watch("", "")},
+		},
+		{
+			Name:    "Watch everything with NotOlderThan",
+			Request: WatchRequest{Key: "/pods/", Options: watch("", metav1.ResourceVersionMatchNotOlderThan)},
+		},
+		{
+			Name:    "Watch everything with ResourceVersion=0",
+			Request: WatchRequest{Key: "/pods/", Options: watch("0", "")},
+		},
+		{
+			Name:    "Watch everything with ResourceVersion=0 and NotOlderThan",
+			Request: WatchRequest{Key: "/pods/", Options: watch("0", metav1.ResourceVersionMatchNotOlderThan)},
+		},
+		{
+			Name:    "Watch everything with ResourceVersion=1",
+			Request: WatchRequest{Key: "/pods/", Options: watch("1", "")},
+		},
+		{
+			Name:    "Watch everything with ResourceVersion=1 and Exact",
+			Request: WatchRequest{Key: "/pods/", Options: watch("1", metav1.ResourceVersionMatchExact)},
+		},
+		{
+			Name:    "Watch everything with ResourceVersion=1 and NotOlderThan",
+			Request: WatchRequest{Key: "/pods/", Options: watch("1", metav1.ResourceVersionMatchNotOlderThan)},
+		},
+		{
+			Name:    "Watch everything with ResourceVersion=8",
+			Request: WatchRequest{Key: "/pods/", Options: watch("8", "")},
+		},
+		{
+			Name:    "Watch everything with ResourceVersion=8 and Exact",
+			Request: WatchRequest{Key: "/pods/", Options: watch("8", metav1.ResourceVersionMatchExact)},
+		},
+		{
+			Name:    "Watch everything with ResourceVersion=8 and NotOlderThan",
+			Request: WatchRequest{Key: "/pods/", Options: watch("8", metav1.ResourceVersionMatchNotOlderThan)},
+		},
+		{
+			Name:    "Watch on namespace ns1 with ResourceVersion=1",
+			Request: WatchRequest{Key: "/pods/ns1/", Options: watch("1", "")},
+		},
+		{
+			Name:    "Watch on namespace ns1 with ResourceVersion=1 and Exact",
+			Request: WatchRequest{Key: "/pods/ns1/", Options: watch("1", metav1.ResourceVersionMatchExact)},
+		},
+		{
+			Name:    "Watch on namespace ns1 with ResourceVersion=1 and NotOlderThan",
+			Request: WatchRequest{Key: "/pods/ns1/", Options: watch("1", metav1.ResourceVersionMatchNotOlderThan)},
+		},
+		{
+			Name:    "Watch on namespace ns10 with ResourceVersion=1",
+			Request: WatchRequest{Key: "/pods/ns10/", Options: watch("1", "")},
+		},
+		{
+			Name:    "Watch on namespace ns10 with ResourceVersion=1 and Exact",
+			Request: WatchRequest{Key: "/pods/ns10/", Options: watch("1", metav1.ResourceVersionMatchExact)},
+		},
+		{
+			Name:    "Watch on namespace ns10 with ResourceVersion=1 and NotOlderThan",
+			Request: WatchRequest{Key: "/pods/ns10/", Options: watch("1", metav1.ResourceVersionMatchNotOlderThan)},
+		},
+		{
+			Name:    "Watch list everything",
+			Request: WatchRequest{Key: "/pods/", Options: watchList("")},
+		},
+		{
+			Name:    "Watch list everything with ResourceVersion=0",
+			Request: WatchRequest{Key: "/pods/", Options: watchList("0")},
+		},
+		{
+			Name:    "Watch list everything with ResourceVersion=1",
+			Request: WatchRequest{Key: "/pods/", Options: watchList("1")},
+		},
+		{
+			Name:    "Watch list on namespace ns1 with ResourceVersion=1",
+			Request: WatchRequest{Key: "/pods/ns1/", Options: watchList("1")},
+		},
+		{
+			Name:    "Watch list on namespace ns10 with ResourceVersion=1",
+			Request: WatchRequest{Key: "/pods/ns10/", Options: watchList("1")},
+		},
+		{
 			Name:        "Watch with empty key returns empty key error",
-			Request:     WatchRequest{Key: "", Options: storage.ListOptions{ResourceVersion: "1", Predicate: storage.Everything, Recursive: true}},
+			Request:     WatchRequest{Key: "", Options: watch("1", "")},
 			ExpectError: fmt.Errorf("empty key: %q", ""),
 		},
 		{
 			Name:        "Watch with key escaping the prefix returns invalid key error",
-			Request:     WatchRequest{Key: "/pods/../secrets", Options: storage.ListOptions{ResourceVersion: "1", Predicate: storage.Everything, Recursive: true}},
+			Request:     WatchRequest{Key: "/pods/../secrets", Options: watch("1", "")},
 			ExpectError: fmt.Errorf("invalid key: %q", "/pods/../secrets"),
 		},
 		{
 			Name:        "Watch with unparsable ResourceVersion returns invalid error",
-			Request:     WatchRequest{Key: "/pods/", Options: storage.ListOptions{ResourceVersion: "abc", Predicate: storage.Everything, Recursive: true}},
+			Request:     WatchRequest{Key: "/pods/", Options: watch("abc", "")},
+			ExpectError: invalidRVErr,
+		},
+		{
+			Name:        "Watch list with empty key returns empty key error",
+			Request:     WatchRequest{Key: "", Options: watchList("")},
+			ExpectError: fmt.Errorf("empty key: %q", ""),
+		},
+		{
+			Name:        "Watch list with key escaping the prefix returns invalid key error",
+			Request:     WatchRequest{Key: "/pods/../secrets", Options: watchList("")},
+			ExpectError: fmt.Errorf("invalid key: %q", "/pods/../secrets"),
+		},
+		{
+			Name:        "Watch list with unparsable ResourceVersion returns invalid error",
+			Request:     WatchRequest{Key: "/pods/", Options: watchList("abc")},
 			ExpectError: invalidRVErr,
 		},
 	}
@@ -1263,10 +1372,20 @@ func RunTestCorrectness(ctx context.Context, t *testing.T, store storage.Interfa
 	initialState := NewEmptyModel(storagePrefix, func() runtime.Object { return &example.Pod{} }, func() runtime.Object { return &example.PodList{} }, versioner)
 	model := initialState.Clone()
 
-	watchRequest := WatchRequest{Key: "/pods/", Options: storage.ListOptions{ResourceVersion: "1", Predicate: storage.Everything, Recursive: true}}
-	watcher, err := store.Watch(ctx, watchRequest.Key, watchRequest.Options)
-	require.NoError(t, err)
-	defer watcher.Stop()
+	watchCases := watchTestCases()
+	watches := make([]watch.Interface, len(watchCases))
+	watchErrs := make([]error, len(watchCases))
+	for i, tc := range watchCases {
+		w, err := store.Watch(ctx, tc.Request.Key, tc.Request.Options)
+		watches[i] = w
+		watchErrs[i] = err
+		if tc.ExpectError != nil {
+			require.EqualError(t, err, tc.ExpectError.Error(), "step %s", tc.Name)
+			continue
+		}
+		require.NoError(t, err, "step %s", tc.Name)
+		t.Cleanup(w.Stop)
+	}
 
 	var operations []Operation
 	for _, step := range correctnessTestSteps() {
@@ -1310,16 +1429,17 @@ func RunTestCorrectness(ctx context.Context, t *testing.T, store storage.Interfa
 		require.NoError(t, replay.Validate(op.Request, op.Response))
 	}
 
-	gotEvents := collectEventsTillRV(t, watcher, versioner, model.ResourceVersion)
 	validator := NewWatchValidator(versioner, replay, keyFunc)
-	require.NoError(t, validator.ValidateWatch(watchRequest, WatchResponse{Events: gotEvents}))
-
-	for _, step := range watchTestCasesInvalid() {
-		w, err := store.Watch(ctx, step.Request.Key, step.Request.Options)
-		if err == nil {
-			w.Stop()
+	for i, w := range watchCases {
+		var resp WatchResponse
+		if watchErrs[i] != nil {
+			resp = WatchResponse{Err: watchErrs[i]}
+		} else {
+			targetRV, err := replay.LastWatchRV(w.Request)
+			require.NoError(t, err, "step %s", w.Name)
+			resp = WatchResponse{Events: collectEventsTillRV(t, watches[i], versioner, targetRV)}
 		}
-		require.NoError(t, validator.ValidateWatch(step.Request, WatchResponse{Err: err}), "step %s", step.Name)
+		require.NoError(t, validator.ValidateWatch(w.Request, resp), "step %s", w.Name)
 	}
 }
 
