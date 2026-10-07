@@ -22,19 +22,24 @@ import (
 	"fmt"
 	"math/rand"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/fields"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/uuid"
 	"k8s.io/apimachinery/pkg/watch"
+	genericapirequest "k8s.io/apiserver/pkg/endpoints/request"
 	"k8s.io/apiserver/pkg/storage"
 	"k8s.io/apiserver/pkg/storage/testing/correctness"
 	api "k8s.io/kubernetes/pkg/apis/core"
+	registrypod "k8s.io/kubernetes/pkg/registry/core/pod"
 )
 
 type KeyScope string
@@ -57,6 +62,33 @@ const (
 	RVFuture  RVType = "Future"
 )
 
+type FieldSelector string
+
+const (
+	FieldEverything  FieldSelector = "Everything"
+	FieldByName      FieldSelector = "ByName"
+	FieldByNamespace FieldSelector = "ByNamespace"
+	FieldByNode      FieldSelector = "ByNode"
+	FieldByEmptyNode FieldSelector = "ByEmptyNode"
+	FieldCombined    FieldSelector = "Combined"
+)
+
+type LabelSelector string
+
+const (
+	LabelEverything LabelSelector = "Everything"
+	LabelByApp      LabelSelector = "ByApp"
+)
+
+var (
+	watchNamespaces = []string{"ns-1", "ns-2"}
+	watchPodNames   = []string{"pod-1", "pod-2"}
+	nodeNames       = []string{"", "node-1", "node-2"}
+	nonEmptyNodes   = []string{"node-1", "node-2"}
+	appLabels       = []string{"", "app-a", "app-b"}
+	nonEmptyApps    = []string{"app-a", "app-b"}
+)
+
 type RequestDistribution struct {
 	Op     []ChoiceWeight[correctness.OpType]
 	Get    GetDistribution
@@ -72,6 +104,8 @@ type GetDistribution struct {
 
 type ListDistribution struct {
 	Scope                []ChoiceWeight[KeyScope]
+	FieldSelector        []ChoiceWeight[FieldSelector]
+	LabelSelector        []ChoiceWeight[LabelSelector]
 	ResourceVersion      []ChoiceWeight[RVType]
 	ResourceVersionMatch []ChoiceWeight[metav1.ResourceVersionMatch]
 }
@@ -93,6 +127,9 @@ type PreconditionsDistribution struct {
 }
 
 type WatchDistribution struct {
+	Scope             []ChoiceWeight[KeyScope]
+	FieldSelector     []ChoiceWeight[FieldSelector]
+	LabelSelector     []ChoiceWeight[LabelSelector]
 	SendInitialEvents []ChoiceWeight[bool]
 	ResourceVersion   []ChoiceWeight[RVType]
 }
@@ -270,7 +307,9 @@ func randomRequest(ctx context.Context, store storage.Interface, keys []types.Na
 			},
 		}
 	case correctness.OpList:
-		opts := storage.ListOptions{Predicate: storage.Everything}
+		opts := storage.ListOptions{
+			Predicate: pickPredicate(dist.List.FieldSelector, dist.List.LabelSelector),
+		}
 		var listKey string
 		switch scope := PickRandom(dist.List.Scope); scope {
 		case ScopeCluster:
@@ -396,6 +435,8 @@ func storageKey(key types.NamespacedName) string {
 
 func randomUpdate(key types.NamespacedName) storage.UpdateFunc {
 	version := strconv.Itoa(rand.Intn(10000))
+	nodeName := nodeNames[rand.Intn(len(nodeNames))]
+	appLabel := appLabels[rand.Intn(len(appLabels))]
 	return func(obj runtime.Object, res storage.ResponseMeta) (runtime.Object, *uint64, error) {
 		pod := obj.(*api.Pod).DeepCopy()
 		if pod.Name == "" {
@@ -405,6 +446,12 @@ func randomUpdate(key types.NamespacedName) storage.UpdateFunc {
 			pod.Annotations = make(map[string]string)
 		}
 		pod.Annotations["version"] = version
+		pod.Spec.NodeName = nodeName
+		if appLabel == "" {
+			pod.Labels = nil
+		} else {
+			pod.Labels = map[string]string{"app": appLabel}
+		}
 		return pod, nil, nil
 	}
 }
@@ -465,7 +512,28 @@ func randomWatchRequest(ctx context.Context, store storage.Interface, distributi
 	default:
 		panic(fmt.Sprintf("%v: unknown watch request type", selected))
 	}
-	opts := storage.ListOptions{ResourceVersion: rv, Predicate: storage.Everything, Recursive: true}
+
+	ns := watchNamespaces[rand.Intn(len(watchNamespaces))]
+	name := watchPodNames[rand.Intn(len(watchPodNames))]
+
+	watchKey := "/pods/"
+	recursive := true
+	if len(distribution.Scope) > 0 {
+		switch scope := PickRandom(distribution.Scope); scope {
+		case ScopeCluster:
+			watchKey, recursive = "/pods/", true
+		case ScopeNamespace:
+			watchKey, recursive = "/pods/"+ns, true
+		case ScopeObject:
+			watchKey, recursive = "/pods/"+ns+"/"+name, false
+		default:
+			panic(fmt.Sprintf("%v: unknown watch scope", scope))
+		}
+	}
+
+	pred := pickPredicate(distribution.FieldSelector, distribution.LabelSelector)
+
+	opts := storage.ListOptions{ResourceVersion: rv, Predicate: pred, Recursive: recursive}
 	switch {
 	case watchList:
 		opts.Predicate.AllowWatchBookmarks = true
@@ -477,7 +545,60 @@ func randomWatchRequest(ctx context.Context, store storage.Interface, distributi
 		opts.SendInitialEvents = new(false)
 		opts.ResourceVersionMatch = metav1.ResourceVersionMatchNotOlderThan
 	}
-	return correctness.WatchRequest{Key: "/pods/", Options: opts}
+	return correctness.WatchRequest{Key: watchKey, Options: opts}
+}
+
+func pickPredicate(fieldDist []ChoiceWeight[FieldSelector], labelDist []ChoiceWeight[LabelSelector]) storage.SelectionPredicate {
+	ns := watchNamespaces[rand.Intn(len(watchNamespaces))]
+	name := watchPodNames[rand.Intn(len(watchPodNames))]
+	node := nonEmptyNodes[rand.Intn(len(nonEmptyNodes))]
+	app := nonEmptyApps[rand.Intn(len(nonEmptyApps))]
+
+	fieldSel := fields.Everything()
+	var indexFields []string
+	if len(fieldDist) > 0 {
+		switch fs := PickRandom(fieldDist); fs {
+		case FieldEverything:
+			fieldSel = fields.Everything()
+		case FieldByName:
+			fieldSel = fields.OneTermEqualSelector("metadata.name", name)
+		case FieldByNamespace:
+			fieldSel = fields.OneTermEqualSelector("metadata.namespace", ns)
+		case FieldByNode:
+			fieldSel = fields.OneTermEqualSelector("spec.nodeName", node)
+			indexFields = []string{"spec.nodeName"}
+		case FieldByEmptyNode:
+			fieldSel = fields.OneTermEqualSelector("spec.nodeName", "")
+			indexFields = []string{"spec.nodeName"}
+		case FieldCombined:
+			fieldSel = fields.AndSelectors(
+				fields.OneTermEqualSelector("metadata.namespace", ns),
+				fields.OneTermEqualSelector("spec.nodeName", node),
+			)
+			indexFields = []string{"spec.nodeName"}
+		default:
+			panic(fmt.Sprintf("%v: unknown field selector", fs))
+		}
+	}
+
+	labelSel := labels.Everything()
+	if len(labelDist) > 0 {
+		switch ls := PickRandom(labelDist); ls {
+		case LabelEverything:
+			labelSel = labels.Everything()
+		case LabelByApp:
+			labelSel = labels.SelectorFromSet(labels.Set{"app": app})
+		default:
+			panic(fmt.Sprintf("%v: unknown label selector", ls))
+		}
+	}
+
+	return storage.SelectionPredicate{
+		Label:       labelSel,
+		Field:       fieldSel,
+		GetAttrs:    registrypod.GetAttrs,
+		IndexFields: indexFields,
+	}
 }
 
 func relativeRV(ctx context.Context, store storage.Interface, offset int64) string {
@@ -489,7 +610,16 @@ func relativeRV(ctx context.Context, store storage.Interface, offset int64) stri
 }
 
 func runWatch(ctx context.Context, store storage.Interface, req correctness.WatchRequest, cfg WatchConfig) correctness.WatchResponse {
-	w, err := store.Watch(ctx, req.Key, req.Options)
+	watchCtx := ctx
+	switch parts := strings.Split(strings.Trim(req.Key, "/"), "/"); len(parts) {
+	case 2:
+		watchCtx = genericapirequest.WithNamespace(watchCtx, parts[1])
+	case 3:
+		watchCtx = genericapirequest.WithNamespace(watchCtx, parts[1])
+		watchCtx = genericapirequest.WithRequestInfo(watchCtx, &genericapirequest.RequestInfo{Name: parts[2]})
+	}
+
+	w, err := store.Watch(watchCtx, req.Key, req.Options)
 	if err != nil {
 		if _, ok := errors.AsType[*storage.StorageError](err); ok {
 			return correctness.WatchResponse{Err: err}
@@ -533,12 +663,20 @@ func runWatch(ctx context.Context, store storage.Interface, req correctness.Watc
 func validPod(namespace, name string) *api.Pod {
 	gracePeriod := int64(30)
 	enableServiceLinks := true
+	nodeName := nodeNames[rand.Intn(len(nodeNames))]
+	appLabel := appLabels[rand.Intn(len(appLabels))]
+	var podLabels map[string]string
+	if appLabel != "" {
+		podLabels = map[string]string{"app": appLabel}
+	}
 	return &api.Pod{
 		ObjectMeta: metav1.ObjectMeta{
 			Namespace: namespace,
 			Name:      name,
+			Labels:    podLabels,
 		},
 		Spec: api.PodSpec{
+			NodeName:                      nodeName,
 			RestartPolicy:                 api.RestartPolicyAlways,
 			TerminationGracePeriodSeconds: &gracePeriod,
 			DNSPolicy:                     api.DNSClusterFirst,

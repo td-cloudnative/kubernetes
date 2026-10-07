@@ -1,5 +1,7 @@
+//go:build go1.27
+
 /*
-Copyright 2015 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -14,17 +16,14 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package main
+package server
 
-import (
-	"os"
+import "net/http"
 
-	"k8s.io/component-base/cli"
-	"k8s.io/kubernetes/cmd/kubemark/app"
-)
+// 1 MiB MaxHeaderBytes / 64 bytes per value (~16 for header and ~48 for value) bounds tiny-header floods
+// while allowing thousands of identity groups sent one per header line.
+const maxHeaderValueCount = 16384
 
-func main() {
-	command := app.NewHollowNodeCommand()
-	code := cli.Run(command)
-	os.Exit(code)
+func setMaxHeaderValueCount(server *http.Server) {
+	server.MaxHeaderValueCount = maxHeaderValueCount
 }

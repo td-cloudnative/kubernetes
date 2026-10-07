@@ -1,5 +1,7 @@
+//go:build !go1.27
+
 /*
-Copyright 2024 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -14,13 +16,9 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package e2e
+package server
 
-import (
-	// ensure that cloud providers are loaded
-	_ "k8s.io/kubernetes/test/e2e/framework/providers/aws"
-	_ "k8s.io/kubernetes/test/e2e/framework/providers/azure"
-	_ "k8s.io/kubernetes/test/e2e/framework/providers/gce"
-	_ "k8s.io/kubernetes/test/e2e/framework/providers/openstack"
-	_ "k8s.io/kubernetes/test/e2e/framework/providers/vsphere"
-)
+import "net/http"
+
+// Go versions before 1.27 do not limit the number of header values.
+func setMaxHeaderValueCount(*http.Server) {}
