@@ -167,6 +167,14 @@ func TestInt64AsCanonicalString(t *testing.T) {
 		{100, 1, "1", 3},
 		{100, -1, "10", 0},
 		{10800, -10, "1080", -9},
+		{10, math.MaxInt32, "100", math.MaxInt32 - 1},
+		{1000, math.MaxInt32, "10000", math.MaxInt32 - 1},
+		{math.MaxInt64, math.MaxInt32, "92233720368547758070", math.MaxInt32 - 1},
+		{1000, math.MinInt32, "10", math.MinInt32 + 2},
+		// No multiple of 3 fits at or below these exponents.
+		{1, math.MinInt32 + 1, "1", math.MinInt32 + 1},
+		{10, math.MinInt32, "1", math.MinInt32 + 1},
+		{1, math.MinInt32, "1", math.MinInt32},
 	} {
 		r, exp := int64Amount{value: test.value, scale: test.scale}.AsCanonicalBytes(nil)
 		if string(r) != test.result {
@@ -312,9 +320,9 @@ func TestNarrowScale(t *testing.T) {
 		{"zero", 0, 0, true},
 		{"MaxInt32", math.MaxInt32, math.MaxInt32, true},
 		{"MinInt32", math.MinInt32, math.MinInt32, true},
-		{"MaxInt32+1 wraps", math.MaxInt32 + 1, math.MinInt32, false},
-		{"MinInt32-1 wraps", math.MinInt32 - 1, math.MaxInt32, false},
-		{"2^32 wraps to zero", 1 << 32, 0, false},
+		{"MaxInt32+1 saturates", math.MaxInt32 + 1, math.MaxInt32, false},
+		{"MinInt32-1 saturates", math.MinInt32 - 1, math.MinInt32, false},
+		{"2^32 saturates", 1 << 32, math.MaxInt32, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if got, fits := narrowScale(tc.in); got != tc.want || fits != tc.wantFits {
