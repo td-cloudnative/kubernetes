@@ -30,7 +30,7 @@ require (
 	github.com/go-jose/go-jose/v4 v4.1.5
 	github.com/go-logr/logr v1.4.4
 	github.com/go-openapi/jsonreference v1.0.2
-	github.com/godbus/dbus/v5 v5.2.2
+	github.com/godbus/dbus/v5 v5.2.4
 	github.com/google/cadvisor/lib v0.60.6
 	github.com/google/cel-go v0.29.2
 	github.com/google/gnostic-models v0.7.1
@@ -107,7 +107,7 @@ require (
 	k8s.io/ktesting v0.0.0
 	k8s.io/kube-aggregator v0.0.0
 	k8s.io/kube-controller-manager v0.0.0
-	k8s.io/kube-openapi v0.0.0-20261007072838-e2e80c32a35f
+	k8s.io/kube-openapi v0.0.0-20261014044854-ca3452a79603
 	k8s.io/kube-proxy v0.0.0
 	k8s.io/kube-scheduler v0.0.0
 	k8s.io/kubectl v0.0.0

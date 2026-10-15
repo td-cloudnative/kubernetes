@@ -108,6 +108,14 @@ func (s *Model) Equal(other *Model) bool {
 // Step applies an operation to the sequential state machine. change is the
 // write the operation made, or nil if the operation didn't write.
 func (s *Model) Step(input Request, output Response) (ok bool, next *Model, change *Change) {
+	if output.Object == nil && apierrors.IsTooManyRequests(output.Err) {
+		switch input.Op {
+		case OpGet, OpList:
+			return true, s, nil
+		default:
+			panic("Errors on writes not supported by the model")
+		}
+	}
 	expected, next, change := s.execute(input)
 	switch input.Op {
 	case OpGet:
@@ -168,6 +176,9 @@ func (s *Model) validateGet(opts storage.GetOptions, expected, output Response) 
 	case ConsistencyConsistent:
 		return reflect.DeepEqual(expected, output)
 	case ConsistencyNotOlderThan:
+		if _, retry := apierrors.SuggestsClientDelay(output.Err); retry && reqRV > 0 && storage.IsTooLargeResourceVersion(output.Err) {
+			return true
+		}
 		// Model only validates consistent reads, for stale reads we just validate RV and contents are validated later during replay.
 		if storage.IsNotFound(output.Err) {
 			outputErr := output.Err.(*storage.StorageError)
@@ -196,6 +207,9 @@ func (s *Model) validateList(key string, opts storage.ListOptions, expected, out
 	consistency, reqRV, _, err := ListReadConsistency("", s.Versioner, opts)
 	if err != nil {
 		return false
+	}
+	if _, retry := apierrors.SuggestsClientDelay(output.Err); retry && reqRV > 0 && output.Object == nil && storage.IsTooLargeResourceVersion(output.Err) {
+		return true
 	}
 	switch consistency {
 	case ConsistencyConsistent:
