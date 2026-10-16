@@ -123,6 +123,7 @@ type GetDistribution struct {
 
 type ListDistribution struct {
 	Scope                []ChoiceWeight[KeyScope]
+	Recursive            []ChoiceWeight[bool]
 	FieldSelector        []ChoiceWeight[FieldSelector]
 	LabelSelector        []ChoiceWeight[LabelSelector]
 	ResourceVersion      []ChoiceWeight[RVType]
@@ -392,6 +393,9 @@ func randomRequest(ctx context.Context, store storage.Interface, keys []types.Na
 			listKey, opts.Recursive = storageKey(key), false
 		default:
 			panic(fmt.Sprintf("%v: unknown list scope", scope))
+		}
+		if len(dist.List.Recursive) > 0 {
+			opts.Recursive = PickRandom(dist.List.Recursive)
 		}
 		rv, ok := resolveResourceVersion(ctx, store, PickRandom(dist.List.ResourceVersion), cached)
 		if !ok {
@@ -703,7 +707,7 @@ func runWatch(ctx context.Context, store storage.Interface, req correctness.Watc
 	timer := time.NewTimer(cfg.Duration)
 	defer timer.Stop()
 
-	if mode == WatcherStalled {
+	if mode == WatcherStalled && watchCtx.Err() == nil {
 		stalledTimer := timer.C
 		if cfg.HiccupDuration > 0 {
 			stalledTimer = time.After(cfg.HiccupDuration)
