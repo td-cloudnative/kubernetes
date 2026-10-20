@@ -453,6 +453,51 @@ func RunTestDeleteWithConflict(ctx context.Context, t *testing.T, store storage.
 	}
 	updatedPod.ObjectMeta.ResourceVersion = out.ObjectMeta.ResourceVersion
 	expectNoDiff(t, "incorrect pod:", updatedPod, out)
+
+	// Simulate a conflicting update in the middle of delete that causes preconditions to fail on retry.
+	key, _ = testPropagateStore(ctx, t, store, &example.Pod{ObjectMeta: metav1.ObjectMeta{Name: "name", Namespace: "test-ns", UID: "myUID"}})
+	validateCount = 0
+	validateWithUIDUpdate := func(_ context.Context, _ runtime.Object) error {
+		validateCount++
+		if validateCount == 1 {
+			if err := store.GuaranteedUpdate(ctx, key, updatedPod, false, nil,
+				storage.SimpleUpdate(func(obj runtime.Object) (runtime.Object, error) {
+					pod := obj.(*example.Pod)
+					pod.ObjectMeta.UID = "otherUID"
+					return pod, nil
+				}), nil); err != nil {
+				t.Errorf("Unexpected failure during update: %v", err)
+			}
+		}
+		return nil
+	}
+	if err := store.Delete(ctx, key, out, storage.NewUIDPreconditions("myUID"), validateWithUIDUpdate, nil, storage.DeleteOptions{}); !storage.IsInvalidObj(err) {
+		t.Errorf("Expected invalid object error on precondition failure after conflict, got: %v", err)
+	}
+	if validateCount != 1 {
+		t.Errorf("Expect validateCount = 1, but got %d", validateCount)
+	}
+
+	// Simulate a conflicting delete in the middle of delete (with and without preconditions).
+	for _, prec := range []*storage.Preconditions{nil, storage.NewUIDPreconditions("myUID")} {
+		key, _ = testPropagateStore(ctx, t, store, &example.Pod{ObjectMeta: metav1.ObjectMeta{Name: "name", Namespace: "test-ns", UID: "myUID"}})
+		validateCount = 0
+		validateWithDelete := func(_ context.Context, _ runtime.Object) error {
+			validateCount++
+			if validateCount == 1 {
+				if err := store.Delete(ctx, key, &example.Pod{}, nil, storage.ValidateAllObjectFunc, nil, storage.DeleteOptions{}); err != nil {
+					t.Errorf("Unexpected failure during background deletion: %v", err)
+				}
+			}
+			return nil
+		}
+		if err := store.Delete(ctx, key, out, prec, validateWithDelete, nil, storage.DeleteOptions{}); !storage.IsNotFound(err) {
+			t.Errorf("Expected not-found error when object is deleted concurrently, got: %v", err)
+		}
+		if validateCount != 1 {
+			t.Errorf("Expect validateCount = 1, but got %d", validateCount)
+		}
+	}
 }
 
 func RunTestDeleteWithSuggestionOfDeletedObject(ctx context.Context, t *testing.T, store storage.Interface) {
@@ -467,6 +512,19 @@ func RunTestDeleteWithSuggestionOfDeletedObject(ctx context.Context, t *testing.
 	// Now try deleting with stale object.
 	out := &example.Pod{}
 	if err := store.Delete(ctx, key, out, nil, storage.ValidateAllObjectFunc, originalPod, storage.DeleteOptions{}); !storage.IsNotFound(err) {
+		t.Errorf("Unexpected error during deletion: %v, expected not-found", err)
+	}
+
+	// Try deleting with stale object when preconditions fail on the suggestion.
+	if err := store.Delete(ctx, key, out, storage.NewUIDPreconditions("otherUID"), storage.ValidateAllObjectFunc, originalPod, storage.DeleteOptions{}); !storage.IsNotFound(err) {
+		t.Errorf("Unexpected error during deletion: %v, expected not-found", err)
+	}
+
+	// Try deleting with stale object when validateDeletion fails on the suggestion.
+	validateFail := func(_ context.Context, _ runtime.Object) error {
+		return fmt.Errorf("validation error")
+	}
+	if err := store.Delete(ctx, key, out, nil, validateFail, originalPod, storage.DeleteOptions{}); !storage.IsNotFound(err) {
 		t.Errorf("Unexpected error during deletion: %v, expected not-found", err)
 	}
 }
@@ -588,6 +646,12 @@ func RunTestValidateDeletionWithOnlySuggestionValid(ctx context.Context, t *test
 func RunTestPreconditionalDeleteWithSuggestion(ctx context.Context, t *testing.T, store storage.Interface) {
 	key, originalPod := testPropagateStore(ctx, t, store, &example.Pod{ObjectMeta: metav1.ObjectMeta{Name: "name", Namespace: "test-ns"}})
 
+	// Deleting with a current suggestion that fails preconditions should fail.
+	out := &example.Pod{}
+	if err := store.Delete(ctx, key, out, storage.NewUIDPreconditions("myUID"), storage.ValidateAllObjectFunc, originalPod, storage.DeleteOptions{}); !storage.IsInvalidObj(err) {
+		t.Errorf("Expected invalid UID error when current suggestion fails preconditions, got: %v", err)
+	}
+
 	// First update, so originalPod is outdated.
 	updatedPod := &example.Pod{}
 	if err := store.GuaranteedUpdate(ctx, key, updatedPod, false, nil,
@@ -599,9 +663,13 @@ func RunTestPreconditionalDeleteWithSuggestion(ctx context.Context, t *testing.T
 		t.Errorf("Unexpected failure during updated: %v", err)
 	}
 
+	// Deleting with an outdated suggestion where both suggestion and current object fail preconditions should fail.
+	if err := store.Delete(ctx, key, out, storage.NewUIDPreconditions("otherUID"), storage.ValidateAllObjectFunc, originalPod, storage.DeleteOptions{}); !storage.IsInvalidObj(err) {
+		t.Errorf("Expected invalid UID error when both outdated suggestion and live object fail preconditions, got: %v", err)
+	}
+
 	prec := storage.NewUIDPreconditions("myUID")
 
-	out := &example.Pod{}
 	if err := store.Delete(ctx, key, out, prec, storage.ValidateAllObjectFunc, originalPod, storage.DeleteOptions{}); err != nil {
 		t.Errorf("Unexpected failure during deletion: %v", err)
 	}
@@ -2436,14 +2504,63 @@ func RunTestDeleteExpectedTransformOrDecodeError(ctx context.Context, t testing.
 	// decode errors become fatal again.
 	defer setFailing(false)
 
-	err := store.Delete(ctx, key, &example.Pod{}, nil, storage.ValidateAllObjectFunc, nil,
+	// Simulate a conflicting update on the first attempt while ExpectTransformOrDecodeError is set,
+	// followed by a successful deletion on retry.
+	validateCount := 0
+	validateWithConflictUpdate := func(_ context.Context, _ runtime.Object) error {
+		validateCount++
+		if validateCount == 1 {
+			setFailing(false)
+			defer setFailing(true)
+			if err := store.GuaranteedUpdate(ctx, key, &example.Pod{}, false, nil,
+				storage.SimpleUpdate(func(obj runtime.Object) (runtime.Object, error) {
+					pod := obj.(*example.Pod)
+					pod.ObjectMeta.Labels = map[string]string{"foo": "bar"}
+					return pod, nil
+				}), nil); err != nil {
+				t.Errorf("Unexpected failure during update: %v", err)
+			}
+		}
+		return nil
+	}
+
+	err := store.Delete(ctx, key, &example.Pod{}, nil, validateWithConflictUpdate, nil,
 		storage.DeleteOptions{ExpectTransformOrDecodeError: true})
 	if err != nil {
 		t.Fatal(err)
 	}
+	if validateCount != 2 {
+		t.Errorf("Expect validateCount = 2, but got %d", validateCount)
+	}
 
+	setFailing(false)
 	if err := store.Get(ctx, key, storage.GetOptions{}, &example.Pod{}); !storage.IsNotFound(err) {
 		t.Errorf("Unexpected error on reading object: %v", err)
+	}
+
+	// Simulate a conflicting background deletion while ExpectTransformOrDecodeError is set.
+	if err := store.Create(ctx, key, obj, out, 0); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	setFailing(true)
+	validateCount = 0
+	validateWithConflictDelete := func(_ context.Context, _ runtime.Object) error {
+		validateCount++
+		if validateCount == 1 {
+			if err := store.Delete(ctx, key, &example.Pod{}, nil, storage.ValidateAllObjectFunc, nil,
+				storage.DeleteOptions{ExpectTransformOrDecodeError: true}); err != nil {
+				t.Errorf("Unexpected failure during background deletion: %v", err)
+			}
+		}
+		return nil
+	}
+	err = store.Delete(ctx, key, &example.Pod{}, nil, validateWithConflictDelete, nil,
+		storage.DeleteOptions{ExpectTransformOrDecodeError: true})
+	if !storage.IsNotFound(err) {
+		t.Errorf("Expected not-found error when corrupt object is deleted concurrently, got: %v", err)
+	}
+	if validateCount != 1 {
+		t.Errorf("Expect validateCount = 1, but got %d", validateCount)
 	}
 }
 
@@ -4187,6 +4304,120 @@ func RunTestGuaranteedUpdateWithConflict(ctx context.Context, t *testing.T, stor
 	if updateCount != 2 {
 		t.Errorf("Should have conflict and called update func twice")
 	}
+
+	// Conflicting background update causes preconditions to fail on retry.
+	if err := store.GuaranteedUpdate(ctx, key, &example.Pod{}, false, nil,
+		storage.SimpleUpdate(func(obj runtime.Object) (runtime.Object, error) {
+			pod := obj.(*example.Pod)
+			pod.UID = "myUID"
+			return pod, nil
+		}), nil); err != nil {
+		t.Fatalf("Setup GuaranteedUpdate failed: %v", err)
+	}
+	updateCount = 0
+	err = store.GuaranteedUpdate(ctx, key, &example.Pod{}, false, storage.NewUIDPreconditions("myUID"),
+		storage.SimpleUpdate(func(obj runtime.Object) (runtime.Object, error) {
+			updateCount++
+			if updateCount == 1 {
+				if err := store.GuaranteedUpdate(ctx, key, &example.Pod{}, false, nil,
+					storage.SimpleUpdate(func(inner runtime.Object) (runtime.Object, error) {
+						innerPod := inner.(*example.Pod)
+						innerPod.UID = "otherUID"
+						return innerPod, nil
+					}), nil); err != nil {
+					t.Errorf("Background update failed: %v", err)
+				}
+			}
+			pod := obj.(*example.Pod)
+			pod.Name = "foo-3"
+			return pod, nil
+		}), nil)
+	if !storage.IsInvalidObj(err) {
+		t.Errorf("Expected invalid object error when precondition fails after conflict, got: %v", err)
+	}
+	if updateCount != 1 {
+		t.Errorf("Expected updateCount = 1, got %d", updateCount)
+	}
+
+	// Conflicting background delete when ignoreNotFound is false returns NotFound.
+	updateCount = 0
+	err = store.GuaranteedUpdate(ctx, key, &example.Pod{}, false, nil,
+		storage.SimpleUpdate(func(obj runtime.Object) (runtime.Object, error) {
+			updateCount++
+			if updateCount == 1 {
+				if err := store.Delete(ctx, key, &example.Pod{}, nil, storage.ValidateAllObjectFunc, nil, storage.DeleteOptions{}); err != nil {
+					t.Errorf("Background delete failed: %v", err)
+				}
+			}
+			pod := obj.(*example.Pod)
+			pod.Name = "foo-4"
+			return pod, nil
+		}), nil)
+	if !storage.IsNotFound(err) {
+		t.Errorf("Expected not-found error when object is deleted concurrently with ignoreNotFound=false, got: %v", err)
+	}
+	if updateCount != 1 {
+		t.Errorf("Expected updateCount = 1, got %d", updateCount)
+	}
+
+	// Conflicting background create when ignoreNotFound is true retries with the created object.
+	updateCount = 0
+	out := &example.Pod{}
+	err = store.GuaranteedUpdate(ctx, key, out, true, nil,
+		storage.SimpleUpdate(func(obj runtime.Object) (runtime.Object, error) {
+			updateCount++
+			pod := obj.(*example.Pod)
+			if updateCount == 1 {
+				if err := store.Create(ctx, key, &example.Pod{ObjectMeta: metav1.ObjectMeta{Name: "foo", Namespace: "test-ns", Labels: map[string]string{"created": "bg"}}}, &example.Pod{}, 0); err != nil {
+					t.Errorf("Background create failed: %v", err)
+				}
+				pod.Name = "foo"
+				pod.Namespace = "test-ns"
+				return pod, nil
+			}
+			if pod.Labels["created"] != "bg" {
+				t.Errorf("Expected retry to observe background-created pod, got: %#v", pod)
+			}
+			pod.Labels["updated"] = "true"
+			return pod, nil
+		}), nil)
+	if err != nil {
+		t.Fatalf("Unexpected error on conflict with background create: %v", err)
+	}
+	if updateCount != 2 {
+		t.Errorf("Expected updateCount = 2, got %d", updateCount)
+	}
+
+	// Conflicting background delete when ignoreNotFound is true retries with a zero-value object and recreates it.
+	updateCount = 0
+	err = store.GuaranteedUpdate(ctx, key, out, true, nil,
+		storage.SimpleUpdate(func(obj runtime.Object) (runtime.Object, error) {
+			updateCount++
+			pod := obj.(*example.Pod)
+			if updateCount == 1 {
+				if err := store.Delete(ctx, key, &example.Pod{}, nil, storage.ValidateAllObjectFunc, nil, storage.DeleteOptions{}); err != nil {
+					t.Errorf("Background delete failed: %v", err)
+				}
+				pod.Labels = map[string]string{"attempt": "1"}
+				return pod, nil
+			}
+			if pod.ResourceVersion != "" {
+				t.Errorf("Expected zero-value pod on retry after background delete, got rv=%s", pod.ResourceVersion)
+			}
+			pod.Name = "foo"
+			pod.Namespace = "test-ns"
+			pod.Labels = map[string]string{"recreated": "true"}
+			return pod, nil
+		}), nil)
+	if err != nil {
+		t.Fatalf("Unexpected error on conflict with background delete (ignoreNotFound=true): %v", err)
+	}
+	if updateCount != 2 {
+		t.Errorf("Expected updateCount = 2, got %d", updateCount)
+	}
+	if out.Labels["recreated"] != "true" {
+		t.Errorf("Expected recreated pod label, got: %#v", out.Labels)
+	}
 }
 
 func RunTestGuaranteedUpdateWithSuggestionAndConflict(ctx context.Context, t *testing.T, store storage.Interface) {
@@ -4198,12 +4429,41 @@ func RunTestGuaranteedUpdateWithSuggestionAndConflict(ctx context.Context, t *te
 		storage.SimpleUpdate(func(obj runtime.Object) (runtime.Object, error) {
 			pod := obj.(*example.Pod)
 			pod.Generation = 2
+			pod.UID = "myUID"
 			return pod, nil
 		}),
 		nil,
 	)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Preconditions fail on outdated suggestion, live lookup also fails preconditions.
+	err = store.GuaranteedUpdate(ctx, key, &example.Pod{}, false, storage.NewUIDPreconditions("otherUID"),
+		storage.SimpleUpdate(func(obj runtime.Object) (runtime.Object, error) {
+			t.Errorf("update function should not be called when preconditions fail")
+			return obj, nil
+		}),
+		originalPod,
+	)
+	if !storage.IsInvalidObj(err) {
+		t.Errorf("expected InvalidObj error when preconditions fail on both suggestion and live object, got: %v", err)
+	}
+
+	// Preconditions fail on outdated suggestion, live lookup passes preconditions and update succeeds.
+	updatedWithPrec := &example.Pod{}
+	err = store.GuaranteedUpdate(ctx, key, updatedWithPrec, false, storage.NewUIDPreconditions("myUID"),
+		storage.SimpleUpdate(func(obj runtime.Object) (runtime.Object, error) {
+			pod := obj.(*example.Pod)
+			if pod.UID != "myUID" {
+				t.Errorf("expected live object with UID 'myUID', got %q", pod.UID)
+			}
+			return pod, nil
+		}),
+		originalPod,
+	)
+	if err != nil {
+		t.Fatalf("unexpected error when preconditions pass on live object: %v", err)
 	}
 
 	// Second, update using the outdated originalPod as the suggestion. Return a conflict error when
@@ -4234,10 +4494,27 @@ func RunTestGuaranteedUpdateWithSuggestionAndConflict(ctx context.Context, t *te
 		t.Errorf("unexpected pod generation: %d", updatedPod2.Generation)
 	}
 
+	// Update using the outdated originalPod as suggestion where SimpleUpdate fails on both
+	// the stale suggestion and the refreshed live object.
+	attempts := 0
+	err = store.GuaranteedUpdate(ctx, key, &example.Pod{}, false, nil,
+		storage.SimpleUpdate(func(obj runtime.Object) (runtime.Object, error) {
+			attempts++
+			return nil, fmt.Errorf("validation or admission error")
+		}),
+		originalPod,
+	)
+	if err == nil {
+		t.Fatalf("expected error, got none")
+	}
+	if attempts > 2 {
+		t.Errorf("update function should have been called at most twice, called %d", attempts)
+	}
+
 	// Third, update using a current version as the suggestion.
 	// Return an error and make sure that SimpleUpdate is NOT called a second time,
 	// since the live lookup shows the suggestion was already up to date.
-	attempts := 0
+	attempts = 0
 	updatedPod3 := &example.Pod{}
 	err = store.GuaranteedUpdate(ctx, key, updatedPod3, false, nil,
 		storage.SimpleUpdate(func(obj runtime.Object) (runtime.Object, error) {
@@ -4257,6 +4534,30 @@ func RunTestGuaranteedUpdateWithSuggestionAndConflict(ctx context.Context, t *te
 	// in which case two attempts are possible.
 	if attempts > 2 {
 		t.Errorf("update function should have been called at most twice, called %d", attempts)
+	}
+
+	// Delete the object and verify that updating with a stale suggestion and ignoreNotFound=false
+	// returns NotFound when either preconditions or tryUpdate fail on the suggestion.
+	if err := store.Delete(ctx, key, &example.Pod{}, nil, storage.ValidateAllObjectFunc, nil, storage.DeleteOptions{}); err != nil {
+		t.Fatalf("unexpected error deleting pod: %v", err)
+	}
+	err = store.GuaranteedUpdate(ctx, key, &example.Pod{}, false, storage.NewUIDPreconditions("otherUID"),
+		storage.SimpleUpdate(func(obj runtime.Object) (runtime.Object, error) {
+			return obj, nil
+		}),
+		updatedPod2,
+	)
+	if !storage.IsNotFound(err) {
+		t.Errorf("expected not-found error when preconditions fail on suggestion of deleted object, got: %v", err)
+	}
+	err = store.GuaranteedUpdate(ctx, key, &example.Pod{}, false, nil,
+		storage.SimpleUpdate(func(obj runtime.Object) (runtime.Object, error) {
+			return nil, fmt.Errorf("update error on stale suggestion")
+		}),
+		updatedPod2,
+	)
+	if !storage.IsNotFound(err) {
+		t.Errorf("expected not-found error when tryUpdate fails on suggestion of deleted object, got: %v", err)
 	}
 }
 
@@ -4472,8 +4773,10 @@ func RunTestListPaging(ctx context.Context, t *testing.T, store storage.Interfac
 }
 
 func RunTestNamespaceScopedList(ctx context.Context, t *testing.T, store storage.Interface) {
+	emptyPods := func(namespace string) []example.Pod { return []example.Pod{} }
 	tests := []struct {
 		name               string
+		requestedName      string
 		requestedNamespace string
 		recursive          bool
 		indexFields        []string
@@ -4605,7 +4908,7 @@ func RunTestNamespaceScopedList(ctx context.Context, t *testing.T, store storage
 					*baseNamespacedPodUpdated("foo2", namespace+"ns2"),
 				}
 			},
-			expectPods: func(namespace string) []example.Pod { return []example.Pod{} },
+			expectPods: emptyPods,
 		},
 		{
 			name:               "request with namespace, field selector with spec.nodename",
@@ -4738,6 +5041,7 @@ func RunTestNamespaceScopedList(ctx context.Context, t *testing.T, store storage
 		{
 			name:               "request with namespace, with field selector metadata.name",
 			requestedNamespace: "ns1",
+			recursive:          true,
 			fieldSelector:      func(namespace string) fields.Selector { return fields.ParseSelectorOrDie("metadata.name=foo1") },
 			inputPods: func(namespace string) []example.Pod {
 				return []example.Pod{
@@ -4756,6 +5060,7 @@ func RunTestNamespaceScopedList(ctx context.Context, t *testing.T, store storage
 		{
 			name:               "request with namespace, with field selector metadata.name and metadata.namespace",
 			requestedNamespace: "ns1",
+			recursive:          true,
 			fieldSelector: func(namespace string) fields.Selector {
 				return fields.SelectorFromSet(fields.Set{
 					"metadata.name":      "foo1",
@@ -4777,8 +5082,29 @@ func RunTestNamespaceScopedList(ctx context.Context, t *testing.T, store storage
 			},
 		},
 		{
+			name:               "request with namespace, with field selector metadata.name and non-matched metadata.namespace",
+			requestedNamespace: "ns1",
+			recursive:          true,
+			fieldSelector: func(namespace string) fields.Selector {
+				return fields.SelectorFromSet(fields.Set{
+					"metadata.name":      "foo1",
+					"metadata.namespace": namespace + "ns2",
+				})
+			},
+			inputPods: func(namespace string) []example.Pod {
+				return []example.Pod{
+					*baseNamespacedPod("foo1", namespace+"ns1"),
+					*baseNamespacedPod("foo2", namespace+"ns1"),
+					*baseNamespacedPod("foo1", namespace+"ns2"),
+					*baseNamespacedPod("foo2", namespace+"ns2"),
+				}
+			},
+			expectPods: emptyPods,
+		},
+		{
 			name:               "request with namespace, with field selector metadata.name, metadata.namespace and spec.nodename",
 			requestedNamespace: "ns2",
+			recursive:          true,
 			fieldSelector: func(namespace string) fields.Selector {
 				return fields.SelectorFromSet(fields.Set{
 					"metadata.name":      "foo2",
@@ -4806,6 +5132,7 @@ func RunTestNamespaceScopedList(ctx context.Context, t *testing.T, store storage
 		{
 			name:               "request with namespace, with field selector metadata.name, metadata.namespace, and with spec.nodename to filter out",
 			requestedNamespace: "ns2",
+			recursive:          true,
 			fieldSelector: func(namespace string) fields.Selector {
 				return fields.AndSelectors(
 					fields.ParseSelectorOrDie("spec.nodeName!=bar2"),
@@ -4828,6 +5155,555 @@ func RunTestNamespaceScopedList(ctx context.Context, t *testing.T, store storage
 				}
 			},
 		},
+		{
+			name:               "request with name, request with namespace, without field selector",
+			requestedName:      "foo1",
+			requestedNamespace: "ns1",
+			recursive:          false,
+			fieldSelector:      func(namespace string) fields.Selector { return fields.Everything() },
+			inputPods: func(namespace string) []example.Pod {
+				return []example.Pod{
+					*baseNamespacedPod("foo1", namespace+"ns1"),
+					*baseNamespacedPod("foo2", namespace+"ns1"),
+					*baseNamespacedPod("foo1", namespace+"ns2"),
+				}
+			},
+			expectPods: func(namespace string) []example.Pod {
+				return []example.Pod{
+					*baseNamespacedPod("foo1", namespace+"ns1"),
+				}
+			},
+		},
+		{
+			name:               "request with name, request with namespace, field selector with matched metadata.namespace",
+			requestedName:      "foo1",
+			requestedNamespace: "ns1",
+			recursive:          false,
+			fieldSelector: func(namespace string) fields.Selector {
+				return fields.SelectorFromSet(fields.Set{"metadata.namespace": namespace + "ns1"})
+			},
+			inputPods: func(namespace string) []example.Pod {
+				return []example.Pod{
+					*baseNamespacedPod("foo1", namespace+"ns1"),
+					*baseNamespacedPod("foo2", namespace+"ns1"),
+					*baseNamespacedPod("foo1", namespace+"ns2"),
+				}
+			},
+			expectPods: func(namespace string) []example.Pod {
+				return []example.Pod{
+					*baseNamespacedPod("foo1", namespace+"ns1"),
+				}
+			},
+		},
+		{
+			name:               "request with name, request with namespace, field selector with non-matched metadata.namespace",
+			requestedName:      "foo1",
+			requestedNamespace: "ns1",
+			recursive:          false,
+			fieldSelector: func(namespace string) fields.Selector {
+				return fields.SelectorFromSet(fields.Set{"metadata.namespace": namespace + "ns2"})
+			},
+			inputPods: func(namespace string) []example.Pod {
+				return []example.Pod{
+					*baseNamespacedPod("foo1", namespace+"ns1"),
+					*baseNamespacedPod("foo2", namespace+"ns1"),
+					*baseNamespacedPod("foo1", namespace+"ns2"),
+				}
+			},
+			expectPods: emptyPods,
+		},
+		{
+			name:               "request with name, request with namespace, with field selector metadata.name",
+			requestedName:      "foo1",
+			requestedNamespace: "ns1",
+			recursive:          false,
+			fieldSelector:      func(namespace string) fields.Selector { return fields.ParseSelectorOrDie("metadata.name=foo1") },
+			inputPods: func(namespace string) []example.Pod {
+				return []example.Pod{
+					*baseNamespacedPod("foo1", namespace+"ns1"),
+					*baseNamespacedPod("foo2", namespace+"ns1"),
+					*baseNamespacedPod("foo1", namespace+"ns2"),
+					*baseNamespacedPod("foo2", namespace+"ns2"),
+				}
+			},
+			expectPods: func(namespace string) []example.Pod {
+				return []example.Pod{
+					*baseNamespacedPod("foo1", namespace+"ns1"),
+				}
+			},
+		},
+		{
+			name:               "request with name, request with namespace, with field selector metadata.name and metadata.namespace",
+			requestedName:      "foo1",
+			requestedNamespace: "ns1",
+			recursive:          false,
+			fieldSelector: func(namespace string) fields.Selector {
+				return fields.SelectorFromSet(fields.Set{
+					"metadata.name":      "foo1",
+					"metadata.namespace": namespace + "ns1",
+				})
+			},
+			inputPods: func(namespace string) []example.Pod {
+				return []example.Pod{
+					*baseNamespacedPod("foo1", namespace+"ns1"),
+					*baseNamespacedPod("foo2", namespace+"ns1"),
+					*baseNamespacedPod("foo1", namespace+"ns2"),
+					*baseNamespacedPod("foo2", namespace+"ns2"),
+				}
+			},
+			expectPods: func(namespace string) []example.Pod {
+				return []example.Pod{
+					*baseNamespacedPod("foo1", namespace+"ns1"),
+				}
+			},
+		},
+		{
+			name:               "request with name, request with namespace, with field selector metadata.name and non-matched metadata.namespace",
+			requestedName:      "foo1",
+			requestedNamespace: "ns1",
+			recursive:          false,
+			fieldSelector: func(namespace string) fields.Selector {
+				return fields.SelectorFromSet(fields.Set{
+					"metadata.name":      "foo1",
+					"metadata.namespace": namespace + "ns2",
+				})
+			},
+			inputPods: func(namespace string) []example.Pod {
+				return []example.Pod{
+					*baseNamespacedPod("foo1", namespace+"ns1"),
+					*baseNamespacedPod("foo2", namespace+"ns1"),
+					*baseNamespacedPod("foo1", namespace+"ns2"),
+					*baseNamespacedPod("foo2", namespace+"ns2"),
+				}
+			},
+			expectPods: emptyPods,
+		},
+		{
+			name:               "request with name, request with namespace, with field selector non-matched metadata.name",
+			requestedName:      "foo1",
+			requestedNamespace: "ns1",
+			recursive:          false,
+			fieldSelector:      func(namespace string) fields.Selector { return fields.ParseSelectorOrDie("metadata.name=foo2") },
+			inputPods: func(namespace string) []example.Pod {
+				return []example.Pod{
+					*baseNamespacedPod("foo1", namespace+"ns1"),
+					*baseNamespacedPod("foo2", namespace+"ns1"),
+					*baseNamespacedPod("foo1", namespace+"ns2"),
+					*baseNamespacedPod("foo2", namespace+"ns2"),
+				}
+			},
+			expectPods: emptyPods,
+		},
+		{
+			name:               "request with name, request with namespace, with field selector non-matched metadata.name and matched metadata.namespace",
+			requestedName:      "foo1",
+			requestedNamespace: "ns1",
+			recursive:          false,
+			fieldSelector: func(namespace string) fields.Selector {
+				return fields.SelectorFromSet(fields.Set{
+					"metadata.name":      "foo2",
+					"metadata.namespace": namespace + "ns1",
+				})
+			},
+			inputPods: func(namespace string) []example.Pod {
+				return []example.Pod{
+					*baseNamespacedPod("foo1", namespace+"ns1"),
+					*baseNamespacedPod("foo2", namespace+"ns1"),
+					*baseNamespacedPod("foo1", namespace+"ns2"),
+					*baseNamespacedPod("foo2", namespace+"ns2"),
+				}
+			},
+			expectPods: emptyPods,
+		},
+		{
+			name:               "request with name, request with namespace, with field selector non-matched metadata.name and non-matched metadata.namespace",
+			requestedName:      "foo1",
+			requestedNamespace: "ns1",
+			recursive:          false,
+			fieldSelector: func(namespace string) fields.Selector {
+				return fields.SelectorFromSet(fields.Set{
+					"metadata.name":      "foo2",
+					"metadata.namespace": namespace + "ns2",
+				})
+			},
+			inputPods: func(namespace string) []example.Pod {
+				return []example.Pod{
+					*baseNamespacedPod("foo1", namespace+"ns1"),
+					*baseNamespacedPod("foo2", namespace+"ns1"),
+					*baseNamespacedPod("foo1", namespace+"ns2"),
+					*baseNamespacedPod("foo2", namespace+"ns2"),
+				}
+			},
+			expectPods: emptyPods,
+		},
+		{
+			name:               "request with name, request with namespace, with field selector metadata.name, metadata.namespace and spec.nodename",
+			requestedName:      "foo2",
+			requestedNamespace: "ns2",
+			recursive:          false,
+			fieldSelector: func(namespace string) fields.Selector {
+				return fields.SelectorFromSet(fields.Set{
+					"metadata.name":      "foo2",
+					"metadata.namespace": namespace + "ns2",
+					"spec.nodeName":      "bar1",
+				})
+			},
+			indexFields: []string{"spec.nodeName"},
+			inputPods: func(namespace string) []example.Pod {
+				return []example.Pod{
+					*baseNamespacedPod("foo1", namespace+"ns1"),
+					*baseNamespacedPod("foo2", namespace+"ns1"),
+					*baseNamespacedPod("foo1", namespace+"ns2"),
+					*baseNamespacedPodAssigned("foo2", namespace+"ns2", "bar1"),
+					*baseNamespacedPodAssigned("foo1", namespace+"ns3", "bar1"),
+					*baseNamespacedPodAssigned("foo2", namespace+"ns3", "bar1"),
+				}
+			},
+			expectPods: func(namespace string) []example.Pod {
+				return []example.Pod{
+					*baseNamespacedPodAssigned("foo2", namespace+"ns2", "bar1"),
+				}
+			},
+		},
+		{
+			name:               "request with name, request with namespace, with field selector metadata.name, metadata.namespace, and with spec.nodename to filter out",
+			requestedName:      "foo1",
+			requestedNamespace: "ns2",
+			recursive:          false,
+			fieldSelector: func(namespace string) fields.Selector {
+				return fields.AndSelectors(
+					fields.ParseSelectorOrDie("spec.nodeName!=bar2"),
+					fields.SelectorFromSet(fields.Set{"metadata.name": "foo1", "metadata.namespace": namespace + "ns2"}),
+				)
+			},
+			indexFields: []string{"spec.nodeName"},
+			inputPods: func(namespace string) []example.Pod {
+				return []example.Pod{
+					*baseNamespacedPod("foo1", namespace+"ns1"),
+					*baseNamespacedPod("foo2", namespace+"ns1"),
+					*baseNamespacedPodAssigned("foo1", namespace+"ns2", "bar1"),
+					*baseNamespacedPodAssigned("foo2", namespace+"ns2", "bar2"),
+					*baseNamespacedPodAssigned("foo1", namespace+"ns3", "bar2"),
+				}
+			},
+			expectPods: func(namespace string) []example.Pod {
+				return []example.Pod{
+					*baseNamespacedPodAssigned("foo1", namespace+"ns2", "bar1"),
+				}
+			},
+		},
+		{
+			name:               "recursive, request with name, request with namespace, without field selector",
+			requestedName:      "foo1",
+			requestedNamespace: "ns1",
+			recursive:          true,
+			fieldSelector:      func(namespace string) fields.Selector { return fields.Everything() },
+			inputPods: func(namespace string) []example.Pod {
+				return []example.Pod{
+					*baseNamespacedPod("foo1", namespace+"ns1"),
+					*baseNamespacedPod("foo2", namespace+"ns1"),
+					*baseNamespacedPod("foo1", namespace+"ns2"),
+				}
+			},
+			expectPods: emptyPods,
+		},
+		{
+			name:               "recursive, request with name, request with namespace, field selector with matched metadata.namespace",
+			requestedName:      "foo1",
+			requestedNamespace: "ns1",
+			recursive:          true,
+			fieldSelector: func(namespace string) fields.Selector {
+				return fields.SelectorFromSet(fields.Set{"metadata.namespace": namespace + "ns1"})
+			},
+			inputPods: func(namespace string) []example.Pod {
+				return []example.Pod{
+					*baseNamespacedPod("foo1", namespace+"ns1"),
+					*baseNamespacedPod("foo2", namespace+"ns1"),
+					*baseNamespacedPod("foo1", namespace+"ns2"),
+				}
+			},
+			expectPods: emptyPods,
+		},
+		{
+			name:               "recursive, request with name, request with namespace, field selector with non-matched metadata.namespace",
+			requestedName:      "foo1",
+			requestedNamespace: "ns1",
+			recursive:          true,
+			fieldSelector: func(namespace string) fields.Selector {
+				return fields.SelectorFromSet(fields.Set{"metadata.namespace": namespace + "ns2"})
+			},
+			inputPods: func(namespace string) []example.Pod {
+				return []example.Pod{
+					*baseNamespacedPod("foo1", namespace+"ns1"),
+					*baseNamespacedPod("foo2", namespace+"ns1"),
+					*baseNamespacedPod("foo1", namespace+"ns2"),
+				}
+			},
+			expectPods: emptyPods,
+		},
+		{
+			name:               "recursive, request with name, request with namespace, with field selector metadata.name",
+			requestedName:      "foo1",
+			requestedNamespace: "ns1",
+			recursive:          true,
+			fieldSelector:      func(namespace string) fields.Selector { return fields.ParseSelectorOrDie("metadata.name=foo1") },
+			inputPods: func(namespace string) []example.Pod {
+				return []example.Pod{
+					*baseNamespacedPod("foo1", namespace+"ns1"),
+					*baseNamespacedPod("foo2", namespace+"ns1"),
+					*baseNamespacedPod("foo1", namespace+"ns2"),
+				}
+			},
+			expectPods: emptyPods,
+		},
+		{
+			name:               "recursive, request with name, request with namespace, with field selector metadata.name and matched metadata.namespace",
+			requestedName:      "foo1",
+			requestedNamespace: "ns1",
+			recursive:          true,
+			fieldSelector: func(namespace string) fields.Selector {
+				return fields.SelectorFromSet(fields.Set{
+					"metadata.name":      "foo1",
+					"metadata.namespace": namespace + "ns1",
+				})
+			},
+			inputPods: func(namespace string) []example.Pod {
+				return []example.Pod{
+					*baseNamespacedPod("foo1", namespace+"ns1"),
+					*baseNamespacedPod("foo2", namespace+"ns1"),
+					*baseNamespacedPod("foo1", namespace+"ns2"),
+				}
+			},
+			expectPods: emptyPods,
+		},
+		{
+			name:               "recursive, request with name, request with namespace, with field selector metadata.name and non-matched metadata.namespace",
+			requestedName:      "foo1",
+			requestedNamespace: "ns1",
+			recursive:          true,
+			fieldSelector: func(namespace string) fields.Selector {
+				return fields.SelectorFromSet(fields.Set{
+					"metadata.name":      "foo1",
+					"metadata.namespace": namespace + "ns2",
+				})
+			},
+			inputPods: func(namespace string) []example.Pod {
+				return []example.Pod{
+					*baseNamespacedPod("foo1", namespace+"ns1"),
+					*baseNamespacedPod("foo2", namespace+"ns1"),
+					*baseNamespacedPod("foo1", namespace+"ns2"),
+				}
+			},
+			expectPods: emptyPods,
+		},
+		{
+			name:               "recursive, request with name, request with namespace, with field selector non-matched metadata.name",
+			requestedName:      "foo1",
+			requestedNamespace: "ns1",
+			recursive:          true,
+			fieldSelector:      func(namespace string) fields.Selector { return fields.ParseSelectorOrDie("metadata.name=foo2") },
+			inputPods: func(namespace string) []example.Pod {
+				return []example.Pod{
+					*baseNamespacedPod("foo1", namespace+"ns1"),
+					*baseNamespacedPod("foo2", namespace+"ns1"),
+					*baseNamespacedPod("foo1", namespace+"ns2"),
+				}
+			},
+			expectPods: emptyPods,
+		},
+		{
+			name:               "recursive, request with name, request with namespace, with field selector non-matched metadata.name and matched metadata.namespace",
+			requestedName:      "foo1",
+			requestedNamespace: "ns1",
+			recursive:          true,
+			fieldSelector: func(namespace string) fields.Selector {
+				return fields.SelectorFromSet(fields.Set{
+					"metadata.name":      "foo2",
+					"metadata.namespace": namespace + "ns1",
+				})
+			},
+			inputPods: func(namespace string) []example.Pod {
+				return []example.Pod{
+					*baseNamespacedPod("foo1", namespace+"ns1"),
+					*baseNamespacedPod("foo2", namespace+"ns1"),
+					*baseNamespacedPod("foo1", namespace+"ns2"),
+				}
+			},
+			expectPods: emptyPods,
+		},
+		{
+			name:               "recursive, request with name, request with namespace, with field selector non-matched metadata.name and non-matched metadata.namespace",
+			requestedName:      "foo1",
+			requestedNamespace: "ns1",
+			recursive:          true,
+			fieldSelector: func(namespace string) fields.Selector {
+				return fields.SelectorFromSet(fields.Set{
+					"metadata.name":      "foo2",
+					"metadata.namespace": namespace + "ns2",
+				})
+			},
+			inputPods: func(namespace string) []example.Pod {
+				return []example.Pod{
+					*baseNamespacedPod("foo1", namespace+"ns1"),
+					*baseNamespacedPod("foo2", namespace+"ns1"),
+					*baseNamespacedPod("foo1", namespace+"ns2"),
+				}
+			},
+			expectPods: emptyPods,
+		},
+		{
+			name:          "non-recursive, request without namespace, without field selector",
+			recursive:     false,
+			fieldSelector: func(namespace string) fields.Selector { return fields.Everything() },
+			inputPods: func(namespace string) []example.Pod {
+				return []example.Pod{
+					*baseNamespacedPod("foo1", namespace+"ns1"),
+					*baseNamespacedPod("foo2", namespace+"ns2"),
+				}
+			},
+			expectPods: emptyPods,
+		},
+		{
+			name:      "non-recursive, request without namespace, field selector with metadata.namespace",
+			recursive: false,
+			fieldSelector: func(namespace string) fields.Selector {
+				return fields.SelectorFromSet(fields.Set{"metadata.namespace": namespace + "ns1"})
+			},
+			inputPods: func(namespace string) []example.Pod {
+				return []example.Pod{
+					*baseNamespacedPod("foo1", namespace+"ns1"),
+					*baseNamespacedPod("foo1", namespace+"ns2"),
+				}
+			},
+			expectPods: emptyPods,
+		},
+		{
+			name:          "non-recursive, request without namespace, field selector with metadata.name",
+			recursive:     false,
+			fieldSelector: func(namespace string) fields.Selector { return fields.ParseSelectorOrDie("metadata.name=foo1") },
+			inputPods: func(namespace string) []example.Pod {
+				return []example.Pod{
+					*baseNamespacedPod("foo1", namespace+"ns1"),
+					*baseNamespacedPod("foo1", namespace+"ns2"),
+					*baseNamespacedPod("foo2", namespace+"ns1"),
+				}
+			},
+			expectPods: emptyPods,
+		},
+		{
+			name:      "non-recursive, request without namespace, field selector with metadata.name and metadata.namespace",
+			recursive: false,
+			fieldSelector: func(namespace string) fields.Selector {
+				return fields.SelectorFromSet(fields.Set{
+					"metadata.name":      "foo1",
+					"metadata.namespace": namespace + "ns1",
+				})
+			},
+			inputPods: func(namespace string) []example.Pod {
+				return []example.Pod{
+					*baseNamespacedPod("foo1", namespace+"ns1"),
+					*baseNamespacedPod("foo2", namespace+"ns1"),
+					*baseNamespacedPod("foo1", namespace+"ns2"),
+				}
+			},
+			expectPods: emptyPods,
+		},
+		{
+			name:               "non-recursive, request with namespace, without field selector",
+			requestedNamespace: "ns1",
+			recursive:          false,
+			fieldSelector:      func(namespace string) fields.Selector { return fields.Everything() },
+			inputPods: func(namespace string) []example.Pod {
+				return []example.Pod{
+					*baseNamespacedPod("foo1", namespace+"ns1"),
+					*baseNamespacedPod("foo1", namespace+"ns2"),
+					*baseNamespacedPod("foo2", namespace+"ns1"),
+				}
+			},
+			expectPods: emptyPods,
+		},
+		{
+			name:               "non-recursive, request with namespace, field selector with matched metadata.namespace",
+			requestedNamespace: "ns1",
+			recursive:          false,
+			fieldSelector: func(namespace string) fields.Selector {
+				return fields.SelectorFromSet(fields.Set{"metadata.namespace": namespace + "ns1"})
+			},
+			inputPods: func(namespace string) []example.Pod {
+				return []example.Pod{
+					*baseNamespacedPod("foo1", namespace+"ns1"),
+					*baseNamespacedPod("foo1", namespace+"ns2"),
+				}
+			},
+			expectPods: emptyPods,
+		},
+		{
+			name:               "non-recursive, request with namespace, field selector with non-matched metadata.namespace",
+			requestedNamespace: "ns1",
+			recursive:          false,
+			fieldSelector: func(namespace string) fields.Selector {
+				return fields.SelectorFromSet(fields.Set{"metadata.namespace": namespace + "ns2"})
+			},
+			inputPods: func(namespace string) []example.Pod {
+				return []example.Pod{
+					*baseNamespacedPod("foo1", namespace+"ns1"),
+					*baseNamespacedPod("foo1", namespace+"ns2"),
+				}
+			},
+			expectPods: emptyPods,
+		},
+		{
+			name:               "non-recursive, request with namespace, with field selector metadata.name",
+			requestedNamespace: "ns1",
+			recursive:          false,
+			fieldSelector:      func(namespace string) fields.Selector { return fields.ParseSelectorOrDie("metadata.name=foo1") },
+			inputPods: func(namespace string) []example.Pod {
+				return []example.Pod{
+					*baseNamespacedPod("foo1", namespace+"ns1"),
+					*baseNamespacedPod("foo2", namespace+"ns1"),
+					*baseNamespacedPod("foo1", namespace+"ns2"),
+				}
+			},
+			expectPods: emptyPods,
+		},
+		{
+			name:               "non-recursive, request with namespace, with field selector metadata.name and matched metadata.namespace",
+			requestedNamespace: "ns1",
+			recursive:          false,
+			fieldSelector: func(namespace string) fields.Selector {
+				return fields.SelectorFromSet(fields.Set{
+					"metadata.name":      "foo1",
+					"metadata.namespace": namespace + "ns1",
+				})
+			},
+			inputPods: func(namespace string) []example.Pod {
+				return []example.Pod{
+					*baseNamespacedPod("foo1", namespace+"ns1"),
+					*baseNamespacedPod("foo2", namespace+"ns1"),
+					*baseNamespacedPod("foo1", namespace+"ns2"),
+				}
+			},
+			expectPods: emptyPods,
+		},
+		{
+			name:               "non-recursive, request with namespace, with field selector metadata.name and non-matched metadata.namespace",
+			requestedNamespace: "ns1",
+			recursive:          false,
+			fieldSelector: func(namespace string) fields.Selector {
+				return fields.SelectorFromSet(fields.Set{
+					"metadata.name":      "foo1",
+					"metadata.namespace": namespace + "ns2",
+				})
+			},
+			inputPods: func(namespace string) []example.Pod {
+				return []example.Pod{
+					*baseNamespacedPod("foo1", namespace+"ns1"),
+					*baseNamespacedPod("foo2", namespace+"ns1"),
+					*baseNamespacedPod("foo1", namespace+"ns2"),
+				}
+			},
+			expectPods: emptyPods,
+		},
 	}
 	for i, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -4845,12 +5721,15 @@ func RunTestNamespaceScopedList(ctx context.Context, t *testing.T, store storage
 			opts := storage.ListOptions{
 				ResourceVersion: "",
 				Predicate:       CreatePodPredicate(tt.fieldSelector(namespace), true, tt.indexFields),
-				Recursive:       true,
+				Recursive:       tt.recursive,
 			}
 			listOut := &example.PodList{}
 			path := "/pods/"
 			if tt.requestedNamespace != "" {
 				path += namespace + tt.requestedNamespace
+				if tt.requestedName != "" {
+					path += "/" + tt.requestedName
+				}
 			}
 			if err := store.GetList(ctx, path, opts, listOut); err != nil {
 				t.Errorf("Unexpected error: %v", err)
