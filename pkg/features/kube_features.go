@@ -1304,6 +1304,7 @@ var defaultVersionedKubernetesFeatureGates = map[featuregate.Feature]featuregate
 
 	AuthorizePodWebsocketUpgradeCreatePermission: {
 		{Version: version.MustParse("1.35"), Default: true, PreRelease: featuregate.Beta},
+		{Version: version.MustParse("1.38"), Default: true, PreRelease: featuregate.GA, LockToDefault: true},
 	},
 
 	CPUCFSQuotaPeriod: {
@@ -1535,6 +1536,7 @@ var defaultVersionedKubernetesFeatureGates = map[featuregate.Feature]featuregate
 
 	ExtendWebSocketsToKubelet: {
 		{Version: version.MustParse("1.36"), Default: true, PreRelease: featuregate.Beta},
+		{Version: version.MustParse("1.38"), Default: true, PreRelease: featuregate.GA, LockToDefault: true},
 	},
 
 	ExternalServiceAccountTokenSigner: {
@@ -1908,6 +1910,7 @@ var defaultVersionedKubernetesFeatureGates = map[featuregate.Feature]featuregate
 	PortForwardWebsockets: {
 		{Version: version.MustParse("1.30"), Default: false, PreRelease: featuregate.Alpha},
 		{Version: version.MustParse("1.31"), Default: true, PreRelease: featuregate.Beta},
+		{Version: version.MustParse("1.38"), Default: true, PreRelease: featuregate.GA, LockToDefault: true},
 	},
 
 	ProcMountType: {
@@ -2132,6 +2135,7 @@ var defaultVersionedKubernetesFeatureGates = map[featuregate.Feature]featuregate
 	TranslateStreamCloseWebsocketRequests: {
 		{Version: version.MustParse("1.29"), Default: false, PreRelease: featuregate.Alpha},
 		{Version: version.MustParse("1.30"), Default: true, PreRelease: featuregate.Beta},
+		{Version: version.MustParse("1.38"), Default: true, PreRelease: featuregate.GA, LockToDefault: true},
 	},
 
 	UserNamespacesHostNetworkSupport: {
@@ -2208,6 +2212,10 @@ var defaultVersionedKubernetesFeatureGates = map[featuregate.Feature]featuregate
 
 	genericfeatures.APIServingWithRoutine: {
 		{Version: version.MustParse("1.30"), Default: false, PreRelease: featuregate.Alpha},
+	},
+
+	genericfeatures.AllocatorPoolBufferCap: {
+		{Version: version.MustParse("1.38"), Default: true, PreRelease: featuregate.Beta},
 	},
 
 	genericfeatures.AllowParsingUserUIDFromCertAuth: {
@@ -2311,6 +2319,10 @@ var defaultVersionedKubernetesFeatureGates = map[featuregate.Feature]featuregate
 	genericfeatures.RemoteRequestHeaderUID: {
 		{Version: version.MustParse("1.32"), Default: false, PreRelease: featuregate.Alpha},
 		{Version: version.MustParse("1.33"), Default: true, PreRelease: featuregate.Beta},
+	},
+
+	genericfeatures.RequestCostAggregation: {
+		{Version: version.MustParse("1.38"), Default: false, PreRelease: featuregate.Alpha},
 	},
 
 	genericfeatures.SeparateCacheWatchRPC: {
@@ -2787,6 +2799,8 @@ var defaultKubernetesFeatureGateDependencies = map[featuregate.Feature][]feature
 
 	genericfeatures.APIServingWithRoutine: {},
 
+	genericfeatures.AllocatorPoolBufferCap: {},
+
 	genericfeatures.AllowParsingUserUIDFromCertAuth: {},
 
 	genericfeatures.AllowUnsafeMalformedObjectDeletion: {},
@@ -2827,6 +2841,8 @@ var defaultKubernetesFeatureGateDependencies = map[featuregate.Feature][]feature
 	genericfeatures.OpenAPIV2LazyBuild: {},
 
 	genericfeatures.RemoteRequestHeaderUID: {},
+
+	genericfeatures.RequestCostAggregation: {},
 
 	genericfeatures.SeparateCacheWatchRPC: {},
 

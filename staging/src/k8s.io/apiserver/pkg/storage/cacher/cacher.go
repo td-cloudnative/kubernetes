@@ -570,7 +570,7 @@ func (c *Cacher) Watch(ctx context.Context, key string, opts storage.ListOptions
 	// to compute watcher.forget function (which has to happen under lock).
 	watcher := newCacheWatcher(
 		chanSize,
-		filterWithAttrsAndPrefixFunction(key, pred, c.groupResource),
+		filterWithAttrsAndPrefixFunction(key, pred, opts.Recursive, c.groupResource),
 		emptyFunc,
 		c.versioner,
 		deadline,
@@ -607,8 +607,11 @@ func (c *Cacher) Watch(ctx context.Context, key string, opts storage.ListOptions
 		return newErrWatcher(err), nil
 	}
 
-	c.setInitialEventsEndBookmarkIfRequested(cacheInterval, opts, c.watchCache.resourceVersion)
-	bookmarkAfterResourceVersion := c.getBookmarkAfterResourceVersionLocked(requestedWatchRV, requiredResourceVersion, opts)
+	var bookmarkAfterResourceVersion uint64
+	if isListWatchRequest(opts) {
+		c.setInitialEventsEndBookmark(cacheInterval, c.watchCache.resourceVersion)
+		bookmarkAfterResourceVersion = c.getBookmarkAfterResourceVersionLocked(requestedWatchRV, requiredResourceVersion, opts)
+	}
 
 	addedWatcher := false
 	func() {
@@ -644,7 +647,7 @@ func (c *Cacher) Watch(ctx context.Context, key string, opts storage.ListOptions
 		return newImmediateCloseWatcher(), nil
 	}
 
-	if utilfeature.DefaultFeatureGate.Enabled(features.ShardedListAndWatch) && pred.ShardSelector != nil && !pred.ShardSelector.Empty() {
+	if pred.ShardingEnabled() {
 		metrics.RecordShardedWatchStarted(c.groupResource)
 		originalForget := watcher.forget
 		watcher.forget = func(drainWatcher bool) {
@@ -837,7 +840,6 @@ func (c *Cacher) GetList(ctx context.Context, key string, opts storage.ListOptio
 		//   the elements in ListObject are Struct type, making slice will bring excessive memory consumption.
 		//   so we try to delay this action as much as possible
 		var selectedObjects []runtime.Object
-		shardingEnabled := utilfeature.DefaultFeatureGate.Enabled(features.ShardedListAndWatch)
 		for elem, err := range resp.All() {
 			if err != nil {
 				return err
@@ -848,17 +850,18 @@ func (c *Cacher) GetList(ctx context.Context, key string, opts storage.ListOptio
 				hasMoreListItems = true
 				break
 			}
-			shardMatch := true
-			if shardingEnabled {
-				shardMatch, err = opts.Predicate.MatchesSharding(elem.Object)
-				if err != nil {
-					return fmt.Errorf("shard matching failed: %w", err)
-				}
+			if !opts.Predicate.MatchesObjectAttributes(elem.Labels, elem.Fields) {
+				continue
 			}
-			if shardMatch && opts.Predicate.MatchesObjectAttributes(elem.Labels, elem.Fields) {
-				selectedObjects = append(selectedObjects, elem.Object)
-				lastSelectedObjectKey = elem.Key
+			shardMatch, err := opts.Predicate.MatchesSharding(elem.Object)
+			if err != nil {
+				return fmt.Errorf("shard matching failed: %w", err)
 			}
+			if !shardMatch {
+				continue
+			}
+			selectedObjects = append(selectedObjects, elem.Object)
+			lastSelectedObjectKey = elem.Key
 		}
 		if len(selectedObjects) == 0 {
 			// Ensure that we never return a nil Items pointer in the result for consistency.
@@ -883,9 +886,7 @@ func (c *Cacher) GetList(ctx context.Context, key string, opts storage.ListOptio
 			return err
 		}
 	}
-	if utilfeature.DefaultFeatureGate.Enabled(features.ShardedListAndWatch) {
-		opts.Predicate.SetShardInfoOnList(listObj)
-	}
+	opts.Predicate.SetShardInfoOnList(listObj)
 	metrics.RecordListCacheMetrics(c.groupResource, indexUsed, numFetched, listVal.Len())
 	return nil
 }
@@ -1275,26 +1276,29 @@ func forgetWatcher(c *Cacher, w *cacheWatcher, index int, selector watchSelector
 	}
 }
 
-func filterWithAttrsAndPrefixFunction(prefix string, p storage.SelectionPredicate, groupResource schema.GroupResource) filterWithAttrsFunc {
-	isSharded := utilfeature.DefaultFeatureGate.Enabled(features.ShardedListAndWatch) && p.ShardSelector != nil && !p.ShardSelector.Empty()
-	filterFunc := func(objKey string, label labels.Set, field fields.Set, obj runtime.Object) bool {
-		if !key.HasPathPrefix(objKey, prefix) {
+func filterWithAttrsAndPrefixFunction(prefix string, p storage.SelectionPredicate, recursive bool, groupResource schema.GroupResource) filterWithAttrsFunc {
+	return func(objKey string, label labels.Set, field fields.Set, obj runtime.Object) bool {
+		if recursive {
+			if !key.HasPathPrefix(objKey, prefix) {
+				return false
+			}
+		} else if objKey != prefix {
 			return false
 		}
-		if isSharded {
-			matches, err := p.MatchesSharding(obj)
-			if err != nil {
-				utilruntime.HandleError(fmt.Errorf("shard matching failed for %v: %w", groupResource, err))
-				return false
-			}
-			if !matches {
-				metrics.RecordWatchFilteredEvent(groupResource)
-				return false
-			}
+		if !p.MatchesObjectAttributes(label, field) {
+			return false
 		}
-		return p.MatchesObjectAttributes(label, field)
+		matches, err := p.MatchesSharding(obj)
+		if err != nil {
+			utilruntime.HandleError(fmt.Errorf("shard matching failed for %v: %w", groupResource, err))
+			return false
+		}
+		if !matches {
+			metrics.RecordWatchFilteredEvent(groupResource)
+			return false
+		}
+		return true
 	}
-	return filterFunc
 }
 
 // LastSyncResourceVersion returns resource version to which the underlying cache is synced.
@@ -1312,10 +1316,6 @@ func (c *Cacher) LastSyncResourceVersion() (uint64, error) {
 //
 // Must be called under the watchCache lock.
 func (c *Cacher) getBookmarkAfterResourceVersionLocked(parsedResourceVersion, requiredResourceVersion uint64, opts storage.ListOptions) uint64 {
-	if !isListWatchRequest(opts) {
-		return 0
-	}
-
 	switch {
 	case len(opts.ResourceVersion) == 0:
 		return requiredResourceVersion
@@ -1360,24 +1360,22 @@ func (c *Cacher) Wait(ctx context.Context) error {
 	return c.ready.wait(ctx)
 }
 
-// setInitialEventsEndBookmarkIfRequested sets initialEventsEndBookmark field in watchCacheInterval for watchlist request
-func (c *Cacher) setInitialEventsEndBookmarkIfRequested(cacheInterval *watchCacheInterval, opts storage.ListOptions, currentResourceVersion uint64) {
-	if opts.SendInitialEvents != nil && *opts.SendInitialEvents && opts.Predicate.AllowWatchBookmarks {
-		// We don't need to set the InitialEventsAnnotation for this bookmark event,
-		// because this will be automatically set during event conversion in cacheWatcher.convertToWatchEvent method
-		initialEventsEndBookmark := &watchCacheEvent{
-			Type:            watch.Bookmark,
-			Object:          c.newFunc(),
-			ResourceVersion: currentResourceVersion,
-		}
-
-		if err := c.versioner.UpdateObject(initialEventsEndBookmark.Object, initialEventsEndBookmark.ResourceVersion); err != nil {
-			klog.Errorf("failure to set resourceVersion to %d on initialEventsEndBookmark event %+v for watchlist request and wait for bookmark trigger to send", initialEventsEndBookmark.ResourceVersion, initialEventsEndBookmark.Object)
-			initialEventsEndBookmark = nil
-		}
-
-		cacheInterval.initialEventsEndBookmark = initialEventsEndBookmark
+// setInitialEventsEndBookmark sets initialEventsEndBookmark field in watchCacheInterval for watchlist request
+func (c *Cacher) setInitialEventsEndBookmark(cacheInterval *watchCacheInterval, currentResourceVersion uint64) {
+	// We don't need to set the InitialEventsAnnotation for this bookmark event,
+	// because this will be automatically set during event conversion in cacheWatcher.convertToWatchEvent method
+	initialEventsEndBookmark := &watchCacheEvent{
+		Type:            watch.Bookmark,
+		Object:          c.newFunc(),
+		ResourceVersion: currentResourceVersion,
 	}
+
+	if err := c.versioner.UpdateObject(initialEventsEndBookmark.Object, initialEventsEndBookmark.ResourceVersion); err != nil {
+		klog.Errorf("failure to set resourceVersion to %d on initialEventsEndBookmark event %+v for watchlist request and wait for bookmark trigger to send", initialEventsEndBookmark.ResourceVersion, initialEventsEndBookmark.Object)
+		initialEventsEndBookmark = nil
+	}
+
+	cacheInterval.initialEventsEndBookmark = initialEventsEndBookmark
 }
 
 func (c *Cacher) getKeys(ctx context.Context) ([]string, error) {
