@@ -421,7 +421,7 @@ func (sched *Scheduler) podGroupCycle(ctx context.Context, schedFwk framework.Fr
 		completePGResults = map[fwk.EntityKey]*podGroupAlgorithmResult{rootPodGroupInfo.PodGroupInfo.GetKey(): result}
 	}
 
-	metrics.PodGroupSchedulingAlgorithmLatency.Observe(metrics.SinceInSeconds(start))
+	metrics.PodGroupAlgorithmLatency(schedFwk.ProfileName(), metrics.EntityTypeToLabel(rootPodGroupInfo.Type()), metrics.SinceInSeconds(start))
 
 	// Run pod group post filter plugins if scheduling failed. If any of the plugins is successful,
 	// we need to put the pods from pod group back into the scheduling queue.
@@ -643,6 +643,10 @@ func completePodGroupAlgorithmResult(ctx context.Context, queuedPodInfos []*fram
 	if numInResult == numInQueue {
 		return podGroupResult
 	}
+	skippedPodStatus := podGroupResult.status
+	if skippedPodStatus.IsError() {
+		skippedPodStatus = buildParentPodGroupErrorStatus(podGroupResult.podGroupInfo.GetName())
+	}
 	newResults := make([]algorithmResult, numInQueue)
 	copy(newResults, podGroupResult.podResults)
 	for i := numInResult; i < numInQueue; i++ {
@@ -652,7 +656,7 @@ func completePodGroupAlgorithmResult(ctx context.Context, queuedPodInfos []*fram
 		newResults[i] = algorithmResult{
 			podInfo: pInfo,
 			podCtx:  initPodSchedulingContext(ctx, pInfo.Pod, placementCycleState),
-			status:  podGroupResult.status.Clone(),
+			status:  skippedPodStatus.Clone(),
 		}
 	}
 	podGroupResult.podResults = newResults
@@ -710,6 +714,11 @@ func completeCompositePodGroupAlgorithmResultMap(
 	for _, child := range podGroupInfo.Children() {
 		completeCompositePodGroupAlgorithmResultMap(child, pgResults, failedAncestor)
 	}
+}
+
+// buildParentPodGroupErrorStatus returns the status for a pod whose parent pod group encountered an error.
+func buildParentPodGroupErrorStatus(podGroupName string) *fwk.Status {
+	return fwk.AsStatus(fmt.Errorf("parent pod group %q encountered an error", podGroupName))
 }
 
 // buildAncestorFailureStatus returns the status for a pod group whose ancestor failed.
@@ -794,18 +803,19 @@ func (sched *Scheduler) submitPodGroupAlgorithmResult(ctx context.Context, sched
 		sched.submitPodGroupResult(ctx, schedFwk, podGroupState, queuedPodInfos, podGroupResult)
 	}
 
+	entityType := metrics.EntityTypeToLabel(rootPodGroupInfo.Type())
 	rootResult := podGroupResults[rootPodGroupInfo.PodGroupInfo.GetKey()]
 	switch {
 	case rootResult.status.IsSuccess():
-		metrics.PodGroupScheduled(schedFwk.ProfileName(), metrics.SinceInSeconds(start))
+		metrics.PodGroupScheduled(schedFwk.ProfileName(), entityType, metrics.SinceInSeconds(start))
 	case rootResult.status.IsRejected():
 		if rootResult.waitingOnPreemption {
-			metrics.PodGroupWaitingOnPreemption(schedFwk.ProfileName(), metrics.SinceInSeconds(start))
+			metrics.PodGroupWaitingOnPreemption(schedFwk.ProfileName(), entityType, metrics.SinceInSeconds(start))
 		} else {
-			metrics.PodGroupUnschedulable(schedFwk.ProfileName(), metrics.SinceInSeconds(start))
+			metrics.PodGroupUnschedulable(schedFwk.ProfileName(), entityType, metrics.SinceInSeconds(start))
 		}
 	default:
-		metrics.PodGroupScheduleError(schedFwk.ProfileName(), metrics.SinceInSeconds(start))
+		metrics.PodGroupScheduleError(schedFwk.ProfileName(), entityType, metrics.SinceInSeconds(start))
 	}
 
 	if err := sched.SchedulingQueue.AddAttemptedPodGroupIfNeeded(logger, rootPodGroupInfo, sched.SchedulingQueue.SchedulingCycle(), rootStatus); err != nil {
@@ -881,8 +891,9 @@ func (sched *Scheduler) submitPodGroupResult(ctx context.Context, schedFwk frame
 				sched.FailureHandler(ctx, schedFwk, pInfo, podResult.status, clearNominatedNode, podSchedulingStart)
 				continue
 			}
-			// Pod group failed with an error. Reject all pods with its status.
-			sched.FailureHandler(ctx, schedFwk, pInfo, podGroupResult.status, clearNominatedNode, podSchedulingStart)
+			// Pod group failed with an error. Reject all pods with a status referencing the parent pod group.
+			errStatus := buildParentPodGroupErrorStatus(pgi.GetName())
+			sched.FailureHandler(ctx, schedFwk, pInfo, errStatus, clearNominatedNode, podSchedulingStart)
 			continue
 		}
 		if podResult.status.IsSuccess() {
