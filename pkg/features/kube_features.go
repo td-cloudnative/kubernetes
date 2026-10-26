@@ -51,11 +51,6 @@ const (
 	// for kubelet signers where CN=system:node:$nodeName.
 	AllowInsecureKubeletCertificateSigningRequests featuregate.Feature = "AllowInsecureKubeletCertificateSigningRequests"
 
-	// owner: @HirazawaUi
-	//
-	// Allow spec.terminationGracePeriodSeconds to be overridden by MaxPodGracePeriodSeconds in soft evictions.
-	AllowOverwriteTerminationGracePeriodSeconds featuregate.Feature = "AllowOverwriteTerminationGracePeriodSeconds"
-
 	// owner: @adrianmoisey
 	// kep: https://kep.k8s.io/5707
 	//
@@ -413,13 +408,6 @@ const (
 	// Enables a new .spec.evictionResponders Pod field, as well as new EvictionRequest and Eviction Resources.
 	// This can be used by a set of requesters and responders to coordinate graceful eviction of pods.
 	EvictionRequestAPI featuregate.Feature = "EvictionRequestAPI"
-
-	// owner: @andrewsykim @SergeyKanzhelev
-	//
-	// Ensure kubelet respects exec probe timeouts. Feature gate exists in-case existing workloads
-	// may depend on old behavior where exec probe timeouts were ignored.
-	// Locked to default, will remove in v1.38. Progress is reflected in KEP #1972 update
-	ExecProbeTimeout featuregate.Feature = "ExecProbeTimeout"
 
 	// owner: @seans3
 	// kep: http://kep.k8s.io/4006
@@ -1260,12 +1248,6 @@ var defaultVersionedKubernetesFeatureGates = map[featuregate.Feature]featuregate
 		{Version: version.MustParse("1.31"), Default: false, PreRelease: featuregate.Deprecated},
 	},
 
-	AllowOverwriteTerminationGracePeriodSeconds: {
-		{Version: version.MustParse("1.0"), Default: true, PreRelease: featuregate.GA},
-		{Version: version.MustParse("1.32"), Default: false, PreRelease: featuregate.Deprecated},
-		{Version: version.MustParse("1.35"), Default: false, PreRelease: featuregate.Deprecated, LockToDefault: true}, // remove in 1.38
-	},
-
 	AllowServiceExternalIPs: {
 		{Version: version.MustParse("1.0"), Default: true, PreRelease: featuregate.GA},
 	},
@@ -1499,11 +1481,6 @@ var defaultVersionedKubernetesFeatureGates = map[featuregate.Feature]featuregate
 
 	EvictionRequestAPI: {
 		{Version: version.MustParse("1.37"), Default: false, PreRelease: featuregate.Alpha},
-	},
-
-	ExecProbeTimeout: {
-		{Version: version.MustParse("1.20"), Default: true, PreRelease: featuregate.GA},
-		{Version: version.MustParse("1.35"), Default: true, PreRelease: featuregate.GA, LockToDefault: true}, // remove in v1.38
 	},
 
 	ExtendWebSocketsToKubelet: {
@@ -2377,8 +2354,6 @@ var defaultKubernetesFeatureGateDependencies = map[featuregate.Feature][]feature
 
 	AllowInsecureKubeletCertificateSigningRequests: {},
 
-	AllowOverwriteTerminationGracePeriodSeconds: {},
-
 	AllowServiceExternalIPs: {},
 
 	AtomicWriteVolumeUserFields: {},
@@ -2476,8 +2451,6 @@ var defaultKubernetesFeatureGateDependencies = map[featuregate.Feature][]feature
 	EventedPLEG: {PLEGOnDemandRelist},
 
 	EvictionRequestAPI: {},
-
-	ExecProbeTimeout: {},
 
 	ExtendWebSocketsToKubelet: {NodeDeclaredFeatures},
 
