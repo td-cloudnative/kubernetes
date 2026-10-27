@@ -125,7 +125,7 @@ type objState struct {
 // when a precondition, validation, or update error occurs. If the state is already
 // current, or if the revision in etcd matches the cached revision, it returns the
 // original error.
-func refreshOnError(st *objState, err error, getCurrentState func() (*objState, error)) (*objState, error) {
+func refreshOnError(st *objState, err error, ignoreNotFound bool, getCurrentState func(ignoteNotFounc bool) (*objState, error)) (*objState, error) {
 	// If our data is already up to date, return the error
 	if st.current {
 		return st, err
@@ -136,7 +136,7 @@ func refreshOnError(st *objState, err error, getCurrentState func() (*objState, 
 	cachedRev := st.rev
 	cachedErr := err
 
-	currentState, err := getCurrentState()
+	currentState, err := getCurrentState(ignoreNotFound)
 	if err != nil {
 		return nil, err
 	}
@@ -425,14 +425,16 @@ func (s *store) Delete(
 func (s *store) conditionalDelete(
 	ctx context.Context, key string, out runtime.Object, v reflect.Value, preconditions *storage.Preconditions,
 	validateDeletion storage.ValidateObjectFunc, cachedExistingObject runtime.Object, expectTransformOrDecodeError bool) error {
-	getCurrentState := s.getCurrentState(ctx, "deleteGet", key, v, false, expectTransformOrDecodeError)
+	getCurrentState := func(ignoreNotFound bool) (*objState, error) {
+		return s.getCurrentState(ctx, "deleteGet", key, v, ignoreNotFound, expectTransformOrDecodeError)
+	}
 
 	var origState *objState
 	var err error
 	if cachedExistingObject != nil {
 		origState, err = s.getStateFromObject(cachedExistingObject, false)
 	} else {
-		origState, err = getCurrentState()
+		origState, err = getCurrentState(false)
 	}
 	if err != nil {
 		return err
@@ -441,7 +443,7 @@ func (s *store) conditionalDelete(
 	for {
 		if preconditions != nil {
 			if err := preconditions.Check(key, origState.obj); err != nil {
-				origState, err = refreshOnError(origState, err, getCurrentState)
+				origState, err = refreshOnError(origState, err, false, getCurrentState)
 				if err != nil {
 					return err
 				}
@@ -449,7 +451,7 @@ func (s *store) conditionalDelete(
 			}
 		}
 		if err := validateDeletion(ctx, origState.obj); err != nil {
-			origState, err = refreshOnError(origState, err, getCurrentState)
+			origState, err = refreshOnError(origState, err, false, getCurrentState)
 			if err != nil {
 				return err
 			}
@@ -514,13 +516,15 @@ func (s *store) GuaranteedUpdate(
 		return fmt.Errorf("unable to convert output object to pointer: %v", err)
 	}
 
-	getCurrentState := s.getCurrentState(ctx, "updateGet", preparedKey, v, ignoreNotFound, false)
+	getCurrentState := func(ignoreNotFound bool) (*objState, error) {
+		return s.getCurrentState(ctx, "updateGet", preparedKey, v, ignoreNotFound, false)
+	}
 
 	var origState *objState
 	if cachedExistingObject != nil {
 		origState, err = s.getStateFromObject(cachedExistingObject, false)
 	} else {
-		origState, err = getCurrentState()
+		origState, err = getCurrentState(ignoreNotFound)
 	}
 	if err != nil {
 		return err
@@ -529,7 +533,7 @@ func (s *store) GuaranteedUpdate(
 
 	for {
 		if err := preconditions.Check(preparedKey, origState.obj); err != nil {
-			origState, err = refreshOnError(origState, err, getCurrentState)
+			origState, err = refreshOnError(origState, err, ignoreNotFound, getCurrentState)
 			if err != nil {
 				return err
 			}
@@ -538,7 +542,7 @@ func (s *store) GuaranteedUpdate(
 
 		ret, ttl, err := updateState(origState, tryUpdate)
 		if err != nil {
-			origState, err = refreshOnError(origState, err, getCurrentState)
+			origState, err = refreshOnError(origState, err, ignoreNotFound, getCurrentState)
 			if err != nil {
 				return err
 			}
@@ -546,7 +550,7 @@ func (s *store) GuaranteedUpdate(
 		}
 
 		var success bool
-		origState, success, err = s.updateOnce(ctx, preparedKey, destination, origState, ret, ttl, v, ignoreNotFound, getCurrentState)
+		origState, success, err = s.updateOnce(ctx, preparedKey, destination, origState, ret, ttl, v, ignoreNotFound)
 		if err != nil {
 			return err
 		}
@@ -556,7 +560,7 @@ func (s *store) GuaranteedUpdate(
 	}
 }
 
-func (s *store) updateOnce(ctx context.Context, preparedKey string, destination runtime.Object, origState *objState, ret runtime.Object, ttl uint64, v reflect.Value, ignoreNotFound bool, getCurrentState func() (*objState, error)) (state *objState, success bool, err error) {
+func (s *store) updateOnce(ctx context.Context, preparedKey string, destination runtime.Object, origState *objState, ret runtime.Object, ttl uint64, v reflect.Value, ignoreNotFound bool) (state *objState, success bool, err error) {
 	if err := s.versioner.PrepareObjectForStorage(ret); err != nil {
 		return origState, false, fmt.Errorf("PrepareObjectForStorage failed: %v", err)
 	}
@@ -575,7 +579,7 @@ func (s *store) updateOnce(ctx context.Context, preparedKey string, destination 
 		// etcd in order to be sure the data in the store is equivalent to
 		// our desired serialization before short-circuiting a write.
 		if !origState.current {
-			origState, err = getCurrentState()
+			origState, err = s.getCurrentState(ctx, "updateGet", preparedKey, v, ignoreNotFound, false)
 			if err != nil {
 				return origState, false, err
 			}
@@ -1171,16 +1175,14 @@ func (s *store) watchContext(ctx context.Context) context.Context {
 	return clientv3.WithRequireLeader(ctx)
 }
 
-func (s *store) getCurrentState(ctx context.Context, verb, key string, v reflect.Value, ignoreNotFound bool, expectTransformOrDecodeError bool) func() (*objState, error) {
-	return func() (*objState, error) {
-		startTime := time.Now()
-		getResp, err := s.client.Kubernetes.Get(ctx, key, kubernetes.GetOptions{})
-		metrics.RecordEtcdRequest(verb, s.groupResource, err, startTime)
-		if err != nil {
-			return nil, err
-		}
-		return s.stateFromEtcdResponse(ctx, getResp.KV, getResp.Revision, key, v, ignoreNotFound, expectTransformOrDecodeError)
+func (s *store) getCurrentState(ctx context.Context, verb, key string, v reflect.Value, ignoreNotFound bool, expectTransformOrDecodeError bool) (*objState, error) {
+	startTime := time.Now()
+	getResp, err := s.client.Kubernetes.Get(ctx, key, kubernetes.GetOptions{})
+	metrics.RecordEtcdRequest(verb, s.groupResource, err, startTime)
+	if err != nil {
+		return nil, err
 	}
+	return s.stateFromEtcdResponse(ctx, getResp.KV, getResp.Revision, key, v, ignoreNotFound, expectTransformOrDecodeError)
 }
 
 // stateFromEtcdResponse constructs a new objState from the given response from the storage. If
