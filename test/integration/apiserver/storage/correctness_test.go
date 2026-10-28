@@ -18,8 +18,10 @@ package storage
 
 import (
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -92,16 +94,24 @@ var (
 				{Choice: false, Weight: 30},
 			},
 			FieldSelector: []ChoiceWeight[FieldSelector]{
-				{Choice: FieldEverything, Weight: 25},
-				{Choice: FieldByName, Weight: 15},
-				{Choice: FieldByNamespace, Weight: 15},
-				{Choice: FieldByNode, Weight: 20},
-				{Choice: FieldByEmptyNode, Weight: 15},
+				{Choice: FieldEverything, Weight: 20},
+				{Choice: FieldByName, Weight: 10},
+				{Choice: FieldNotByName, Weight: 10},
+				{Choice: FieldByNamespace, Weight: 10},
+				{Choice: FieldNotByNamespace, Weight: 10},
+				{Choice: FieldByNode, Weight: 10},
+				{Choice: FieldNotByNode, Weight: 10},
+				{Choice: FieldByEmptyNode, Weight: 10},
 				{Choice: FieldCombined, Weight: 10},
 			},
 			LabelSelector: []ChoiceWeight[LabelSelector]{
-				{Choice: LabelEverything, Weight: 60},
-				{Choice: LabelByApp, Weight: 40},
+				{Choice: LabelEverything, Weight: 40},
+				{Choice: LabelByApp, Weight: 15},
+				{Choice: LabelNotByApp, Weight: 15},
+				{Choice: LabelAppIn, Weight: 10},
+				{Choice: LabelAppNotIn, Weight: 10},
+				{Choice: LabelAppExists, Weight: 5},
+				{Choice: LabelAppDoesNotExist, Weight: 5},
 			},
 			ResourceVersion: []ChoiceWeight[RVType]{
 				{Choice: RVEmpty, Weight: 30},
@@ -180,7 +190,7 @@ var (
 
 	unaryCfg = UnaryConfig{
 		Concurrency:         8,
-		MaxOperations:       10000,
+		SucceededOperations: 5000,
 		RequestDistribution: requestDistribution,
 	}
 
@@ -200,16 +210,24 @@ var (
 			{Choice: false, Weight: 30},
 		},
 		FieldSelector: []ChoiceWeight[FieldSelector]{
-			{Choice: FieldEverything, Weight: 25},
-			{Choice: FieldByName, Weight: 15},
-			{Choice: FieldByNamespace, Weight: 15},
-			{Choice: FieldByNode, Weight: 20},
-			{Choice: FieldByEmptyNode, Weight: 15},
+			{Choice: FieldEverything, Weight: 20},
+			{Choice: FieldByName, Weight: 10},
+			{Choice: FieldNotByName, Weight: 10},
+			{Choice: FieldByNamespace, Weight: 10},
+			{Choice: FieldNotByNamespace, Weight: 10},
+			{Choice: FieldByNode, Weight: 10},
+			{Choice: FieldNotByNode, Weight: 10},
+			{Choice: FieldByEmptyNode, Weight: 10},
 			{Choice: FieldCombined, Weight: 10},
 		},
 		LabelSelector: []ChoiceWeight[LabelSelector]{
-			{Choice: LabelEverything, Weight: 60},
-			{Choice: LabelByApp, Weight: 40},
+			{Choice: LabelEverything, Weight: 40},
+			{Choice: LabelByApp, Weight: 15},
+			{Choice: LabelNotByApp, Weight: 15},
+			{Choice: LabelAppIn, Weight: 10},
+			{Choice: LabelAppNotIn, Weight: 10},
+			{Choice: LabelAppExists, Weight: 5},
+			{Choice: LabelAppDoesNotExist, Weight: 5},
 		},
 		SendInitialEvents: []ChoiceWeight[bool]{
 			{Choice: false, Weight: 70},
@@ -389,12 +407,14 @@ func testCorrectness(t *testing.T, store storage.Interface, storagePrefix string
 	})
 	wg.Wait()
 	require.NoError(t, err)
-	watchEvents := 0
-	for _, w := range watches {
-		watchEvents += len(w.Response.Events)
+	unaryTotal, unaryByOp := summarizeUnaryOperations(operations)
+	watchTotal, watchEvents := summarizeWatchOperations(watches)
+	t.Logf("Unary operations: %s", unaryTotal)
+	for _, op := range slices.Sorted(maps.Keys(unaryByOp)) {
+		t.Logf("  %-7s %s", op+":", *unaryByOp[op])
 	}
-	t.Logf("Collected %d unary operations and %d watches with %d events",
-		len(operations), len(watches), watchEvents)
+	t.Logf("Watches: %s events=%d", watchTotal, watchEvents)
+	require.GreaterOrEqual(t, unaryTotal.succeeded, unaryCfg.SucceededOperations, "expected at least %d succeeded unary operations", unaryCfg.SucceededOperations)
 
 	model := ToPorcupineModel(initialState)
 	res, info := porcupine.CheckOperationsVerbose(model, toPorcupineOperations(operations), time.Minute)

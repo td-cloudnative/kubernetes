@@ -424,6 +424,7 @@ func (w *watchCache) waitUntilFreshAndListRecursive(ctx context.Context, key str
 	// The RV semantic below is for Recursive List, non-recursive lists should use waitUntilFreshAndListNonRecursive.
 	recursive := true
 	var continueKey string
+	var snap store.Snapshot
 	matchValues := opts.Predicate.MatcherIndex(ctx)
 	listRV, err := w.config.versioner.ParseResourceVersion(opts.ResourceVersion)
 	if err != nil {
@@ -431,8 +432,9 @@ func (w *watchCache) waitUntilFreshAndListRecursive(ctx context.Context, key str
 	}
 	switch opts.ResourceVersionMatch {
 	case metav1.ResourceVersionMatchExact:
-		return w.waitAndListExactRV(ctx, key, continueKey, listRV)
+		snap, err = w.waitAndGetExactSnapshot(ctx, listRV)
 	case metav1.ResourceVersionMatchNotOlderThan:
+		snap, index, err = w.waitAndGetLatestSnapshot(ctx, recursive, listRV, matchValues)
 	case "":
 		var continueRV int64
 		// Continue
@@ -442,31 +444,27 @@ func (w *watchCache) waitUntilFreshAndListRecursive(ctx context.Context, key str
 				return listResp{}, "", errors.NewBadRequest(fmt.Sprintf("invalid continue token: %v", err))
 			}
 			if continueRV > 0 {
-				return w.waitAndListExactRV(ctx, key, continueKey, uint64(continueRV))
+				snap, err = w.waitAndGetExactSnapshot(ctx, uint64(continueRV))
 			} else {
 				// Don't pass matchValues as they don't support continueKey
 				matchValues = nil
-				return w.waitAndListConsistent(ctx, recursive, key, continueKey, matchValues)
+				snap, index, err = w.waitAndGetConsistentSnapshot(ctx, recursive, matchValues)
 			}
+		} else if opts.Predicate.Limit > 0 && len(opts.ResourceVersion) > 0 && opts.ResourceVersion != "0" {
+			// Legacy exact match
+			snap, err = w.waitAndGetExactSnapshot(ctx, listRV)
+		} else if opts.ResourceVersion == "" {
+			snap, index, err = w.waitAndGetConsistentSnapshot(ctx, recursive, matchValues)
+		} else {
+			snap, index, err = w.waitAndGetLatestSnapshot(ctx, recursive, listRV, matchValues)
 		}
-		// Legacy exact match
-		if opts.Predicate.Limit > 0 && len(opts.ResourceVersion) > 0 && opts.ResourceVersion != "0" {
-			return w.waitAndListExactRV(ctx, key, continueKey, listRV)
-		}
-		if opts.ResourceVersion == "" {
-			return w.waitAndListConsistent(ctx, recursive, key, continueKey, matchValues)
-		}
+	default:
+		snap, index, err = w.waitAndGetLatestSnapshot(ctx, recursive, listRV, matchValues)
 	}
-	return w.waitAndListLatestRV(ctx, recursive, listRV, key, continueKey, matchValues)
-}
-
-func (w *watchCache) waitAndListExactRV(ctx context.Context, key, continueKey string, resourceVersion uint64) (resp listResp, index string, err error) {
-	snap, err := w.waitAndGetExactSnapshot(ctx, resourceVersion)
 	if err != nil {
 		return listResp{}, "", err
 	}
-	w.checkSnapshotResourceVersion(snap, resourceVersion)
-	return listResp{ResourceVersion: snap.ResourceVersion(), Range: snap.RangePrefix(key, continueKey)}, "", nil
+	return listResp{ResourceVersion: snap.ResourceVersion(), Range: snap.RangePrefix(key, continueKey)}, index, nil
 }
 
 func (w *watchCache) waitAndGetExactSnapshot(ctx context.Context, resourceVersion uint64) (store.Snapshot, error) {
@@ -490,22 +488,14 @@ func (w *watchCache) waitAndGetExactSnapshot(ctx context.Context, resourceVersio
 	return store, nil
 }
 
-func (w *watchCache) waitAndListConsistent(ctx context.Context, recursive bool, key, continueKey string, matchValues []storage.MatchValue) (resp listResp, index string, err error) {
+func (w *watchCache) waitAndGetConsistentSnapshot(ctx context.Context, recursive bool, matchValues []storage.MatchValue) (snap store.Snapshot, index string, err error) {
 	span := tracing.SpanFromContext(ctx)
 	resourceVersion, err := w.config.getCurrentRV(ctx)
 	if err != nil {
-		return listResp{}, "", err
+		return nil, "", err
 	}
 	span.AddEvent("getCurrentRV success")
-	return w.waitAndListLatestRV(ctx, recursive, resourceVersion, key, continueKey, matchValues)
-}
-
-func (w *watchCache) waitAndListLatestRV(ctx context.Context, recursive bool, minResourceVersion uint64, key, continueKey string, matchValues []storage.MatchValue) (resp listResp, index string, err error) {
-	snap, index, err := w.waitAndGetLatestSnapshot(ctx, recursive, minResourceVersion, matchValues)
-	if err != nil {
-		return listResp{}, "", err
-	}
-	return listResp{ResourceVersion: snap.ResourceVersion(), Range: snap.RangePrefix(key, continueKey)}, index, nil
+	return w.waitAndGetLatestSnapshot(ctx, recursive, resourceVersion, matchValues)
 }
 
 func (w *watchCache) waitAndGetLatestSnapshot(ctx context.Context, recursive bool, minResourceVersion uint64, matchValues []storage.MatchValue) (snap store.Snapshot, index string, err error) {

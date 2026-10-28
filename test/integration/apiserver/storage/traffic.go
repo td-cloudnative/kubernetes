@@ -33,6 +33,7 @@ import (
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/selection"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/uuid"
 	"k8s.io/apimachinery/pkg/watch"
@@ -84,19 +85,27 @@ const (
 type FieldSelector string
 
 const (
-	FieldEverything  FieldSelector = "Everything"
-	FieldByName      FieldSelector = "ByName"
-	FieldByNamespace FieldSelector = "ByNamespace"
-	FieldByNode      FieldSelector = "ByNode"
-	FieldByEmptyNode FieldSelector = "ByEmptyNode"
-	FieldCombined    FieldSelector = "Combined"
+	FieldEverything     FieldSelector = "Everything"
+	FieldByName         FieldSelector = "ByName"
+	FieldNotByName      FieldSelector = "NotByName"
+	FieldByNamespace    FieldSelector = "ByNamespace"
+	FieldNotByNamespace FieldSelector = "NotByNamespace"
+	FieldByNode         FieldSelector = "ByNode"
+	FieldNotByNode      FieldSelector = "NotByNode"
+	FieldByEmptyNode    FieldSelector = "ByEmptyNode"
+	FieldCombined       FieldSelector = "Combined"
 )
 
 type LabelSelector string
 
 const (
-	LabelEverything LabelSelector = "Everything"
-	LabelByApp      LabelSelector = "ByApp"
+	LabelEverything      LabelSelector = "Everything"
+	LabelByApp           LabelSelector = "ByApp"
+	LabelNotByApp        LabelSelector = "NotByApp"
+	LabelAppIn           LabelSelector = "AppIn"
+	LabelAppNotIn        LabelSelector = "AppNotIn"
+	LabelAppExists       LabelSelector = "AppExists"
+	LabelAppDoesNotExist LabelSelector = "AppDoesNotExist"
 )
 
 type WatcherBehavior string
@@ -111,8 +120,8 @@ const (
 var (
 	nodeNames     = []string{"", "node-1", "node-2"}
 	nonEmptyNodes = []string{"node-1", "node-2"}
-	appLabels     = []string{"", "app-a", "app-b"}
-	nonEmptyApps  = []string{"app-a", "app-b"}
+	appLabels     = []string{"", "app-a", "app-b", "app-c"}
+	nonEmptyApps  = []string{"app-a", "app-b", "app-c"}
 
 	errDeleteRejected = errors.New("delete rejected by validateDeletion")
 	errUpdateRejected = errors.New("update rejected by tryUpdate")
@@ -182,7 +191,7 @@ type WatchDistribution struct {
 
 type UnaryConfig struct {
 	Concurrency         int
-	MaxOperations       int
+	SucceededOperations int
 	RequestDistribution RequestDistribution
 }
 
@@ -211,7 +220,8 @@ func pickKeyTarget(key types.NamespacedName, dist []ChoiceWeight[KeyTarget]) typ
 	}
 }
 
-// RunUnaryTraffic drives concurrent storage operations and records all invocations.
+// RunUnaryTraffic drives concurrent storage operations until cfg.SucceededOperations
+// requests succeed and records all invocations.
 func RunUnaryTraffic(ctx context.Context, store storage.Interface, objects []types.NamespacedName, cfg UnaryConfig) ([]correctness.Operation, error) {
 	if cfg.Concurrency <= 0 {
 		return nil, fmt.Errorf("concurrency must be positive")
@@ -222,16 +232,16 @@ func RunUnaryTraffic(ctx context.Context, store storage.Interface, objects []typ
 	if len(cfg.RequestDistribution.Op) == 0 {
 		return nil, fmt.Errorf("operations must be non-empty")
 	}
-	if cfg.MaxOperations <= 0 {
-		return nil, fmt.Errorf("MaxOperations must be positive")
+	if cfg.SucceededOperations <= 0 {
+		return nil, fmt.Errorf("SucceededOperations must be positive")
 	}
 
-	var requestCounter atomic.Int64
+	var succeeded atomic.Int64
 	var mu sync.Mutex
 	var operations []correctness.Operation
 
 	var wg sync.WaitGroup
-	for clientID := 0; clientID < cfg.Concurrency; clientID++ {
+	for clientID := range cfg.Concurrency {
 		wg.Add(1)
 		go func(cid int) {
 			defer wg.Done()
@@ -242,12 +252,14 @@ func RunUnaryTraffic(ctx context.Context, store storage.Interface, objects []typ
 					return
 				default:
 				}
+				if succeeded.Load() >= int64(cfg.SucceededOperations) {
+					return
+				}
 				request := randomRequest(ctx, store, objects, cfg.RequestDistribution, cachedObj)
 				if request == nil {
 					continue
 				}
-				requestNumber := requestCounter.Add(1)
-				if cfg.MaxOperations > 0 && requestNumber > int64(cfg.MaxOperations) {
+				if succeeded.Load() >= int64(cfg.SucceededOperations) {
 					return
 				}
 				start := time.Now()
@@ -268,6 +280,10 @@ func RunUnaryTraffic(ctx context.Context, store storage.Interface, objects []typ
 				mu.Lock()
 				operations = append(operations, op)
 				mu.Unlock()
+
+				if response.Err == nil && succeeded.Add(1) >= int64(cfg.SucceededOperations) {
+					return
+				}
 			}
 		}(clientID)
 	}
@@ -696,30 +712,34 @@ func randomWatchRequest(ctx context.Context, store storage.Interface, keys []typ
 
 func pickPredicate(key types.NamespacedName, fieldDist []ChoiceWeight[FieldSelector], labelDist []ChoiceWeight[LabelSelector]) storage.SelectionPredicate {
 	node := nonEmptyNodes[rand.Intn(len(nonEmptyNodes))]
-	app := nonEmptyApps[rand.Intn(len(nonEmptyApps))]
+	appIdx := rand.Intn(len(nonEmptyApps))
+	app := nonEmptyApps[appIdx]
+	otherApp := nonEmptyApps[(appIdx+1)%len(nonEmptyApps)]
 
 	fieldSel := fields.Everything()
-	var indexFields []string
 	if len(fieldDist) > 0 {
 		switch fs := PickRandom(fieldDist); fs {
 		case FieldEverything:
 			fieldSel = fields.Everything()
 		case FieldByName:
 			fieldSel = fields.OneTermEqualSelector("metadata.name", key.Name)
+		case FieldNotByName:
+			fieldSel = fields.OneTermNotEqualSelector("metadata.name", key.Name)
 		case FieldByNamespace:
 			fieldSel = fields.OneTermEqualSelector("metadata.namespace", key.Namespace)
+		case FieldNotByNamespace:
+			fieldSel = fields.OneTermNotEqualSelector("metadata.namespace", key.Namespace)
 		case FieldByNode:
 			fieldSel = fields.OneTermEqualSelector("spec.nodeName", node)
-			indexFields = []string{"spec.nodeName"}
+		case FieldNotByNode:
+			fieldSel = fields.OneTermNotEqualSelector("spec.nodeName", node)
 		case FieldByEmptyNode:
 			fieldSel = fields.OneTermEqualSelector("spec.nodeName", "")
-			indexFields = []string{"spec.nodeName"}
 		case FieldCombined:
 			fieldSel = fields.AndSelectors(
 				fields.OneTermEqualSelector("metadata.namespace", key.Namespace),
 				fields.OneTermEqualSelector("spec.nodeName", node),
 			)
-			indexFields = []string{"spec.nodeName"}
 		default:
 			panic(fmt.Sprintf("%v: unknown field selector", fs))
 		}
@@ -732,17 +752,30 @@ func pickPredicate(key types.NamespacedName, fieldDist []ChoiceWeight[FieldSelec
 			labelSel = labels.Everything()
 		case LabelByApp:
 			labelSel = labels.SelectorFromSet(labels.Set{"app": app})
+		case LabelNotByApp:
+			labelSel = mustLabelSelector("app", selection.NotEquals, app)
+		case LabelAppIn:
+			labelSel = mustLabelSelector("app", selection.In, app, otherApp)
+		case LabelAppNotIn:
+			labelSel = mustLabelSelector("app", selection.NotIn, app, otherApp)
+		case LabelAppExists:
+			labelSel = mustLabelSelector("app", selection.Exists)
+		case LabelAppDoesNotExist:
+			labelSel = mustLabelSelector("app", selection.DoesNotExist)
 		default:
 			panic(fmt.Sprintf("%v: unknown label selector", ls))
 		}
 	}
 
-	return storage.SelectionPredicate{
-		Label:       labelSel,
-		Field:       fieldSel,
-		GetAttrs:    registrypod.GetAttrs,
-		IndexFields: indexFields,
+	return registrypod.MatchPod(labelSel, fieldSel)
+}
+
+func mustLabelSelector(key string, op selection.Operator, vals ...string) labels.Selector {
+	req, err := labels.NewRequirement(key, op, vals)
+	if err != nil {
+		panic(err)
 	}
+	return labels.NewSelector().Add(*req)
 }
 
 func relativeRV(ctx context.Context, store storage.Interface, offset int64) string {

@@ -598,28 +598,13 @@ func (c *Cacher) Watch(ctx context.Context, key string, opts storage.ListOptions
 		span.AddEvent("watchCache fresh enough")
 	}
 
-	var cacheInterval *watchCacheInterval
-	cacheInterval, err = c.watchCache.getAllEventsSinceLocked(ctx, requiredResourceVersion, key, opts)
+	cacheInterval, err := c.initWatcherIntervalLocked(ctx, watcher, requestedWatchRV, requiredResourceVersion)
 	if err != nil {
 		// To match the uncached watch implementation, once we have passed authn/authz/admission,
 		// and successfully parsed a resource version, other errors must fail with a watch event of type ERROR,
 		// rather than a directly returned error.
 		return newErrWatcher(err), nil
 	}
-	if cacheInterval.resourceVersion < requiredResourceVersion {
-		klog.ErrorS(nil, "Watch cache interval resourceVersion must be greater than or equal to required resourceVersion", "group", c.groupResource.Group, "resource", c.groupResource.Resource, "intervalResourceVersion", cacheInterval.resourceVersion, "requiredResourceVersion", requiredResourceVersion)
-		if consistency.PanicOnCacheInconsistency {
-			panic(fmt.Sprintf("Watch cache interval resourceVersion (%d) must be greater than or equal to required resourceVersion (%d), group: %q, resource: %q", cacheInterval.resourceVersion, requiredResourceVersion, c.groupResource.Group, c.groupResource.Resource))
-		}
-	}
-
-	var bookmarkAfterResourceVersion uint64
-	if isListWatchRequest(opts) {
-		c.setInitialEventsEndBookmark(cacheInterval, c.watchCache.resourceVersion)
-		bookmarkAfterResourceVersion = c.getBookmarkAfterResourceVersionLocked(requestedWatchRV, requiredResourceVersion, opts)
-	}
-	// Update the bookMarkAfterResourceVersion
-	watcher.setBookmarkAfterResourceVersion(bookmarkAfterResourceVersion)
 
 	addedWatcher := false
 	func() {
@@ -665,6 +650,29 @@ func (c *Cacher) Watch(ctx context.Context, key string, opts storage.ListOptions
 	watcher.input <- watcherInput{interval: cacheInterval}
 	go watcher.process(ctx)
 	return watcher, nil
+}
+
+func (c *Cacher) initWatcherIntervalLocked(ctx context.Context, watcher *cacheWatcher, requestedWatchRV, requiredResourceVersion uint64) (*watchCacheInterval, error) {
+	opts := watcher.filter.opts
+	cacheInterval, err := c.watchCache.getAllEventsSinceLocked(ctx, requiredResourceVersion, watcher.filter.prefix, opts)
+	if err != nil {
+		return nil, err
+	}
+	if cacheInterval.resourceVersion < requiredResourceVersion {
+		klog.ErrorS(nil, "Watch cache interval resourceVersion must be greater than or equal to required resourceVersion", "group", c.groupResource.Group, "resource", c.groupResource.Resource, "intervalResourceVersion", cacheInterval.resourceVersion, "requiredResourceVersion", requiredResourceVersion)
+		if consistency.PanicOnCacheInconsistency {
+			panic(fmt.Sprintf("Watch cache interval resourceVersion (%d) must be greater than or equal to required resourceVersion (%d), group: %q, resource: %q", cacheInterval.resourceVersion, requiredResourceVersion, c.groupResource.Group, c.groupResource.Resource))
+		}
+	}
+
+	var bookmarkAfterResourceVersion uint64
+	if isListWatchRequest(opts) {
+		c.setInitialEventsEndBookmark(cacheInterval)
+		bookmarkAfterResourceVersion = getBookmarkAfterResourceVersion(requestedWatchRV, requiredResourceVersion, cacheInterval.resourceVersion, opts)
+	}
+	// Update the bookMarkAfterResourceVersion
+	watcher.setBookmarkAfterResourceVersion(bookmarkAfterResourceVersion)
+	return cacheInterval, nil
 }
 
 func (c *Cacher) watchSelector(ctx context.Context, pred storage.SelectionPredicate) watchSelector {
@@ -1330,17 +1338,14 @@ func (c *Cacher) LastSyncResourceVersion() (uint64, error) {
 	return c.versioner.ParseResourceVersion(resourceVersion)
 }
 
-// getBookmarkAfterResourceVersionLocked returns a ResourceVersion after which
+// getBookmarkAfterResourceVersion returns a ResourceVersion after which
 // the bookmark event will be delivered.
-//
-// Must be called under the watchCache lock.
-func (c *Cacher) getBookmarkAfterResourceVersionLocked(parsedResourceVersion, requiredResourceVersion uint64, opts storage.ListOptions) uint64 {
+func getBookmarkAfterResourceVersion(parsedResourceVersion, requiredResourceVersion, watchCacheResourceVersion uint64, opts storage.ListOptions) uint64 {
 	switch {
 	case len(opts.ResourceVersion) == 0:
 		return requiredResourceVersion
 	case parsedResourceVersion == 0:
-		// here we assume that watchCache locked is already held
-		return c.watchCache.resourceVersion
+		return watchCacheResourceVersion
 	default:
 		return parsedResourceVersion
 	}
@@ -1380,13 +1385,13 @@ func (c *Cacher) Wait(ctx context.Context) error {
 }
 
 // setInitialEventsEndBookmark sets initialEventsEndBookmark field in watchCacheInterval for watchlist request
-func (c *Cacher) setInitialEventsEndBookmark(cacheInterval *watchCacheInterval, currentResourceVersion uint64) {
+func (c *Cacher) setInitialEventsEndBookmark(cacheInterval *watchCacheInterval) {
 	// We don't need to set the InitialEventsAnnotation for this bookmark event,
 	// because this will be automatically set during event conversion in cacheWatcher.convertToWatchEvent method
 	initialEventsEndBookmark := &watchCacheEvent{
 		Type:            watch.Bookmark,
 		Object:          c.newFunc(),
-		ResourceVersion: currentResourceVersion,
+		ResourceVersion: cacheInterval.resourceVersion,
 	}
 
 	if err := c.versioner.UpdateObject(initialEventsEndBookmark.Object, initialEventsEndBookmark.ResourceVersion); err != nil {
