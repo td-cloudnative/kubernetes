@@ -26,7 +26,6 @@ import (
 	"time"
 
 	v1 "k8s.io/api/core/v1"
-	schedulingv1alpha3 "k8s.io/api/scheduling/v1alpha3"
 	schedulingv1beta1 "k8s.io/api/scheduling/v1beta1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -186,7 +185,7 @@ func TestNominatedNodeNameIsSetBeforePreBindAndWaitOnPermit(t *testing.T) {
 				}
 
 				if test.expectNominatedNodeName {
-					err := testutils.WaitForNominatedNodeNameWithTimeout(testCtx.Ctx, testCtx.ClientSet, pod, time.Second)
+					err := schedulerutils.WaitForNominatedNodeNameWithTimeout(testCtx.Ctx, testCtx.ClientSet, pod, time.Second)
 					if nnnForExpectationEnabled {
 						if err != nil {
 							t.Errorf(".status.nominatedNodeName was not set in pod %v/%v: %v", pod.Namespace, pod.Name, err)
@@ -198,7 +197,7 @@ func TestNominatedNodeNameIsSetBeforePreBindAndWaitOnPermit(t *testing.T) {
 						}
 					}
 				} else {
-					if err := testutils.WaitForPodToSchedule(testCtx.Ctx, testCtx.ClientSet, pod); err != nil {
+					if err := schedulerutils.WaitForPodToSchedule(testCtx.Ctx, testCtx.ClientSet, pod); err != nil {
 						t.Errorf("Pod %v/%v was not scheduled: %v", pod.Namespace, pod.Name, err)
 					}
 				}
@@ -218,7 +217,7 @@ type createPodGroup struct {
 }
 
 type createCompositePodGroup struct {
-	compositePodGroup *schedulingv1alpha3.CompositePodGroup
+	compositePodGroup *schedulingv1beta1.CompositePodGroup
 }
 
 type schedulePod struct {
@@ -300,7 +299,7 @@ func makeBasicPodGroup(name string, priority int32) *schedulingv1beta1.PodGroup 
 	return st.MakePodGroup().Name(name).Priority(priority).BasicPolicy().Obj()
 }
 
-func makeCompositePodGroup(name string, priority int32) *schedulingv1alpha3.CompositePodGroup {
+func makeCompositePodGroup(name string, priority int32) *schedulingv1beta1.CompositePodGroup {
 	return st.MakeCompositePodGroup().Name(name).Priority(priority).BasicPolicy().WorkloadRef("wl1", "t1").Obj()
 }
 
@@ -969,7 +968,7 @@ func initializeAndRunTestScenarios(t *testing.T, sharedAPICtx *testutils.TestCon
 	// We manually trigger the scheduling cycle.
 	testCtx := testutils.InitTestSchedulerWithOptions(t,
 		// Create a fresh namespace for each test case to prevent tests from interfering with each other.
-		testutils.WithNewNamespace(t, sharedAPICtx, "preemption"),
+		schedulerutils.WithNewNamespace(t, sharedAPICtx, "preemption"),
 		0,
 		scheduler.WithProfiles(cfg.Profiles...),
 		scheduler.WithFrameworkOutOfTreeRegistry(registry),
@@ -994,7 +993,7 @@ func initializeAndRunTestScenarios(t *testing.T, sharedAPICtx *testutils.TestCon
 
 	createdPods := []*v1.Pod{}
 	createdPodGroups := []*schedulingv1beta1.PodGroup{}
-	createdCompositePodGroups := []*schedulingv1alpha3.CompositePodGroup{}
+	createdCompositePodGroups := []*schedulingv1beta1.CompositePodGroup{}
 	defer func() {
 		testutils.CleanupPods(testCtx.Ctx, cs, t, createdPods)
 		schedulerutils.CleanupPodGroups(testCtx.Ctx, cs, t, createdPodGroups)
@@ -1044,8 +1043,8 @@ func runCreatePodGroup(t *testing.T, testCtx *testutils.TestContext, action *cre
 	*createdPodGroups = append(*createdPodGroups, pg)
 }
 
-func runCreateCompositePodGroup(t *testing.T, testCtx *testutils.TestContext, action *createCompositePodGroup, createdCompositePodGroups *[]*schedulingv1alpha3.CompositePodGroup) {
-	cpg, err := testCtx.ClientSet.SchedulingV1alpha3().CompositePodGroups(testCtx.NS.Name).Create(testCtx.Ctx, action.compositePodGroup, metav1.CreateOptions{})
+func runCreateCompositePodGroup(t *testing.T, testCtx *testutils.TestContext, action *createCompositePodGroup, createdCompositePodGroups *[]*schedulingv1beta1.CompositePodGroup) {
+	cpg, err := testCtx.ClientSet.SchedulingV1beta1().CompositePodGroups(testCtx.NS.Name).Create(testCtx.Ctx, action.compositePodGroup, metav1.CreateOptions{})
 	if err != nil {
 		t.Fatalf("Failed to create CompositePodGroup %q: %v", action.compositePodGroup.Name, err)
 	}
@@ -1326,7 +1325,7 @@ func TestSchedulerRestartWithNominatedNode(t *testing.T) {
 	nodeOther := st.MakeNode().Name("node-other").Taints([]v1.Taint{{Key: "foo", Effect: v1.TaintEffectPreferNoSchedule}}).Obj()
 
 	for _, n := range []*v1.Node{nodePreferred, nodeOther} {
-		if _, err := testutils.CreateNode(cs, n); err != nil {
+		if _, err := schedulerutils.CreateNode(cs, n); err != nil {
 			t.Fatalf("Failed to create node %s: %v", n.Name, err)
 		}
 	}
@@ -1348,7 +1347,7 @@ func TestSchedulerRestartWithNominatedNode(t *testing.T) {
 	// Ensures NNN is set
 	mockPreBind := &mockPreBindPlugin{}
 
-	initSched := func(additionalPlugins ...fwk.Plugin) (*testutils.TestContext, testutils.ShutdownFunc) {
+	initSched := func(additionalPlugins ...fwk.Plugin) (*testutils.TestContext, schedulerutils.ShutdownFunc) {
 		var pls []fwk.Plugin
 		pls = append(pls, mockQueueSort, mockPreBind)
 		pls = append(pls, additionalPlugins...)
@@ -1359,7 +1358,7 @@ func TestSchedulerRestartWithNominatedNode(t *testing.T) {
 			scheduler.WithFrameworkOutOfTreeRegistry(registry),
 		)
 		// Ensure both nodes are in the cache before proceeding
-		if err := testutils.WaitForNodesInCache(testCtx.Ctx, testCtx.Scheduler, 2); err != nil {
+		if err := schedulerutils.WaitForNodesInCache(testCtx.Ctx, testCtx.Scheduler, 2); err != nil {
 			t.Fatalf("Failed to wait for nodes in cache: %v", err)
 		}
 		return testCtx, teardown
@@ -1384,7 +1383,7 @@ func TestSchedulerRestartWithNominatedNode(t *testing.T) {
 	// We expect the scheduler will stop due to SchedulerCloseFn being called in bind
 	<-testCtx.SchedulerCtx.Done()
 
-	podA, err := testutils.GetPod(cs, podA.Name, podA.Namespace)
+	podA, err := schedulerutils.GetPod(cs, podA.Name, podA.Namespace)
 	if err != nil {
 		t.Fatalf("Failed to get pod %s: %v", podA.Name, err)
 	}
@@ -1409,14 +1408,14 @@ func TestSchedulerRestartWithNominatedNode(t *testing.T) {
 	go testCtx.Scheduler.Run(testCtx.SchedulerCtx)
 
 	for _, pod := range []*v1.Pod{podA, podB} {
-		if err := testutils.WaitForPodToSchedule(ctx, cs, pod); err != nil {
+		if err := schedulerutils.WaitForPodToSchedule(ctx, cs, pod); err != nil {
 			t.Errorf("Failed waiting for pod %s: %v", pod.Name, err)
 		}
 	}
 
 	checkNode := func(pod *v1.Pod, expected string) {
 		t.Helper()
-		p, _ := testutils.GetPod(cs, pod.Name, pod.Namespace)
+		p, _ := schedulerutils.GetPod(cs, pod.Name, pod.Namespace)
 		if p.Spec.NodeName != expected {
 			t.Errorf("%s scheduled on %s, wanted %s", pod.Name, p.Spec.NodeName, expected)
 		}

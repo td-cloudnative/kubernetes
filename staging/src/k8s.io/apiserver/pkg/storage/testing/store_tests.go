@@ -5992,3 +5992,365 @@ func mustParseResourceVersion(t *testing.T, resourceVersion string) int64 {
 	}
 	return int64(rv)
 }
+
+type optimisticCallbackAction int
+
+const (
+	actionMutate optimisticCallbackAction = iota
+	actionNoop
+	actionReject
+	actionConflictUpdate
+	actionConflictReject
+	actionConflictDelete
+)
+
+type optimisticConcurrencyTestCase struct {
+	name              string
+	missingKey        bool
+	ignoreNotFound    bool
+	action            optimisticCallbackAction
+	preconditions     func(current *example.Pod) *storage.Preconditions
+	transformer       PrefixTransformerModifier
+	expectStatsCacher KubernetesRequestStats
+	expectStatsEtcd   KubernetesRequestStats
+	expectErr         func(error) bool
+}
+
+func RunTestOptimisticConcurrency(ctx context.Context, t *testing.T, store InterfaceWithPrefixTransformer, watchCacheEnabled bool, recorder *KubernetesRecorder) {
+	matchCurrent := func(cur *example.Pod) *storage.Preconditions {
+		return &storage.Preconditions{UID: &cur.UID, ResourceVersion: &cur.ResourceVersion}
+	}
+	wrongUID := func(_ *example.Pod) *storage.Preconditions {
+		return storage.NewUIDPreconditions("wrong-uid")
+	}
+	wrongRV := func(_ *example.Pod) *storage.Preconditions {
+		return &storage.Preconditions{ResourceVersion: ptr.To("999999999")}
+	}
+	rotatedTransformer := func(previous *PrefixTransformer) value.Transformer {
+		prevCopy := *previous
+		return value.NewPrefixTransformers(nil,
+			value.PrefixTransformer{Prefix: []byte("rotated!"), Transformer: NewPrefixTransformer([]byte{}, false)},
+			value.PrefixTransformer{Prefix: []byte{}, Transformer: &prevCopy},
+		)
+	}
+	incompatibleTransformer := func(_ *PrefixTransformer) value.Transformer {
+		return NewPrefixTransformer([]byte("otherprefix!"), false)
+	}
+
+	testCases := []optimisticConcurrencyTestCase{
+		{
+			name:              "existing object commits in single transaction",
+			expectStatsCacher: KubernetesRequestStats{Writes: 1},
+			expectStatsEtcd:   KubernetesRequestStats{Gets: 1, Writes: 1},
+		},
+		{
+			name:              "existing object with rotated transformer commits in single transaction",
+			transformer:       rotatedTransformer,
+			expectStatsCacher: KubernetesRequestStats{Writes: 1},
+			expectStatsEtcd:   KubernetesRequestStats{Gets: 1, Writes: 1},
+		},
+		{
+			name:              "noop update short-circuits without writing",
+			action:            actionNoop,
+			expectStatsCacher: KubernetesRequestStats{Gets: 1},
+			expectStatsEtcd:   KubernetesRequestStats{Gets: 1},
+		},
+		{
+			name:              "noop update with rotated transformer rewrites object",
+			action:            actionNoop,
+			transformer:       rotatedTransformer,
+			expectStatsCacher: KubernetesRequestStats{Gets: 1, Writes: 1},
+			expectStatsEtcd:   KubernetesRequestStats{Gets: 1, Writes: 1},
+		},
+		{
+			name:              "noop update with incompatible transformer fails",
+			action:            actionNoop,
+			transformer:       incompatibleTransformer,
+			expectStatsCacher: KubernetesRequestStats{Gets: 1},
+			expectStatsEtcd:   KubernetesRequestStats{Gets: 1},
+			expectErr:         storage.IsInternalError,
+		},
+		{
+			name:              "missing key returns NotFound",
+			missingKey:        true,
+			expectStatsCacher: KubernetesRequestStats{Gets: 1},
+			expectStatsEtcd:   KubernetesRequestStats{Gets: 1},
+			expectErr:         storage.IsNotFound,
+		},
+		{
+			name:              "missing key with preconditions returns NotFound",
+			missingKey:        true,
+			preconditions:     wrongUID,
+			expectStatsCacher: KubernetesRequestStats{Gets: 1},
+			expectStatsEtcd:   KubernetesRequestStats{Gets: 1},
+			expectErr:         storage.IsNotFound,
+		},
+		{
+			name:              "missing key with ignoreNotFound creates object",
+			missingKey:        true,
+			ignoreNotFound:    true,
+			expectStatsCacher: KubernetesRequestStats{Gets: 1, Writes: 1},
+			expectStatsEtcd:   KubernetesRequestStats{Gets: 1, Writes: 1},
+		},
+		{
+			name:              "missing key with ignoreNotFound fails preconditions without retry",
+			missingKey:        true,
+			ignoreNotFound:    true,
+			preconditions:     wrongUID,
+			expectStatsCacher: KubernetesRequestStats{Gets: 1},
+			expectStatsEtcd:   KubernetesRequestStats{Gets: 1},
+			expectErr:         storage.IsInvalidObj,
+		},
+		{
+			name:              "matching preconditions commit in single transaction",
+			preconditions:     matchCurrent,
+			expectStatsCacher: KubernetesRequestStats{Writes: 1},
+			expectStatsEtcd:   KubernetesRequestStats{Gets: 1, Writes: 1},
+		},
+		{
+			name:              "UID precondition mismatch fails without retry",
+			preconditions:     wrongUID,
+			expectStatsCacher: KubernetesRequestStats{Gets: 1},
+			expectStatsEtcd:   KubernetesRequestStats{Gets: 1},
+			expectErr:         storage.IsInvalidObj,
+		},
+		{
+			name:              "ResourceVersion precondition mismatch fails without retry",
+			preconditions:     wrongRV,
+			expectStatsCacher: KubernetesRequestStats{Gets: 1},
+			expectStatsEtcd:   KubernetesRequestStats{Gets: 1},
+			expectErr:         storage.IsInvalidObj,
+		},
+		{
+			name:              "callback error fails without retry",
+			action:            actionReject,
+			expectStatsCacher: KubernetesRequestStats{Gets: 1},
+			expectStatsEtcd:   KubernetesRequestStats{Gets: 1},
+			expectErr:         apierrors.IsConflict,
+		},
+		{
+			name:              "concurrent update conflict refreshes and retries",
+			action:            actionConflictUpdate,
+			expectStatsCacher: KubernetesRequestStats{Writes: 2, Conflicts: 1},
+			expectStatsEtcd:   KubernetesRequestStats{Gets: 1, Writes: 2, Conflicts: 1},
+		},
+		{
+			name:              "concurrent update conflict fails preconditions on retry",
+			preconditions:     matchCurrent,
+			action:            actionConflictUpdate,
+			expectStatsCacher: KubernetesRequestStats{Writes: 1, Conflicts: 1},
+			expectStatsEtcd:   KubernetesRequestStats{Gets: 1, Writes: 1, Conflicts: 1},
+			expectErr:         storage.IsInvalidObj,
+		},
+		{
+			name:              "concurrent update conflict fails callback on retry",
+			action:            actionConflictReject,
+			expectStatsCacher: KubernetesRequestStats{Writes: 1, Conflicts: 1},
+			expectStatsEtcd:   KubernetesRequestStats{Gets: 1, Writes: 1, Conflicts: 1},
+			expectErr:         apierrors.IsConflict,
+		},
+		{
+			name:              "concurrent delete conflict returns NotFound",
+			action:            actionConflictDelete,
+			expectStatsCacher: KubernetesRequestStats{Writes: 1, Conflicts: 1},
+			expectStatsEtcd:   KubernetesRequestStats{Gets: 1, Writes: 1, Conflicts: 1},
+			expectErr:         storage.IsNotFound,
+		},
+		{
+			name:              "concurrent delete conflict with ignoreNotFound recreates object",
+			ignoreNotFound:    true,
+			action:            actionConflictDelete,
+			expectStatsCacher: KubernetesRequestStats{Writes: 2, Conflicts: 1},
+			expectStatsEtcd:   KubernetesRequestStats{Gets: 1, Writes: 2, Conflicts: 1},
+		},
+		{
+			name:              "missing key with ignoreNotFound and concurrent create refreshes and retries",
+			missingKey:        true,
+			ignoreNotFound:    true,
+			action:            actionConflictUpdate,
+			expectStatsCacher: KubernetesRequestStats{Gets: 1, Writes: 2, Conflicts: 1},
+			expectStatsEtcd:   KubernetesRequestStats{Gets: 1, Writes: 2, Conflicts: 1},
+		},
+	}
+
+	for i, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			if !tc.ignoreNotFound && tc.action != actionNoop {
+				t.Run("Delete", func(t *testing.T) {
+					runOptimisticConcurrencyOp(ctx, t, store, watchCacheEnabled, recorder, fmt.Sprintf("pod-%d-delete", i), tc, true)
+				})
+			}
+			t.Run("GuaranteedUpdate", func(t *testing.T) {
+				runOptimisticConcurrencyOp(ctx, t, store, watchCacheEnabled, recorder, fmt.Sprintf("pod-%d-update", i), tc, false)
+			})
+		})
+	}
+}
+
+func runOptimisticConcurrencyOp(ctx context.Context, t *testing.T, store InterfaceWithPrefixTransformer, watchCacheEnabled bool, recorder *KubernetesRecorder, podName string, tc optimisticConcurrencyTestCase, isDelete bool) {
+	key := "/pods/test-ns/" + podName
+	out := &example.Pod{}
+
+	var current *example.Pod
+	if !tc.missingKey {
+		seed := &example.Pod{
+			ObjectMeta: metav1.ObjectMeta{
+				Namespace: "test-ns",
+				Name:      podName,
+				UID:       "uid-1",
+				Labels:    map[string]string{"rev": "initial"},
+			},
+		}
+		current = &example.Pod{}
+		require.NoError(t, store.Create(ctx, key, seed, current, 0))
+		if watchCacheEnabled {
+			require.NoError(t, store.Get(ctx, key, storage.GetOptions{ResourceVersion: current.ResourceVersion}, &example.Pod{}))
+		}
+	}
+
+	var revertTransformer func()
+	if tc.transformer != nil {
+		revertFn := store.UpdatePrefixTransformer(tc.transformer)
+		var reverted bool
+		revertTransformer = func() {
+			if reverted {
+				return
+			}
+			if watchCacheEnabled && out.ResourceVersion != "" {
+				// Ensure the background watch transforms the event at out.ResourceVersion before restoring the old prefix.
+				_ = store.Get(ctx, key, storage.GetOptions{IgnoreNotFound: true, ResourceVersion: out.ResourceVersion}, &example.Pod{})
+			}
+			revertFn()
+			reverted = true
+		}
+		defer revertTransformer()
+	}
+
+	var precond *storage.Preconditions
+	if tc.preconditions != nil {
+		precond = tc.preconditions(current)
+	}
+
+	rejectWithDirtyMutation := func(obj runtime.Object) error {
+		// Mutate input in place before failing so missing DeepCopy on cached objects is caught.
+		if p, ok := obj.(*example.Pod); ok && p != nil {
+			if p.Labels == nil {
+				p.Labels = map[string]string{}
+			}
+			p.Labels["rejected"] = "dirty"
+		}
+		return apierrors.NewConflict(example.Resource("pods"), podName, errors.New("rejected"))
+	}
+
+	var conflictInjected bool
+	onCallback := func(obj runtime.Object) error {
+		switch tc.action {
+		case actionReject:
+			return rejectWithDirtyMutation(obj)
+		case actionConflictUpdate, actionConflictReject:
+			if !conflictInjected {
+				conflictInjected = true
+				updated := &example.Pod{}
+				require.NoError(t, store.GuaranteedUpdate(ctx, key, updated, true, nil, storage.SimpleUpdate(func(in runtime.Object) (runtime.Object, error) {
+					p := in.(*example.Pod)
+					if p.Name == "" {
+						p.Namespace = "test-ns"
+						p.Name = podName
+						p.Labels = map[string]string{}
+					}
+					p.Labels["rev"] = "conflict"
+					return p, nil
+				}), nil))
+				current = updated
+				return nil
+			}
+			if tc.action == actionConflictReject {
+				return rejectWithDirtyMutation(obj)
+			}
+		case actionConflictDelete:
+			if !conflictInjected {
+				conflictInjected = true
+				require.NoError(t, store.Delete(ctx, key, &example.Pod{}, nil, storage.ValidateAllObjectFunc, nil, storage.DeleteOptions{}))
+				current = nil
+			}
+		}
+		return nil
+	}
+
+	recorderKey := t.Name()
+	opCtx := context.WithValue(ctx, RecorderContextKey, recorderKey)
+	var err error
+	if isDelete {
+		err = store.Delete(opCtx, key, out, precond, func(_ context.Context, obj runtime.Object) error {
+			return onCallback(obj)
+		}, nil, storage.DeleteOptions{})
+	} else {
+		err = store.GuaranteedUpdate(opCtx, key, out, tc.ignoreNotFound, precond, storage.SimpleUpdate(func(obj runtime.Object) (runtime.Object, error) {
+			if err := onCallback(obj); err != nil {
+				return nil, err
+			}
+			pod := obj.(*example.Pod)
+			if pod.Name == "" {
+				require.Equal(t, &example.Pod{}, pod)
+				pod.Namespace = "test-ns"
+				pod.Name = podName
+			}
+			if tc.action != actionNoop {
+				if pod.Annotations == nil {
+					pod.Annotations = make(map[string]string)
+				}
+				pod.Annotations["mutated"] = "updated"
+			}
+			return pod, nil
+		}), nil)
+	}
+
+	if tc.expectErr != nil {
+		require.True(t, tc.expectErr(err), "unexpected error: %v", err)
+	} else {
+		require.NoError(t, err)
+	}
+
+	wantStats := tc.expectStatsEtcd
+	if watchCacheEnabled {
+		wantStats = tc.expectStatsCacher
+	}
+	require.Equal(t, wantStats, recorder.StatsForKey(recorderKey))
+
+	if tc.expectErr != nil {
+		if current != nil && (tc.action == actionReject || tc.action == actionConflictReject) {
+			cached := &example.Pod{}
+			require.NoError(t, store.Get(ctx, key, storage.GetOptions{ResourceVersion: current.ResourceVersion}, cached))
+			require.Equal(t, current, cached)
+		}
+		return
+	}
+
+	expectOut := &example.Pod{}
+	if isDelete {
+		expectOut = current.DeepCopy()
+		expectOut.ResourceVersion = out.ResourceVersion
+		require.True(t, storage.IsNotFound(store.Get(ctx, key, storage.GetOptions{}, &example.Pod{})))
+	} else {
+		if tc.action == actionNoop {
+			if tc.transformer != nil {
+				require.NotEqual(t, current.ResourceVersion, out.ResourceVersion)
+			} else {
+				require.Equal(t, current.ResourceVersion, out.ResourceVersion)
+			}
+		} else {
+			require.Equal(t, "updated", out.Annotations["mutated"])
+		}
+		require.NoError(t, store.Get(ctx, key, storage.GetOptions{}, expectOut))
+	}
+
+	require.Equal(t, expectOut, out)
+
+	if revertTransformer != nil {
+		revertTransformer()
+		if !isDelete {
+			// Stored bytes now carry the rotated prefix and cannot be read with the original prefix alone.
+			require.True(t, storage.IsInternalError(store.Get(ctx, key, storage.GetOptions{}, &example.Pod{})))
+		}
+	}
+}

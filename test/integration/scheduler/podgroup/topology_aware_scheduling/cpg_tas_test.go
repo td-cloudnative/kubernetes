@@ -20,16 +20,15 @@ import (
 	"testing"
 
 	v1 "k8s.io/api/core/v1"
-	schedulingv1alpha3 "k8s.io/api/scheduling/v1alpha3"
-	schedulingapi "k8s.io/api/scheduling/v1beta1"
+	schedulingv1beta1 "k8s.io/api/scheduling/v1beta1"
 	"k8s.io/apimachinery/pkg/util/sets"
 	utilfeature "k8s.io/apiserver/pkg/util/feature"
 	featuregatetesting "k8s.io/component-base/featuregate/testing"
 	"k8s.io/kubernetes/pkg/features"
 	"k8s.io/kubernetes/pkg/scheduler"
 	st "k8s.io/kubernetes/pkg/scheduler/testing"
+	schedulerutils "k8s.io/kubernetes/test/integration/scheduler"
 	stepsframework "k8s.io/kubernetes/test/integration/scheduler/podgroup/stepsframework"
-	testutils "k8s.io/kubernetes/test/integration/util"
 )
 
 func makeNodeWithLabels(nodeName string, labels map[string]string) *v1.Node {
@@ -63,7 +62,7 @@ func makeAssignedGroupPod(podName, podGroupName, nodeName, consumedCPU string) *
 	return st.MakePod().Name(podName).PodGroupName(podGroupName).Node(nodeName).Req(map[v1.ResourceName]string{v1.ResourceCPU: consumedCPU}).Container("image").Priority(100).ZeroTerminationGracePeriod().Obj()
 }
 
-func makeBasicPodGroupWithParent(podGroupName, parentCPGName, topologyKey string) *schedulingapi.PodGroup {
+func makeBasicPodGroupWithParent(podGroupName, parentCPGName, topologyKey string) *schedulingv1beta1.PodGroup {
 	pg := st.MakePodGroup().Name(podGroupName).WorkloadRef("workload", "pg").BasicPolicy().Priority(100).ParentCompositePodGroup(parentCPGName)
 	if topologyKey != "" {
 		pg.TopologyKey(topologyKey)
@@ -71,7 +70,7 @@ func makeBasicPodGroupWithParent(podGroupName, parentCPGName, topologyKey string
 	return pg.Obj()
 }
 
-func makeGangPodGroupWithParent(podGroupName, parentCPGName, topologyKey string, minCount int32) *schedulingapi.PodGroup {
+func makeGangPodGroupWithParent(podGroupName, parentCPGName, topologyKey string, minCount int32) *schedulingv1beta1.PodGroup {
 	pg := st.MakePodGroup().Name(podGroupName).WorkloadRef("workload", "pg").MinCount(minCount).Priority(100).ParentCompositePodGroup(parentCPGName)
 	if topologyKey != "" {
 		pg.TopologyKey(topologyKey)
@@ -79,7 +78,7 @@ func makeGangPodGroupWithParent(podGroupName, parentCPGName, topologyKey string,
 	return pg.Obj()
 }
 
-func makeGangCompositePodGroup(cpgName, parentCPGName, topologyKey string, minGroupCount int32) *schedulingv1alpha3.CompositePodGroup {
+func makeGangCompositePodGroup(cpgName, parentCPGName, topologyKey string, minGroupCount int32) *schedulingv1beta1.CompositePodGroup {
 	cpg := st.MakeCompositePodGroup().Name(cpgName).WorkloadRef("workload", "cpg").MinGroupCount(minGroupCount).Priority(100)
 	if parentCPGName != "" {
 		cpg.ParentCompositePodGroup(parentCPGName)
@@ -90,7 +89,7 @@ func makeGangCompositePodGroup(cpgName, parentCPGName, topologyKey string, minGr
 	return cpg.Obj()
 }
 
-func makeBasicCompositePodGroup(cpgName, parentCPGName, topologyKey string) *schedulingv1alpha3.CompositePodGroup {
+func makeBasicCompositePodGroup(cpgName, parentCPGName, topologyKey string) *schedulingv1beta1.CompositePodGroup {
 	cpg := st.MakeCompositePodGroup().Name(cpgName).WorkloadRef("workload", "cpg").BasicPolicy().Priority(100)
 	if parentCPGName != "" {
 		cpg.ParentCompositePodGroup(parentCPGName)
@@ -2868,7 +2867,7 @@ func runCPGTestScenario(t *testing.T, tt scenario, opts ...scheduler.Option) {
 		scheduler.WithPodMaxBackoffSeconds(0),
 		scheduler.WithPodInitialBackoffSeconds(0),
 	}, opts...)
-	testCtx := testutils.InitTestSchedulerWithNS(t, "cpg-tas", opts...)
+	testCtx := schedulerutils.InitTestSchedulerWithNS(t, "cpg-tas", opts...)
 	ns := testCtx.NS.Name
 
 	if err := stepsframework.RunSteps(testCtx, t, ns, tt.steps); err != nil {
