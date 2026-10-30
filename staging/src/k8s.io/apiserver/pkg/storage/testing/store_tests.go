@@ -4083,6 +4083,8 @@ func RunTestListResourceVersionMatch(ctx context.Context, t *testing.T, store In
 func RunTestGuaranteedUpdate(ctx context.Context, t *testing.T, store InterfaceWithPrefixTransformer, validation KeyValidation) {
 	inputObj := &example.Pod{ObjectMeta: metav1.ObjectMeta{Name: "foo", Namespace: "test-ns", UID: "A"}}
 	key := computePodKey(inputObj)
+	nonExistingObj := &example.Pod{ObjectMeta: metav1.ObjectMeta{Name: "non-existing", Namespace: "test-ns", UID: "A"}}
+	nonExistingKey := computePodKey(nonExistingObj)
 
 	tests := []struct {
 		name                string
@@ -4096,7 +4098,7 @@ func RunTestGuaranteedUpdate(ctx context.Context, t *testing.T, store InterfaceW
 		hasSelfLink         bool
 	}{{
 		name:                "non-existing key, ignoreNotFound=false",
-		key:                 "/pods/non-existing",
+		key:                 nonExistingKey,
 		ignoreNotFound:      false,
 		precondition:        nil,
 		expectNotFoundErr:   true,
@@ -4104,7 +4106,7 @@ func RunTestGuaranteedUpdate(ctx context.Context, t *testing.T, store InterfaceW
 		expectNoUpdate:      false,
 	}, {
 		name:                "non-existing key, ignoreNotFound=true",
-		key:                 "/pods/non-existing",
+		key:                 nonExistingKey,
 		ignoreNotFound:      true,
 		precondition:        nil,
 		expectNotFoundErr:   false,
@@ -4164,7 +4166,7 @@ func RunTestGuaranteedUpdate(ctx context.Context, t *testing.T, store InterfaceW
 
 	for i, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			key, storeObj := testPropagateStore(ctx, t, store, inputObj)
+			_, storeObj := testPropagateStore(ctx, t, store, inputObj)
 
 			out := &example.Pod{}
 			annotations := map[string]string{"version": fmt.Sprintf("%d", i)}
@@ -4190,6 +4192,9 @@ func RunTestGuaranteedUpdate(ctx context.Context, t *testing.T, store InterfaceW
 						}
 					}
 					pod := *storeObj
+					if tt.key == nonExistingKey {
+						pod = *nonExistingObj
+					}
 					if tt.hasSelfLink {
 						pod.SelfLink = "testlink"
 					}
@@ -4220,7 +4225,7 @@ func RunTestGuaranteedUpdate(ctx context.Context, t *testing.T, store InterfaceW
 			}
 
 			// verify that kv pair is not empty after set and that the underlying data matches expectations
-			validation(ctx, t, key)
+			validation(ctx, t, tt.key)
 
 			switch tt.expectNoUpdate {
 			case true:
@@ -4335,7 +4340,7 @@ func RunTestGuaranteedUpdateWithConflict(ctx context.Context, t *testing.T, stor
 		err := store.GuaranteedUpdate(ctx, key, &example.Pod{}, false, nil,
 			storage.SimpleUpdate(func(obj runtime.Object) (runtime.Object, error) {
 				pod := obj.(*example.Pod)
-				pod.Name = "foo-1"
+				pod.Spec.NodeName = "node-1"
 				secondToEnter.Wait()
 				return pod, nil
 			}), nil)
@@ -4352,7 +4357,7 @@ func RunTestGuaranteedUpdateWithConflict(ctx context.Context, t *testing.T, stor
 			}
 			updateCount++
 			pod := obj.(*example.Pod)
-			pod.Name = "foo-2"
+			pod.Spec.NodeName = "node-2"
 			return pod, nil
 		}), nil)
 	if err != nil {
@@ -4390,7 +4395,7 @@ func RunTestGuaranteedUpdateWithConflict(ctx context.Context, t *testing.T, stor
 				}
 			}
 			pod := obj.(*example.Pod)
-			pod.Name = "foo-3"
+			pod.Spec.NodeName = "node-3"
 			return pod, nil
 		}), nil)
 	if !storage.IsInvalidObj(err) {
@@ -4411,7 +4416,7 @@ func RunTestGuaranteedUpdateWithConflict(ctx context.Context, t *testing.T, stor
 				}
 			}
 			pod := obj.(*example.Pod)
-			pod.Name = "foo-4"
+			pod.Spec.NodeName = "node-4"
 			return pod, nil
 		}), nil)
 	if !storage.IsNotFound(err) {
@@ -5886,9 +5891,9 @@ func RunTestKeySchema(ctx context.Context, t *testing.T, store storage.Interface
 	require.ErrorContains(t, store.Create(ctx, "/pods.apps", createObj, createOut, 0), "lacks resource prefix")
 	require.ErrorContains(t, store.Create(ctx, "/foo/", createObj, createOut, 0), "lacks resource prefix")
 	require.NoError(t, store.Create(ctx, "/pods/", createObj, createOut, 0))
-	require.NoError(t, store.Create(ctx, "/pods/name", createObj, createOut, 0))
-	require.NoError(t, store.Create(ctx, "/pods/namespace", createObj, createOut, 0))
-	require.NoError(t, store.Create(ctx, "/pods/namespace/name", createObj, createOut, 0))
+	require.NoError(t, store.Create(ctx, "/pods/name", &example.Pod{ObjectMeta: metav1.ObjectMeta{Name: "name"}}, createOut, 0))
+	require.NoError(t, store.Create(ctx, "/pods/namespace", &example.Pod{ObjectMeta: metav1.ObjectMeta{Name: "namespace"}}, createOut, 0))
+	require.NoError(t, store.Create(ctx, "/pods/namespace/name", &example.Pod{ObjectMeta: metav1.ObjectMeta{Namespace: "namespace", Name: "name"}}, createOut, 0))
 
 	listOut := &example.PodList{}
 	recursiveListOpts := storage.ListOptions{Predicate: storage.Everything, Recursive: true}
@@ -5948,10 +5953,9 @@ func RunTestKeySchema(ctx context.Context, t *testing.T, store storage.Interface
 	require.NoError(t, err)
 	w.Stop()
 
-	updateIn := &example.Pod{}
 	updateOut := &example.Pod{}
 	updateFunc := func(input runtime.Object, res storage.ResponseMeta) (output runtime.Object, ttl *uint64, err error) {
-		return updateIn, nil, nil
+		return input, nil, nil
 	}
 	require.ErrorContains(t, store.GuaranteedUpdate(ctx, "", updateOut, false, nil, updateFunc, nil), "empty key")
 	require.ErrorContains(t, store.GuaranteedUpdate(ctx, "/", updateOut, false, nil, updateFunc, nil), "empty key")
@@ -6352,5 +6356,242 @@ func runOptimisticConcurrencyOp(ctx context.Context, t *testing.T, store Interfa
 			// Stored bytes now carry the rotated prefix and cannot be read with the original prefix alone.
 			require.True(t, storage.IsInternalError(store.Get(ctx, key, storage.GetOptions{}, &example.Pod{})))
 		}
+	}
+}
+
+func RunTestDeleteOnce(ctx context.Context, t *testing.T, store storage.Interface, codec runtime.Codec) {
+	mustState := func(obj runtime.Object) *storage.ObjState {
+		state, err := storage.GetStateFromObject(store.Versioner(), codec, obj, true)
+		require.NoError(t, err)
+		return state
+	}
+
+	key, existing := testPropagateStore(ctx, t, store, &example.Pod{ObjectMeta: metav1.ObjectMeta{Name: "foo", Namespace: "test-ns"}})
+	stale := existing.DeepCopy()
+	stale.ResourceVersion = "999999"
+
+	tests := []struct {
+		name          string
+		key           string
+		origState     *storage.ObjState
+		expectError   bool
+		expectSuccess bool
+		expectOut     *example.Pod
+		expectStored  *example.Pod
+	}{
+		{
+			name:          "conflicts on stale revision",
+			key:           key,
+			origState:     mustState(stale),
+			expectSuccess: false,
+			expectOut:     &example.Pod{},
+			expectStored:  existing,
+		},
+		{
+			name:          "conflicts when key does not exist",
+			key:           "/pods/test-ns/missing",
+			origState:     mustState(existing.DeepCopy()),
+			expectSuccess: false,
+			expectOut:     &example.Pod{},
+			expectStored:  nil,
+		},
+		{
+			name:        "rejects empty key",
+			key:         "",
+			origState:   mustState(existing.DeepCopy()),
+			expectError: true,
+		},
+		// Placed last because it deletes key from storage.
+		{
+			name:          "deletes object at matching revision",
+			key:           key,
+			origState:     mustState(existing.DeepCopy()),
+			expectSuccess: true,
+			expectOut:     existing,
+			expectStored:  nil,
+		},
+	}
+
+	for i := range tests {
+		tt := &tests[i]
+		t.Run(tt.name, func(t *testing.T) {
+			out := &example.Pod{}
+			success, err := store.DeleteOnce(ctx, tt.key, tt.origState, out)
+			if tt.expectError {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, tt.expectSuccess, success)
+
+			wantOut := tt.expectOut.DeepCopy()
+			if tt.expectSuccess {
+				require.NotEmpty(t, out.ResourceVersion)
+				require.NotEqual(t, tt.expectOut.ResourceVersion, out.ResourceVersion)
+				wantOut.ResourceVersion = out.ResourceVersion
+			}
+			require.Equal(t, wantOut, out)
+
+			got := &example.Pod{}
+			err = store.Get(ctx, tt.key, storage.GetOptions{}, got)
+			if tt.expectStored == nil {
+				require.True(t, storage.IsNotFound(err), "expected NotFound, got: %v", err)
+			} else {
+				require.NoError(t, err)
+				require.Equal(t, tt.expectStored, got)
+			}
+		})
+	}
+}
+
+func RunTestUpdateOnce(ctx context.Context, t *testing.T, store storage.Interface, codec runtime.Codec) {
+	mustState := func(obj runtime.Object) *storage.ObjState {
+		state, err := storage.GetStateFromObject(store.Versioner(), codec, obj, true)
+		require.NoError(t, err)
+		return state
+	}
+
+	key, existing := testPropagateStore(ctx, t, store, &example.Pod{ObjectMeta: metav1.ObjectMeta{Name: "foo", Namespace: "test-ns"}})
+
+	stale := existing.DeepCopy()
+	stale.ResourceVersion = "999999"
+
+	updated := existing.DeepCopy()
+	updated.Labels = map[string]string{"mutated": "updated"}
+
+	created := existing.DeepCopy()
+	created.Name = "bar"
+	created.ResourceVersion = ""
+	created.Labels = map[string]string{"mutated": "created"}
+
+	tests := []struct {
+		name           string
+		key            string
+		origState      *storage.ObjState
+		obj            *example.Pod
+		ignoreNotFound bool
+		expectError    bool
+		expectSuccess  bool
+		expectOut      *example.Pod
+		expectRV       string
+		expectStored   *example.Pod
+	}{
+		{
+			name:          "noop update returns existing object without changing revision",
+			key:           key,
+			origState:     mustState(existing.DeepCopy()),
+			obj:           existing,
+			expectSuccess: true,
+			expectOut:     existing,
+			expectRV:      existing.ResourceVersion,
+			expectStored:  existing,
+		},
+		{
+			name:          "conflicts on stale revision",
+			key:           key,
+			origState:     mustState(stale),
+			obj:           updated,
+			expectSuccess: false,
+			expectOut:     &example.Pod{},
+			expectStored:  existing,
+		},
+		{
+			name:           "conflicts when creating with zero revision on existing key",
+			key:            key,
+			origState:      mustState(&example.Pod{}),
+			obj:            updated,
+			ignoreNotFound: true,
+			expectSuccess:  false,
+			expectOut:      &example.Pod{},
+			expectStored:   existing,
+		},
+		{
+			name:          "conflicts when key does not exist",
+			key:           "/pods/test-ns/missing",
+			origState:     mustState(existing.DeepCopy()),
+			obj:           updated,
+			expectSuccess: false,
+			expectOut:     &example.Pod{},
+			expectStored:  nil,
+		},
+		{
+			name:        "noop update fails when key is missing and ignoreNotFound is false",
+			key:         "/pods/test-ns/missing",
+			origState:   mustState(existing.DeepCopy()),
+			obj:         existing,
+			expectError: true,
+		},
+		{
+			name:        "rejects empty key",
+			key:         "",
+			origState:   mustState(existing.DeepCopy()),
+			obj:         updated,
+			expectError: true,
+		},
+		{
+			name:           "creates object when origState has zero revision",
+			key:            computePodKey(created),
+			origState:      mustState(&example.Pod{}),
+			obj:            created,
+			ignoreNotFound: true,
+			expectSuccess:  true,
+			expectOut:      created,
+			expectStored:   created,
+		},
+		// Placed last because it mutates key in storage.
+		{
+			name:          "updates object at matching revision",
+			key:           key,
+			origState:     mustState(existing.DeepCopy()),
+			obj:           updated,
+			expectSuccess: true,
+			expectOut:     updated,
+			expectStored:  updated,
+		},
+	}
+
+	for i := range tests {
+		tt := &tests[i]
+		t.Run(tt.name, func(t *testing.T) {
+			out := &example.Pod{}
+			state, success, err := store.UpdateOnce(ctx, tt.key, tt.origState, tt.obj.DeepCopy(), 0, out, tt.ignoreNotFound)
+			if tt.expectError {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, tt.expectSuccess, success)
+			if tt.expectSuccess {
+				require.NotNil(t, state)
+			} else {
+				require.Nil(t, state)
+			}
+
+			if tt.expectRV != "" {
+				require.Equal(t, tt.expectRV, out.ResourceVersion)
+			} else if tt.expectSuccess {
+				require.NotEmpty(t, out.ResourceVersion)
+				require.NotEqual(t, tt.expectOut.ResourceVersion, out.ResourceVersion)
+			}
+
+			wantOut := tt.expectOut.DeepCopy()
+			if tt.expectSuccess {
+				wantOut.ResourceVersion = out.ResourceVersion
+			}
+			require.Equal(t, wantOut, out)
+
+			got := &example.Pod{}
+			err = store.Get(ctx, tt.key, storage.GetOptions{}, got)
+			if tt.expectStored == nil {
+				require.True(t, storage.IsNotFound(err), "expected NotFound, got: %v", err)
+			} else {
+				require.NoError(t, err)
+				wantStored := tt.expectStored.DeepCopy()
+				if tt.expectSuccess {
+					wantStored.ResourceVersion = out.ResourceVersion
+				}
+				require.Equal(t, wantStored, got)
+			}
+		})
 	}
 }

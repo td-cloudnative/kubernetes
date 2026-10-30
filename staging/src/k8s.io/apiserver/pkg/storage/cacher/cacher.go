@@ -522,6 +522,9 @@ func (c *Cacher) Watch(ctx context.Context, key string, opts storage.ListOptions
 		attribute.String("audit-id", audit.GetAuditIDTruncated(ctx)),
 		attribute.Stringer("type", c.groupResource))
 	defer span.End(500 * time.Millisecond)
+	if opts.WatchWithoutPrevKV && !opts.Predicate.Empty() {
+		return nil, errors.NewInternalError(fmt.Errorf("watchWithoutPrevKV requires an empty predicate"))
+	}
 	key, err := c.prepareKey(key, opts.Recursive)
 	if err != nil {
 		return nil, err
@@ -605,6 +608,7 @@ func (c *Cacher) Watch(ctx context.Context, key string, opts storage.ListOptions
 		// rather than a directly returned error.
 		return newErrWatcher(err), nil
 	}
+	isSharding := opts.Predicate.ShardingEnabled()
 
 	addedWatcher := false
 	func() {
@@ -620,13 +624,15 @@ func (c *Cacher) Watch(ctx context.Context, key string, opts storage.ListOptions
 
 		// Update watcher.forget function once we can compute it.
 		watcher.forget = forgetWatcher(c, watcher, c.watcherIdx)
-		c.watchers.addWatcher(watcher, c.watcherIdx)
-		addedWatcher = true
-
-		// Add it to the queue only when the client support watch bookmarks.
-		if opts.Predicate.AllowWatchBookmarks {
-			c.bookmarkWatchers.addWatcherThreadUnsafe(watcher)
+		if isSharding {
+			originalForget := watcher.forget
+			watcher.forget = func(drainWatcher bool) {
+				metrics.RecordShardedWatchStopped(c.groupResource)
+				originalForget(drainWatcher)
+			}
 		}
+		c.registerWatcherLocked(watcher, c.watcherIdx, cacheInterval)
+		addedWatcher = true
 		c.watcherIdx++
 	}()
 
@@ -637,19 +643,20 @@ func (c *Cacher) Watch(ctx context.Context, key string, opts storage.ListOptions
 		// closing the watcher.
 		return newImmediateCloseWatcher(), nil
 	}
-
-	if opts.Predicate.ShardingEnabled() {
+	if isSharding {
 		metrics.RecordShardedWatchStarted(c.groupResource)
-		originalForget := watcher.forget
-		watcher.forget = func(drainWatcher bool) {
-			metrics.RecordShardedWatchStopped(c.groupResource)
-			originalForget(drainWatcher)
-		}
 	}
-
-	watcher.input <- watcherInput{interval: cacheInterval}
 	go watcher.process(ctx)
 	return watcher, nil
+}
+
+func (c *Cacher) registerWatcherLocked(watcher *cacheWatcher, idx int, cacheInterval *watchCacheInterval) {
+	c.watchers.addWatcher(watcher, idx)
+	// Add it to the queue only when the client support watch bookmarks.
+	if watcher.allowWatchBookmarks {
+		c.bookmarkWatchers.addWatcherThreadUnsafe(watcher)
+	}
+	watcher.input <- watcherInput{interval: cacheInterval}
 }
 
 func (c *Cacher) initWatcherIntervalLocked(ctx context.Context, watcher *cacheWatcher, requestedWatchRV, requiredResourceVersion uint64) (*watchCacheInterval, error) {
