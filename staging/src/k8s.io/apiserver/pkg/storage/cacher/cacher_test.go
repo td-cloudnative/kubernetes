@@ -119,9 +119,9 @@ func TestCreateWithKeyExist(t *testing.T) {
 }
 
 func TestGet(t *testing.T) {
-	ctx, cacher, terminate := testSetup(t)
+	ctx, cacher, server, terminate := testSetupWithEtcdServer(t)
 	t.Cleanup(terminate)
-	storagetesting.RunTestGet(ctx, t, cacher)
+	storagetesting.RunTestGet(ctx, t, cacher, increaseRVFunc(server.V3Client.Client))
 }
 
 func TestDeleteOnce(t *testing.T) {
@@ -133,7 +133,7 @@ func TestDeleteOnce(t *testing.T) {
 func TestUpdateOnce(t *testing.T) {
 	ctx, cacher, terminate := testSetup(t)
 	t.Cleanup(terminate)
-	storagetesting.RunTestUpdateOnce(ctx, t, cacher, examplev1ProtoCodec)
+	storagetesting.RunTestUpdateOnce(ctx, t, cacher, etcd3testing.PathPrefix(), examplev1ProtoCodec)
 }
 
 type testTransformer struct {
@@ -644,9 +644,19 @@ func TestWatch(t *testing.T) {
 				ctx, cacher, server, terminate := testSetupWithEtcdServer(t, withClock(fakeClock))
 				t.Cleanup(terminate)
 				store := &createWrapper{CacheDelegator: cacher}
-				storagetesting.RunTestWatchResync(ctx, t, store, true, compactWatch(cacher, server.V3Client.Client), func() {
+				resync := func() {
+					time.Sleep(50 * time.Millisecond)
+					fakeClock.Step(100 * time.Millisecond)
+					time.Sleep(50 * time.Millisecond)
 					fakeClock.Step(2 * time.Second)
-				})
+					time.Sleep(50 * time.Millisecond)
+				}
+				triggerBookmarks := func() {
+					time.Sleep(50 * time.Millisecond)
+					fakeClock.Step(defaultBookmarkFrequency + time.Second)
+					time.Sleep(50 * time.Millisecond)
+				}
+				storagetesting.RunTestWatchResync(ctx, t, store, true, compactWatch(cacher, server.V3Client.Client), resync, triggerBookmarks)
 			})
 			// These tests override WatchList and must finish before the parallel subtests start.
 			t.Run("WatchSemantics", func(t *testing.T) {

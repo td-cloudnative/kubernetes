@@ -68,6 +68,7 @@ var ExtensionPoints = []string{
 	PlacementGenerate,
 	PlacementFeasible,
 	PodGroupPostFilter,
+	RankNodes,
 }
 
 const (
@@ -93,6 +94,7 @@ const (
 	PlacementScore                   = "PlacementScore"
 	PlacementScoreExtensionNormalize = "PlacementScoreExtensionNormalize"
 	PodGroupPostFilter               = "PodGroupPostFilter"
+	RankNodes                        = "RankNodes"
 )
 
 const (
@@ -133,6 +135,13 @@ const (
 	BatchFlushPreScoreError   = "prescore_error"
 	BatchFlushRescoreError    = "rescore_error"
 	BatchFlushNormalizeError  = "normalize_error"
+)
+
+// Values of the "result" label on the PreQueueingHintEvaluations metric.
+const (
+	PreQueueingHintResultAllPods     = "all_pods"
+	PreQueueingHintResultNarrowed    = "narrowed"
+	PreQueueingHintResultPreQFnError = "prequeueing_hint_fn_error"
 )
 
 // DRADeviceBindingConditions status labels
@@ -401,7 +410,7 @@ func InitMetrics() {
 		&metrics.CounterOpts{
 			Subsystem:      SchedulerSubsystem,
 			Name:           "pre_queueing_hint_evaluations_total",
-			Help:           "Number of PreQueueingHint evaluations, labeled by plugin and result (all_pods or narrowed).",
+			Help:           "Number of PreQueueingHint evaluations by plugin and result (narrowed, all_pods, or prequeueing_hint_fn_error).",
 			StabilityLevel: metrics.ALPHA,
 		},
 		[]string{"plugin", "result"})

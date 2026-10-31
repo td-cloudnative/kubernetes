@@ -123,8 +123,8 @@ func TestCreateWithKeyExist(t *testing.T) {
 }
 
 func TestGet(t *testing.T) {
-	ctx, store, _ := testSetup(t)
-	storagetesting.RunTestGet(ctx, t, store)
+	ctx, store, client := testSetup(t)
+	storagetesting.RunTestGet(ctx, t, store, increaseRVFunc(client.Client))
 }
 
 func TestUnconditionalDelete(t *testing.T) {
@@ -352,7 +352,7 @@ func TestDeleteOnce(t *testing.T) {
 
 func TestUpdateOnce(t *testing.T) {
 	ctx, store, _ := testSetup(t)
-	storagetesting.RunTestUpdateOnce(ctx, t, store, store.codec)
+	storagetesting.RunTestUpdateOnce(ctx, t, store, "", store.codec)
 }
 
 func TestList(t *testing.T) {

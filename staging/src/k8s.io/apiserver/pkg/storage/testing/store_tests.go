@@ -118,7 +118,7 @@ func RunTestCreateWithKeyExist(ctx context.Context, t *testing.T, store storage.
 	}
 }
 
-func RunTestGet(ctx context.Context, t *testing.T, store storage.Interface) {
+func RunTestGet(ctx context.Context, t *testing.T, store storage.Interface, increaseRV IncreaseRVFunc) {
 	// create an object to test
 	key, createdObj := testPropagateStore(ctx, t, store, &example.Pod{ObjectMeta: metav1.ObjectMeta{Name: "foo", Namespace: "test-ns"}})
 	// update the object once to allow get by exact resource version to be tested
@@ -133,15 +133,10 @@ func RunTestGet(ctx context.Context, t *testing.T, store storage.Interface) {
 	if err != nil {
 		t.Fatalf("Update failed: %v", err)
 	}
-	// create an additional object to increment the resource version for pods above the resource version of the foo object
-	secondObj := &example.Pod{ObjectMeta: metav1.ObjectMeta{Name: "bar", Namespace: "test-ns"}}
-	lastUpdatedObj := &example.Pod{}
-	if err := store.Create(ctx, computePodKey(secondObj), secondObj, lastUpdatedObj, 0); err != nil {
-		t.Fatalf("Set failed: %v", err)
-	}
+	// Increase RV to test consistent Get.
+	lastUpdatedCurrentRV := int(increaseRV(ctx, t))
 
 	currentRV, _ := strconv.Atoi(storedObj.ResourceVersion)
-	lastUpdatedCurrentRV, _ := strconv.Atoi(lastUpdatedObj.ResourceVersion)
 	_, invalidRVErr := storage.APIObjectVersioner{}.ParseResourceVersion("invalid")
 
 	// TODO(jpbetz): Add exact test cases
@@ -234,9 +229,12 @@ func RunTestGet(ctx context.Context, t *testing.T, store storage.Interface) {
 				return
 			}
 			if tt.expectNotFoundErr {
-				if err == nil || !storage.IsNotFound(err) {
+				var storageErr *storage.StorageError
+				if !errors.As(err, &storageErr) || storageErr.Code != storage.ErrCodeKeyNotFound {
 					t.Errorf("expecting not found error, but get: %v", err)
+					return
 				}
+				assert.Equal(t, int64(lastUpdatedCurrentRV), storageErr.ResourceVersion)
 				return
 			}
 			if tt.expectRVTooLarge {
@@ -6367,6 +6365,8 @@ func RunTestDeleteOnce(ctx context.Context, t *testing.T, store storage.Interfac
 	}
 
 	key, existing := testPropagateStore(ctx, t, store, &example.Pod{ObjectMeta: metav1.ObjectMeta{Name: "foo", Namespace: "test-ns"}})
+	_, emptyKeyErr := storage.PrepareKey("/pods/", "", false)
+
 	stale := existing.DeepCopy()
 	stale.ResourceVersion = "999999"
 
@@ -6374,8 +6374,8 @@ func RunTestDeleteOnce(ctx context.Context, t *testing.T, store storage.Interfac
 		name          string
 		key           string
 		origState     *storage.ObjState
-		expectError   bool
 		expectSuccess bool
+		expectError   error
 		expectOut     *example.Pod
 		expectStored  *example.Pod
 	}{
@@ -6396,10 +6396,12 @@ func RunTestDeleteOnce(ctx context.Context, t *testing.T, store storage.Interfac
 			expectStored:  nil,
 		},
 		{
-			name:        "rejects empty key",
-			key:         "",
-			origState:   mustState(existing.DeepCopy()),
-			expectError: true,
+			name:          "rejects empty key",
+			key:           "",
+			origState:     mustState(existing.DeepCopy()),
+			expectSuccess: false,
+			expectError:   emptyKeyErr,
+			expectOut:     &example.Pod{},
 		},
 		// Placed last because it deletes key from storage.
 		{
@@ -6417,11 +6419,7 @@ func RunTestDeleteOnce(ctx context.Context, t *testing.T, store storage.Interfac
 		t.Run(tt.name, func(t *testing.T) {
 			out := &example.Pod{}
 			success, err := store.DeleteOnce(ctx, tt.key, tt.origState, out)
-			if tt.expectError {
-				require.Error(t, err)
-				return
-			}
-			require.NoError(t, err)
+			require.Equal(t, tt.expectError, err)
 			require.Equal(t, tt.expectSuccess, success)
 
 			wantOut := tt.expectOut.DeepCopy()
@@ -6432,6 +6430,9 @@ func RunTestDeleteOnce(ctx context.Context, t *testing.T, store storage.Interfac
 			}
 			require.Equal(t, wantOut, out)
 
+			if tt.key == "" {
+				return
+			}
 			got := &example.Pod{}
 			err = store.Get(ctx, tt.key, storage.GetOptions{}, got)
 			if tt.expectStored == nil {
@@ -6444,14 +6445,22 @@ func RunTestDeleteOnce(ctx context.Context, t *testing.T, store storage.Interfac
 	}
 }
 
-func RunTestUpdateOnce(ctx context.Context, t *testing.T, store storage.Interface, codec runtime.Codec) {
+func RunTestUpdateOnce(ctx context.Context, t *testing.T, store storage.Interface, prefix string, codec runtime.Codec) {
 	mustState := func(obj runtime.Object) *storage.ObjState {
 		state, err := storage.GetStateFromObject(store.Versioner(), codec, obj, true)
 		require.NoError(t, err)
 		return state
 	}
+	mustStorageState := func(obj runtime.Object) *storage.ObjState {
+		state := mustState(obj)
+		state.FromStorage = true
+		return state
+	}
 
 	key, existing := testPropagateStore(ctx, t, store, &example.Pod{ObjectMeta: metav1.ObjectMeta{Name: "foo", Namespace: "test-ns"}})
+	existingRev, err := strconv.ParseInt(existing.ResourceVersion, 10, 64)
+	require.NoError(t, err)
+	_, emptyKeyErr := storage.PrepareKey("/pods/", "", false)
 
 	stale := existing.DeepCopy()
 	stale.ResourceVersion = "999999"
@@ -6470,8 +6479,9 @@ func RunTestUpdateOnce(ctx context.Context, t *testing.T, store storage.Interfac
 		origState      *storage.ObjState
 		obj            *example.Pod
 		ignoreNotFound bool
-		expectError    bool
+		expectState    *storage.ObjState
 		expectSuccess  bool
+		expectError    error
 		expectOut      *example.Pod
 		expectRV       string
 		expectStored   *example.Pod
@@ -6481,9 +6491,20 @@ func RunTestUpdateOnce(ctx context.Context, t *testing.T, store storage.Interfac
 			key:           key,
 			origState:     mustState(existing.DeepCopy()),
 			obj:           existing,
+			expectState:   mustStorageState(existing.DeepCopy()),
 			expectSuccess: true,
 			expectOut:     existing,
 			expectRV:      existing.ResourceVersion,
+			expectStored:  existing,
+		},
+		{
+			name:          "noop update returns refreshed state when stored object differs",
+			key:           key,
+			origState:     mustState(updated.DeepCopy()),
+			obj:           updated,
+			expectState:   mustStorageState(existing.DeepCopy()),
+			expectSuccess: false,
+			expectOut:     &example.Pod{},
 			expectStored:  existing,
 		},
 		{
@@ -6515,18 +6536,23 @@ func RunTestUpdateOnce(ctx context.Context, t *testing.T, store storage.Interfac
 			expectStored:  nil,
 		},
 		{
-			name:        "noop update fails when key is missing and ignoreNotFound is false",
-			key:         "/pods/test-ns/missing",
-			origState:   mustState(existing.DeepCopy()),
-			obj:         existing,
-			expectError: true,
+			name:          "noop update fails when key is missing and ignoreNotFound is false",
+			key:           "/pods/test-ns/missing",
+			origState:     mustState(existing.DeepCopy()),
+			obj:           existing,
+			expectSuccess: false,
+			expectError:   storage.NewKeyNotFoundError(prefix+"/pods/test-ns/missing", existingRev),
+			expectOut:     &example.Pod{},
+			expectStored:  nil,
 		},
 		{
-			name:        "rejects empty key",
-			key:         "",
-			origState:   mustState(existing.DeepCopy()),
-			obj:         updated,
-			expectError: true,
+			name:          "rejects empty key",
+			key:           "",
+			origState:     mustState(existing.DeepCopy()),
+			obj:           updated,
+			expectSuccess: false,
+			expectError:   emptyKeyErr,
+			expectOut:     &example.Pod{},
 		},
 		{
 			name:           "creates object when origState has zero revision",
@@ -6534,6 +6560,7 @@ func RunTestUpdateOnce(ctx context.Context, t *testing.T, store storage.Interfac
 			origState:      mustState(&example.Pod{}),
 			obj:            created,
 			ignoreNotFound: true,
+			expectState:    mustState(&example.Pod{}),
 			expectSuccess:  true,
 			expectOut:      created,
 			expectStored:   created,
@@ -6544,6 +6571,7 @@ func RunTestUpdateOnce(ctx context.Context, t *testing.T, store storage.Interfac
 			key:           key,
 			origState:     mustState(existing.DeepCopy()),
 			obj:           updated,
+			expectState:   mustState(existing.DeepCopy()),
 			expectSuccess: true,
 			expectOut:     updated,
 			expectStored:  updated,
@@ -6555,17 +6583,9 @@ func RunTestUpdateOnce(ctx context.Context, t *testing.T, store storage.Interfac
 		t.Run(tt.name, func(t *testing.T) {
 			out := &example.Pod{}
 			state, success, err := store.UpdateOnce(ctx, tt.key, tt.origState, tt.obj.DeepCopy(), 0, out, tt.ignoreNotFound)
-			if tt.expectError {
-				require.Error(t, err)
-				return
-			}
-			require.NoError(t, err)
+			require.Equal(t, tt.expectError, err)
 			require.Equal(t, tt.expectSuccess, success)
-			if tt.expectSuccess {
-				require.NotNil(t, state)
-			} else {
-				require.Nil(t, state)
-			}
+			require.Equal(t, tt.expectState, state)
 
 			if tt.expectRV != "" {
 				require.Equal(t, tt.expectRV, out.ResourceVersion)
@@ -6580,6 +6600,9 @@ func RunTestUpdateOnce(ctx context.Context, t *testing.T, store storage.Interfac
 			}
 			require.Equal(t, wantOut, out)
 
+			if tt.key == "" {
+				return
+			}
 			got := &example.Pod{}
 			err = store.Get(ctx, tt.key, storage.GetOptions{}, got)
 			if tt.expectStored == nil {
