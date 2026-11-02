@@ -21,10 +21,9 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
-	"strconv"
-	"time"
+	"sync/atomic"
 
-	"k8s.io/apimachinery/pkg/util/wait"
+	v1 "k8s.io/api/core/v1"
 	genericapiserver "k8s.io/apiserver/pkg/server"
 	"k8s.io/client-go/ktesting"
 	"k8s.io/client-go/tools/cache"
@@ -35,7 +34,7 @@ import (
 	netutils "k8s.io/utils/net"
 )
 
-func setupAPIServer(tCtx ktesting.TContext) (ktesting.TContext, http.Handler, cache.SharedIndexInformer) {
+func setupAPIServer(tCtx ktesting.TContext) (ktesting.TContext, http.Handler, *informerWaiter) {
 	tCtx.Helper()
 
 	var (
@@ -69,22 +68,62 @@ func setupAPIServer(tCtx ktesting.TContext) (ktesting.TContext, http.Handler, ca
 	if !cache.WaitForCacheSync(tCtx.Done(), podInformer.HasSynced) {
 		tCtx.Fatalf("timed out waiting for pod informer cache sync")
 	}
+	informer := newInformerWaiter(tCtx, podInformer)
 	tCtx = tCtx.WithClients(nil, nil, client, nil)
-	return tCtx, handler, podInformer
+	return tCtx, handler, informer
 }
 
-func waitForResourceVersion(tCtx ktesting.TContext, informer cache.SharedIndexInformer, minRV string) {
-	tCtx.Helper()
-	target, err := strconv.ParseUint(minRV, 10, 64)
-	if err != nil {
-		tCtx.Fatalf("failed to parse resourceVersion %q: %v", minRV, err)
+type informerWaiter struct {
+	informer cache.SharedIndexInformer
+	events   atomic.Int64
+	notify   chan struct{}
+}
+
+func newInformerWaiter(tb testutils.TB, informer cache.SharedIndexInformer) *informerWaiter {
+	tb.Helper()
+	t := &informerWaiter{
+		informer: informer,
+		notify:   make(chan struct{}, 1),
 	}
-	err = wait.PollUntilContextTimeout(tCtx, 10*time.Millisecond, 10*time.Second, true, func(context.Context) (bool, error) {
-		rv, err := strconv.ParseUint(informer.LastSyncResourceVersion(), 10, 64)
-		return err == nil && rv >= target, nil
+	_, err := informer.AddEventHandler(cache.ResourceEventHandlerFuncs{
+		AddFunc:    t.record,
+		UpdateFunc: func(_, newObj any) { t.record(newObj) },
+		DeleteFunc: t.record,
 	})
 	if err != nil {
-		tCtx.Fatalf("timed out waiting for pod informer resourceVersion >= %d (last=%q): %v", target, informer.LastSyncResourceVersion(), err)
+		tb.Fatalf("failed to register pod informer event handler: %v", err)
+	}
+	return t
+}
+
+func (t *informerWaiter) record(obj any) {
+	if d, ok := obj.(cache.DeletedFinalStateUnknown); ok {
+		obj = d.Obj
+	}
+	if _, ok := obj.(*v1.Pod); ok {
+		t.events.Add(1)
+		select {
+		case t.notify <- struct{}{}:
+		default:
+		}
+	}
+}
+
+func (t *informerWaiter) resetEvents() {
+	t.events.Store(0)
+	select {
+	case <-t.notify:
+	default:
+	}
+}
+
+func (t *informerWaiter) wait(ctx context.Context, tb testutils.TB, target int64) {
+	for t.events.Load() < target {
+		select {
+		case <-t.notify:
+		case <-ctx.Done():
+			tb.Fatalf("context canceled waiting for informer events (%d/%d): %v", t.events.Load(), target, ctx.Err())
+		}
 	}
 }
 
@@ -95,6 +134,7 @@ type responseSink struct {
 	header       http.Header
 	code         int
 	bytesWritten int
+	errBody      []byte
 }
 
 func newResponseSink() *responseSink {
@@ -107,6 +147,9 @@ func (s *responseSink) WriteHeader(code int) { s.code = code }
 
 func (s *responseSink) Write(b []byte) (int, error) {
 	s.bytesWritten += len(b)
+	if s.code >= 300 {
+		s.errBody = append(s.errBody, b...)
+	}
 	return len(b), nil
 }
 
@@ -118,13 +161,7 @@ func (s *responseSink) CloseNotify() <-chan bool { return nil }
 
 func runHTTP(tb testutils.TB, server http.Handler, method, path, contentType, accept string, body []byte) int {
 	tb.Helper()
-	var bodyReader *bytes.Reader
-	if body != nil {
-		bodyReader = bytes.NewReader(body)
-	} else {
-		bodyReader = bytes.NewReader(nil)
-	}
-	req := httptest.NewRequest(method, path, bodyReader).WithContext(context.Background())
+	req := httptest.NewRequest(method, path, bytes.NewReader(body)).WithContext(context.Background())
 	if contentType != "" {
 		req.Header.Set("Content-Type", contentType)
 	}
@@ -135,7 +172,7 @@ func runHTTP(tb testutils.TB, server http.Handler, method, path, contentType, ac
 	sink := newResponseSink()
 	server.ServeHTTP(sink, req)
 	if sink.code < 200 || sink.code >= 300 {
-		tb.Fatalf("%s %s (%s) returned HTTP %d", method, path, accept, sink.code)
+		tb.Fatalf("%s %s (%s) returned HTTP %d: %s", method, path, accept, sink.code, sink.errBody)
 	}
 	return sink.bytesWritten
 }
