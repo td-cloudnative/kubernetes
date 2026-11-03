@@ -43,7 +43,6 @@ import (
 	"k8s.io/apiserver/pkg/endpoints/request"
 	"k8s.io/apiserver/pkg/features"
 	"k8s.io/apiserver/pkg/storage"
-	"k8s.io/apiserver/pkg/storage/cacher/consistency"
 	"k8s.io/apiserver/pkg/storage/cacher/delegator"
 	"k8s.io/apiserver/pkg/storage/cacher/key"
 	"k8s.io/apiserver/pkg/storage/cacher/metrics"
@@ -178,9 +177,8 @@ func (i *indexedWatchers) deleteWatcher(w *cacheWatcher, number int) {
 }
 
 func (i *indexedWatchers) terminateAll(groupResource schema.GroupResource, done func(*cacheWatcher)) {
-	// note that we don't have to call setDrainInputBufferLocked method on the watchers
-	// because we take advantage of the default value - stop immediately
-	// also watchers that have had already its draining strategy set
+	// note that done stops each watcher immediately, without draining it.
+	// watchers that have had already its draining strategy set
 	// are no longer available (they were removed from the scopeWatchers and the indexWatchers maps)
 	if len(i.scopeWatchers) > 0 || len(i.indexWatchers) > 0 {
 		klog.Warningf("Terminating all watchers from cacher %v", groupResource)
@@ -339,7 +337,7 @@ type Cacher struct {
 	// watchersToStop is a list of watchers that were supposed to be stopped
 	// during current dispatching, but stopping was deferred to the end of
 	// dispatching that event to avoid race with closing channels in watchers.
-	watchersToStop []*cacheWatcher
+	watchersToStop []watcherToStop
 	// Maintain a timeout queue to send the bookmark event before the watcher times out.
 	// Note that this field when accessed MUST be protected by the Cacher.lock.
 	bookmarkWatchers *watcherBookmarkTimeBuckets
@@ -582,6 +580,8 @@ func (c *Cacher) Watch(ctx context.Context, key string, opts storage.ListOptions
 		c.clock,
 		identifier,
 		selector,
+		requestedWatchRV,
+		requiredResourceVersion,
 	)
 
 	// We explicitly use thread unsafe version and do locking ourself to ensure that
@@ -601,7 +601,7 @@ func (c *Cacher) Watch(ctx context.Context, key string, opts storage.ListOptions
 		span.AddEvent("watchCache fresh enough")
 	}
 
-	cacheInterval, err := c.initWatcherIntervalLocked(ctx, watcher, requestedWatchRV, requiredResourceVersion)
+	cacheInterval, err := c.initWatcherIntervalLocked(ctx, watcher)
 	if err != nil {
 		// To match the uncached watch implementation, once we have passed authn/authz/admission,
 		// and successfully parsed a resource version, other errors must fail with a watch event of type ERROR,
@@ -659,23 +659,17 @@ func (c *Cacher) registerWatcherLocked(watcher *cacheWatcher, idx int, cacheInte
 	watcher.input <- watcherInput{interval: cacheInterval}
 }
 
-func (c *Cacher) initWatcherIntervalLocked(ctx context.Context, watcher *cacheWatcher, requestedWatchRV, requiredResourceVersion uint64) (*watchCacheInterval, error) {
+func (c *Cacher) initWatcherIntervalLocked(ctx context.Context, watcher *cacheWatcher) (*watchCacheInterval, error) {
 	opts := watcher.filter.opts
-	cacheInterval, err := c.watchCache.getAllEventsSinceLocked(ctx, requiredResourceVersion, watcher.filter.prefix, opts)
+	cacheInterval, err := c.watchCache.getAllEventsSinceLocked(ctx, watcher.requiredResourceVersion, watcher.filter.prefix, opts)
 	if err != nil {
 		return nil, err
-	}
-	if cacheInterval.resourceVersion < requiredResourceVersion {
-		klog.ErrorS(nil, "Watch cache interval resourceVersion must be greater than or equal to required resourceVersion", "group", c.groupResource.Group, "resource", c.groupResource.Resource, "intervalResourceVersion", cacheInterval.resourceVersion, "requiredResourceVersion", requiredResourceVersion)
-		if consistency.PanicOnCacheInconsistency {
-			panic(fmt.Sprintf("Watch cache interval resourceVersion (%d) must be greater than or equal to required resourceVersion (%d), group: %q, resource: %q", cacheInterval.resourceVersion, requiredResourceVersion, c.groupResource.Group, c.groupResource.Resource))
-		}
 	}
 
 	var bookmarkAfterResourceVersion uint64
 	if isListWatchRequest(opts) {
 		c.setInitialEventsEndBookmark(cacheInterval)
-		bookmarkAfterResourceVersion = getBookmarkAfterResourceVersion(requestedWatchRV, requiredResourceVersion, cacheInterval.resourceVersion, opts)
+		bookmarkAfterResourceVersion = getBookmarkAfterResourceVersion(watcher.requestedWatchRV, watcher.requiredResourceVersion, cacheInterval.resourceVersion, opts)
 	}
 	// Update the bookMarkAfterResourceVersion
 	watcher.setBookmarkAfterResourceVersion(bookmarkAfterResourceVersion, cacheInterval)
@@ -1216,8 +1210,9 @@ func (c *Cacher) finishDispatching() {
 	c.Lock()
 	defer c.Unlock()
 	c.dispatching = false
-	for _, watcher := range c.watchersToStop {
-		watcher.stopLocked()
+	for _, toStop := range c.watchersToStop {
+		toStop.watcher.setDrainInputBufferLocked(toStop.drain)
+		toStop.watcher.stopLocked()
 	}
 	c.watchersToStop = c.watchersToStop[:0]
 
@@ -1234,15 +1229,26 @@ func (c *Cacher) finishDispatching() {
 func (c *Cacher) terminateAllWatchers() {
 	c.Lock()
 	defer c.Unlock()
-	c.watchers.terminateAll(c.groupResource, c.stopWatcherLocked)
+	c.watchers.terminateAll(c.groupResource, func(watcher *cacheWatcher) {
+		c.stopWatcherLocked(watcher, false)
+	})
 }
 
-func (c *Cacher) stopWatcherLocked(watcher *cacheWatcher) {
+// watcherToStop is a stop deferred to the end of a dispatch. It keeps its own
+// drain mode: a later stop of the same watcher in that dispatch must not change
+// how this one runs.
+type watcherToStop struct {
+	watcher *cacheWatcher
+	drain   bool
+}
+
+func (c *Cacher) stopWatcherLocked(watcher *cacheWatcher, drain bool) {
 	if c.dispatching {
-		c.watchersToStop = append(c.watchersToStop, watcher)
-	} else {
-		watcher.stopLocked()
+		c.watchersToStop = append(c.watchersToStop, watcherToStop{watcher: watcher, drain: drain})
+		return
 	}
+	watcher.setDrainInputBufferLocked(drain)
+	watcher.stopLocked()
 }
 
 func (c *Cacher) isStopped() bool {
@@ -1288,13 +1294,11 @@ func forgetWatcher(c *Cacher, w *cacheWatcher, index int) func(bool) {
 		c.Lock()
 		defer c.Unlock()
 
-		w.setDrainInputBufferLocked(drainWatcher)
-
 		// It's possible that the watcher is already not in the structure (e.g. in case of
 		// simultaneous Stop() and terminateAllWatchers(), but it is safe to call stopLocked()
 		// on a watcher multiple times.
 		c.watchers.deleteWatcher(w, index)
-		c.stopWatcherLocked(w)
+		c.stopWatcherLocked(w, drainWatcher)
 	}
 }
 
