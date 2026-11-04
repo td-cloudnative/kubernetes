@@ -43,6 +43,7 @@ import (
 	"k8s.io/apiserver/pkg/endpoints/request"
 	"k8s.io/apiserver/pkg/features"
 	"k8s.io/apiserver/pkg/storage"
+	"k8s.io/apiserver/pkg/storage/cacher/consistency"
 	"k8s.io/apiserver/pkg/storage/cacher/delegator"
 	"k8s.io/apiserver/pkg/storage/cacher/key"
 	"k8s.io/apiserver/pkg/storage/cacher/metrics"
@@ -537,6 +538,30 @@ func (c *Cacher) Watch(ctx context.Context, key string, opts storage.ListOptions
 		return nil, errors.NewTooManyRequests(err.Error(), calculateRetryAfterForUnreadyCache(downtime))
 	}
 
+	watcher, err := c.watch(ctx, key, requestedWatchRV, readyGeneration, opts)
+	if err != nil {
+		// To match the uncached watch implementation, once we have passed authn/authz/admission,
+		// and successfully parsed a resource version, other errors must fail with a watch event of type ERROR,
+		// rather than a directly returned error.
+		return newErrWatcher(err), nil
+	}
+	if watcher == nil {
+		// Watcher isn't really started at this point, so it's safe to just drop it.
+		//
+		// We're simulating the immediate watch termination, which boils down to simply
+		// closing the watcher.
+		return newImmediateCloseWatcher(), nil
+	}
+	if opts.Predicate.ShardingEnabled() {
+		metrics.RecordShardedWatchStarted(c.groupResource)
+	}
+	go watcher.process(ctx)
+	return watcher, nil
+}
+
+func (c *Cacher) watch(ctx context.Context, key string, requestedWatchRV uint64, readyGeneration int, opts storage.ListOptions) (*cacheWatcher, error) {
+	span := tracing.SpanFromContext(ctx)
+
 	eventFilter := newWatchEventFilter(key, opts, c.groupResource)
 	selector := c.watchSelector(ctx, opts.Predicate)
 
@@ -550,13 +575,13 @@ func (c *Cacher) Watch(ctx context.Context, key string, opts storage.ListOptions
 	// client-go is going to fall back to a standard LIST on any error
 	// returned for watch-list requests
 	if isListWatchRequest(opts) && !etcdfeature.DefaultFeatureSupportChecker.Supports(storage.RequestWatchProgress) {
-		return newErrWatcher(fmt.Errorf("a watch stream was requested by the client but the required storage feature %s is disabled", storage.RequestWatchProgress)), nil
+		return nil, fmt.Errorf("a watch stream was requested by the client but the required storage feature %s is disabled", storage.RequestWatchProgress)
 	}
 
 	// Determine the ResourceVersion to which the watch cache must be synchronized
 	requiredResourceVersion, err := c.getWatchCacheResourceVersion(ctx, requestedWatchRV, opts)
 	if err != nil {
-		return newErrWatcher(err), nil
+		return nil, err
 	}
 
 	// Determine watch timeout('0' means deadline is not set, ignore checking)
@@ -580,7 +605,6 @@ func (c *Cacher) Watch(ctx context.Context, key string, opts storage.ListOptions
 		c.clock,
 		identifier,
 		selector,
-		requestedWatchRV,
 		requiredResourceVersion,
 	)
 
@@ -596,57 +620,37 @@ func (c *Cacher) Watch(ctx context.Context, key string, opts storage.ListOptions
 	if opts.SendInitialEvents != nil && *opts.SendInitialEvents {
 		err := c.watchCache.waitUntilFreshLocked(ctx, requiredResourceVersion)
 		if err != nil {
-			return newErrWatcher(err), nil
+			return nil, err
 		}
 		span.AddEvent("watchCache fresh enough")
 	}
 
 	cacheInterval, err := c.initWatcherIntervalLocked(ctx, watcher)
 	if err != nil {
-		// To match the uncached watch implementation, once we have passed authn/authz/admission,
-		// and successfully parsed a resource version, other errors must fail with a watch event of type ERROR,
-		// rather than a directly returned error.
-		return newErrWatcher(err), nil
+		return nil, err
 	}
-	isSharding := opts.Predicate.ShardingEnabled()
 
-	addedWatcher := false
-	func() {
-		c.Lock()
-		defer c.Unlock()
+	c.Lock()
+	defer c.Unlock()
 
-		if generation, _, err := c.ready.checkAndReadGeneration(); generation != readyGeneration || err != nil {
-			// We went unready or are already on a different generation.
-			// Avoid registering and starting the watch as it will have to be
-			// terminated immediately anyway.
-			return
+	if generation, _, err := c.ready.checkAndReadGeneration(); generation != readyGeneration || err != nil {
+		// We went unready or are already on a different generation.
+		// Avoid registering and starting the watch as it will have to be
+		// terminated immediately anyway.
+		return nil, nil
+	}
+
+	// Update watcher.forget function once we can compute it.
+	watcher.forget = forgetWatcher(c, watcher, c.watcherIdx)
+	if opts.Predicate.ShardingEnabled() {
+		originalForget := watcher.forget
+		watcher.forget = func(drainWatcher bool) {
+			metrics.RecordShardedWatchStopped(c.groupResource)
+			originalForget(drainWatcher)
 		}
-
-		// Update watcher.forget function once we can compute it.
-		watcher.forget = forgetWatcher(c, watcher, c.watcherIdx)
-		if isSharding {
-			originalForget := watcher.forget
-			watcher.forget = func(drainWatcher bool) {
-				metrics.RecordShardedWatchStopped(c.groupResource)
-				originalForget(drainWatcher)
-			}
-		}
-		c.registerWatcherLocked(watcher, c.watcherIdx, cacheInterval)
-		addedWatcher = true
-		c.watcherIdx++
-	}()
-
-	if !addedWatcher {
-		// Watcher isn't really started at this point, so it's safe to just drop it.
-		//
-		// We're simulating the immediate watch termination, which boils down to simply
-		// closing the watcher.
-		return newImmediateCloseWatcher(), nil
 	}
-	if isSharding {
-		metrics.RecordShardedWatchStarted(c.groupResource)
-	}
-	go watcher.process(ctx)
+	c.registerWatcherLocked(watcher, c.watcherIdx, cacheInterval)
+	c.watcherIdx++
 	return watcher, nil
 }
 
@@ -666,13 +670,17 @@ func (c *Cacher) initWatcherIntervalLocked(ctx context.Context, watcher *cacheWa
 		return nil, err
 	}
 
-	var bookmarkAfterResourceVersion uint64
 	if isListWatchRequest(opts) {
-		c.setInitialEventsEndBookmark(cacheInterval)
-		bookmarkAfterResourceVersion = getBookmarkAfterResourceVersion(watcher.requestedWatchRV, watcher.requiredResourceVersion, cacheInterval.resourceVersion, opts)
+		bookmark, err := c.getInitialEventsEndBookmark(cacheInterval.resourceVersion)
+		if err != nil {
+			return nil, err
+		}
+		cacheInterval.initialEventsEndBookmark = bookmark
+		watcher.bookmarkAfterResourceVersion = cacheInterval.resourceVersion
+		watcher.state = cacheWatcherBookmarkReceived
+	} else {
+		watcher.state = cacheWatcherBookmarkSent
 	}
-	// Update the bookMarkAfterResourceVersion
-	watcher.setBookmarkAfterResourceVersion(bookmarkAfterResourceVersion, cacheInterval)
 	return cacheInterval, nil
 }
 
@@ -1349,19 +1357,6 @@ func (c *Cacher) LastSyncResourceVersion() (uint64, error) {
 	return c.versioner.ParseResourceVersion(resourceVersion)
 }
 
-// getBookmarkAfterResourceVersion returns a ResourceVersion after which
-// the bookmark event will be delivered.
-func getBookmarkAfterResourceVersion(parsedResourceVersion, requiredResourceVersion, watchCacheResourceVersion uint64, opts storage.ListOptions) uint64 {
-	switch {
-	case len(opts.ResourceVersion) == 0:
-		return requiredResourceVersion
-	case parsedResourceVersion == 0:
-		return watchCacheResourceVersion
-	default:
-		return parsedResourceVersion
-	}
-}
-
 // isListWatchRequest is mirrored in staging/src/k8s.io/apiserver/pkg/endpoints/handlers/get.go
 func isListWatchRequest(opts storage.ListOptions) bool {
 	return opts.SendInitialEvents != nil && *opts.SendInitialEvents && opts.Predicate.AllowWatchBookmarks
@@ -1395,22 +1390,23 @@ func (c *Cacher) Wait(ctx context.Context) error {
 	return c.ready.wait(ctx)
 }
 
-// setInitialEventsEndBookmark sets initialEventsEndBookmark field in watchCacheInterval for watchlist request
-func (c *Cacher) setInitialEventsEndBookmark(cacheInterval *watchCacheInterval) {
+// getInitialEventsEndBookmark returns an initialEventsEndBookmark for the given resourceVersion
+func (c *Cacher) getInitialEventsEndBookmark(resourceVersion uint64) (*watchCacheEvent, error) {
 	// We don't need to set the InitialEventsAnnotation for this bookmark event,
 	// because this will be automatically set during event conversion in cacheWatcher.convertToWatchEvent method
 	initialEventsEndBookmark := &watchCacheEvent{
 		Type:            watch.Bookmark,
 		Object:          c.newFunc(),
-		ResourceVersion: cacheInterval.resourceVersion,
+		ResourceVersion: resourceVersion,
 	}
 
 	if err := c.versioner.UpdateObject(initialEventsEndBookmark.Object, initialEventsEndBookmark.ResourceVersion); err != nil {
-		klog.Errorf("failure to set resourceVersion to %d on initialEventsEndBookmark event %+v for watchlist request and wait for bookmark trigger to send", initialEventsEndBookmark.ResourceVersion, initialEventsEndBookmark.Object)
-		initialEventsEndBookmark = nil
+		if consistency.PanicOnCacheInconsistency {
+			panic(fmt.Sprintf("Failure to set resourceVersion to %d on initialEventsEndBookmark event %+v, resource: %q, err: %v", initialEventsEndBookmark.ResourceVersion, initialEventsEndBookmark.Object, c.groupResource, err))
+		}
+		return nil, fmt.Errorf("failure to set resourceVersion to %d on initialEventsEndBookmark event %+v, resource: %q, err: %w", initialEventsEndBookmark.ResourceVersion, initialEventsEndBookmark.Object, c.groupResource, err)
 	}
-
-	cacheInterval.initialEventsEndBookmark = initialEventsEndBookmark
+	return initialEventsEndBookmark, nil
 }
 
 func (c *Cacher) getKeys(ctx context.Context) ([]string, error) {

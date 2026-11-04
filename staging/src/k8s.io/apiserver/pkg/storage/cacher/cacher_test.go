@@ -101,36 +101,42 @@ func checkStorageInvariants(ctx context.Context, t *testing.T, key string) {
 }
 
 func TestCreate(t *testing.T) {
+	t.Parallel()
 	ctx, cacher, terminate := testSetup(t)
 	t.Cleanup(terminate)
 	storagetesting.RunTestCreate(ctx, t, cacher, checkStorageInvariants)
 }
 
 func TestCreateWithTTL(t *testing.T) {
+	t.Parallel()
 	ctx, cacher, terminate := testSetup(t)
 	t.Cleanup(terminate)
 	storagetesting.RunTestCreateWithTTL(ctx, t, cacher)
 }
 
 func TestCreateWithKeyExist(t *testing.T) {
+	t.Parallel()
 	ctx, cacher, terminate := testSetup(t)
 	t.Cleanup(terminate)
 	storagetesting.RunTestCreateWithKeyExist(ctx, t, cacher)
 }
 
 func TestGet(t *testing.T) {
+	t.Parallel()
 	ctx, cacher, server, terminate := testSetupWithEtcdServer(t)
 	t.Cleanup(terminate)
 	storagetesting.RunTestGet(ctx, t, cacher, increaseRVFunc(server.V3Client.Client))
 }
 
 func TestDeleteOnce(t *testing.T) {
+	t.Parallel()
 	ctx, cacher, terminate := testSetup(t)
 	t.Cleanup(terminate)
 	storagetesting.RunTestDeleteOnce(ctx, t, cacher, etcd3testing.PathPrefix(), examplev1ProtoCodec)
 }
 
 func TestUpdateOnce(t *testing.T) {
+	t.Parallel()
 	ctx, cacher, terminate := testSetup(t)
 	t.Cleanup(terminate)
 	storagetesting.RunTestUpdateOnce(ctx, t, cacher, etcd3testing.PathPrefix(), examplev1ProtoCodec)
@@ -170,41 +176,49 @@ func (tc *testCodec) Decode(data []byte, defaults *schema.GroupVersionKind, into
 
 func TestDelete(t *testing.T) {
 	t.Run("UnconditionalDelete", func(t *testing.T) {
+		t.Parallel()
 		ctx, cacher, terminate := testSetup(t)
 		t.Cleanup(terminate)
 		storagetesting.RunTestUnconditionalDelete(ctx, t, cacher)
 	})
 	t.Run("ConditionalDelete", func(t *testing.T) {
+		t.Parallel()
 		ctx, cacher, terminate := testSetup(t)
 		t.Cleanup(terminate)
 		storagetesting.RunTestConditionalDelete(ctx, t, cacher)
 	})
 	t.Run("DeleteWithSuggestion", func(t *testing.T) {
+		t.Parallel()
 		ctx, cacher, terminate := testSetup(t)
 		t.Cleanup(terminate)
 		storagetesting.RunTestDeleteWithSuggestion(ctx, t, cacher)
 	})
 	t.Run("DeleteWithSuggestionAndConflict", func(t *testing.T) {
+		t.Parallel()
 		ctx, cacher, terminate := testSetup(t)
 		t.Cleanup(terminate)
 		storagetesting.RunTestDeleteWithSuggestionAndConflict(ctx, t, cacher)
 	})
 	t.Run("DeleteWithSuggestionOfDeletedObject", func(t *testing.T) {
+		t.Parallel()
 		ctx, cacher, terminate := testSetup(t)
 		t.Cleanup(terminate)
 		storagetesting.RunTestDeleteWithSuggestionOfDeletedObject(ctx, t, cacher)
 	})
 	t.Run("ValidateDeletionWithSuggestion", func(t *testing.T) {
+		t.Parallel()
 		ctx, cacher, terminate := testSetup(t)
 		t.Cleanup(terminate)
 		storagetesting.RunTestValidateDeletionWithSuggestion(ctx, t, cacher)
 	})
 	t.Run("ValidateDeletionWithOnlySuggestionValid", func(t *testing.T) {
+		t.Parallel()
 		ctx, cacher, terminate := testSetup(t)
 		t.Cleanup(terminate)
 		storagetesting.RunTestValidateDeletionWithOnlySuggestionValid(ctx, t, cacher)
 	})
 	t.Run("DeleteWithConflict", func(t *testing.T) {
+		t.Parallel()
 		ctx, cacher, terminate := testSetup(t)
 		t.Cleanup(terminate)
 		storagetesting.RunTestDeleteWithConflict(ctx, t, cacher)
@@ -240,11 +254,13 @@ func TestDelete(t *testing.T) {
 		storagetesting.RunTestDeleteWithSuggestionAndMissingExpectedTransformOrDecodeError(ctx, t, cacher)
 	})
 	t.Run("PreconditionalDeleteWithSuggestion", func(t *testing.T) {
+		t.Parallel()
 		ctx, cacher, terminate := testSetup(t)
 		t.Cleanup(terminate)
 		storagetesting.RunTestPreconditionalDeleteWithSuggestion(ctx, t, cacher)
 	})
 	t.Run("PreconditionalDeleteWithSuggestionPass", func(t *testing.T) {
+		t.Parallel()
 		ctx, cacher, terminate := testSetup(t)
 		t.Cleanup(terminate)
 		storagetesting.RunTestPreconditionalDeleteWithOnlySuggestionPass(ctx, t, cacher)
@@ -252,6 +268,7 @@ func TestDelete(t *testing.T) {
 }
 
 func TestListPaging(t *testing.T) {
+	t.Parallel()
 	ctx, cacher, terminate := testSetup(t)
 	t.Cleanup(terminate)
 	storagetesting.RunTestListPaging(ctx, t, cacher)
@@ -407,6 +424,7 @@ func TestCompactPastLastWrite(t *testing.T) {
 }
 
 func TestGetListRecursivePrefix(t *testing.T) {
+	t.Parallel()
 	ctx, store, terminate := testSetup(t)
 	t.Cleanup(terminate)
 	storagetesting.RunTestGetListRecursivePrefix(ctx, t, store)
@@ -417,18 +435,21 @@ func checkStorageCalls(t *testing.T, pageSize, estimatedProcessedObjects uint64)
 }
 
 func TestListContinuation(t *testing.T) {
+	t.Parallel()
 	ctx, cacher, terminate := testSetup(t)
 	t.Cleanup(terminate)
 	storagetesting.RunTestListContinuation(ctx, t, cacher, checkStorageCalls)
 }
 
 func TestListPaginationRareObject(t *testing.T) {
+	t.Parallel()
 	ctx, cacher, terminate := testSetup(t)
 	t.Cleanup(terminate)
 	storagetesting.RunTestListPaginationRareObject(ctx, t, cacher, checkStorageCalls)
 }
 
 func TestListContinuationWithFilter(t *testing.T) {
+	t.Parallel()
 	ctx, cacher, terminate := testSetup(t)
 	t.Cleanup(terminate)
 	storagetesting.RunTestListContinuationWithFilter(ctx, t, cacher, checkStorageCalls)
@@ -443,6 +464,7 @@ func TestListResourceVersionMatch(t *testing.T) {
 }
 
 func TestNamespaceScopedList(t *testing.T) {
+	t.Parallel()
 	ctx, cacher, terminate := testSetup(t, withNodeNameAndNamespaceIndex)
 	t.Cleanup(terminate)
 	storagetesting.RunTestNamespaceScopedList(ctx, t, cacher)
@@ -491,17 +513,20 @@ func (c *cacherWithPrefixTransformer) UpdatePrefixTransformer(modifier storagete
 
 func TestGuaranteedUpdate(t *testing.T) {
 	t.Run("GuaranteedUpdate", func(t *testing.T) {
+		t.Parallel()
 		transformer := newSwappablePrefixTransformer()
 		ctx, cacher, terminate := testSetup(t, withTransformer(transformer))
 		t.Cleanup(terminate)
 		storagetesting.RunTestGuaranteedUpdate(ctx, t, &cacherWithPrefixTransformer{CacheDelegator: cacher, transformer: transformer}, checkStorageInvariants)
 	})
 	t.Run("GuaranteedUpdateWithTTL", func(t *testing.T) {
+		t.Parallel()
 		ctx, cacher, terminate := testSetup(t)
 		t.Cleanup(terminate)
 		storagetesting.RunTestGuaranteedUpdateWithTTL(ctx, t, cacher)
 	})
 	t.Run("GuaranteedUpdateChecksStoredData", func(t *testing.T) {
+		t.Parallel()
 		transformer := newSwappablePrefixTransformer()
 		// Leading-whitespace normalization in RunTestGuaranteedUpdateChecksStoredData requires a JSON codec.
 		ctx, cacher, terminate := testSetup(t, withCodec(apitesting.TestCodec(codecs, examplev1.SchemeGroupVersion)), withTransformer(transformer))
@@ -509,11 +534,13 @@ func TestGuaranteedUpdate(t *testing.T) {
 		storagetesting.RunTestGuaranteedUpdateChecksStoredData(ctx, t, &cacherWithPrefixTransformer{CacheDelegator: cacher, transformer: transformer})
 	})
 	t.Run("GuaranteedUpdateWithConflict", func(t *testing.T) {
+		t.Parallel()
 		ctx, cacher, terminate := testSetup(t)
 		t.Cleanup(terminate)
 		storagetesting.RunTestGuaranteedUpdateWithConflict(ctx, t, cacher)
 	})
 	t.Run("GuaranteedUpdateWithSuggestionAndConflict", func(t *testing.T) {
+		t.Parallel()
 		ctx, cacher, terminate := testSetup(t)
 		t.Cleanup(terminate)
 		storagetesting.RunTestGuaranteedUpdateWithSuggestionAndConflict(ctx, t, cacher)
@@ -535,6 +562,7 @@ func TestStats(t *testing.T) {
 	}
 }
 func TestKeySchema(t *testing.T) {
+	t.Parallel()
 	ctx, cacher, terminate := testSetup(t, func(options *setupOptions) {
 		options.keyFunc = func(obj runtime.Object) (string, error) {
 			accessor, err := meta.Accessor(obj)
@@ -555,130 +583,135 @@ func TestWatch(t *testing.T) {
 	for _, watchWithoutPrevKV := range []bool{true, false} {
 		t.Run(fmt.Sprintf("WatchWithoutPrevKV=%v", watchWithoutPrevKV), func(t *testing.T) {
 			featuregatetesting.SetFeatureGateDuringTest(t, utilfeature.DefaultFeatureGate, features.WatchFromStorageWithoutPrevKV, watchWithoutPrevKV)
-			t.Run("Watch", func(t *testing.T) {
-				t.Parallel()
-				ctx, cacher, terminate := testSetup(t)
-				t.Cleanup(terminate)
-				storagetesting.RunTestWatch(ctx, t, cacher)
-			})
-			t.Run("WatchFromZero", func(t *testing.T) {
-				t.Parallel()
-				ctx, cacher, server, terminate := testSetupWithEtcdServer(t)
-				t.Cleanup(terminate)
-				storagetesting.RunTestWatchFromZero(ctx, t, cacher, compactWatch(cacher, server.V3Client.Client))
-			})
-			t.Run("DeleteTriggerWatch", func(t *testing.T) {
-				t.Parallel()
-				ctx, cacher, terminate := testSetup(t)
-				t.Cleanup(terminate)
-				storagetesting.RunTestDeleteTriggerWatch(ctx, t, cacher)
-			})
-			t.Run("WatchFromNonZero", func(t *testing.T) {
-				t.Parallel()
-				ctx, cacher, terminate := testSetup(t)
-				t.Cleanup(terminate)
-				storagetesting.RunTestWatchFromNonZero(ctx, t, cacher)
-			})
-			t.Run("DelayedWatchDelivery", func(t *testing.T) {
-				t.Parallel()
-				ctx, cacher, terminate := testSetup(t)
-				t.Cleanup(terminate)
-				storagetesting.RunTestDelayedWatchDelivery(ctx, t, cacher)
-			})
-			t.Run("WatchError", func(t *testing.T) {
-				// TODO(#109831): Enable use of this test and run it.
-			})
-			t.Run("WatchContextCancel", func(t *testing.T) {
-				t.Parallel()
-				ctx, cacher, terminate := testSetup(t)
-				t.Cleanup(terminate)
-				storagetesting.RunTestWatchContextCancel(ctx, t, cacher)
-			})
-			t.Run("WatcherTimeout", func(t *testing.T) {
-				ctx, cacher, terminate := testSetup(t)
-				t.Cleanup(terminate)
-				storagetesting.RunTestWatcherTimeout(ctx, t, cacher)
-			})
-			t.Run("WatchDeleteEventObjectHaveLatestRV", func(t *testing.T) {
-				t.Parallel()
-				ctx, cacher, terminate := testSetup(t)
-				t.Cleanup(terminate)
-				storagetesting.RunTestWatchDeleteEventObjectHaveLatestRV(ctx, t, cacher, true, false, nil)
-			})
-			t.Run("WatchInitializationSignal", func(t *testing.T) {
-				t.Parallel()
-				ctx, cacher, terminate := testSetup(t)
-				t.Cleanup(terminate)
-				storagetesting.RunTestWatchInitializationSignal(ctx, t, cacher)
-			})
-			t.Run("ClusterScopedWatch", func(t *testing.T) {
-				t.Parallel()
-				ctx, cacher, terminate := testSetup(t, withClusterScopedKeyFunc, withNodeNameAndNamespaceIndex)
-				t.Cleanup(terminate)
-				storagetesting.RunTestClusterScopedWatch(ctx, t, cacher)
-			})
-			t.Run("NamespaceScopedWatch", func(t *testing.T) {
-				t.Parallel()
-				ctx, cacher, terminate := testSetup(t, withNodeNameAndNamespaceIndex)
-				t.Cleanup(terminate)
-				storagetesting.RunTestNamespaceScopedWatch(ctx, t, cacher)
-			})
-			t.Run("WatchDispatchBookmarkEvents", func(t *testing.T) {
-				t.Parallel()
-				ctx, cacher, terminate := testSetup(t)
-				t.Cleanup(terminate)
-				storagetesting.RunTestWatchDispatchBookmarkEvents(ctx, t, cacher, true)
-			})
-			t.Run("WatchBookmarksWithCorrectResourceVersion", func(t *testing.T) {
-				t.Parallel()
-				ctx, cacher, terminate := testSetup(t)
-				t.Cleanup(terminate)
-				storagetesting.RunTestOptionalWatchBookmarksWithCorrectResourceVersion(ctx, t, cacher)
-			})
-			t.Run("SendInitialEventsBackwardCompatibility", func(t *testing.T) {
-				t.Parallel()
-				ctx, store, terminate := testSetup(t)
-				t.Cleanup(terminate)
-				storagetesting.RunSendInitialEventsBackwardCompatibility(ctx, t, store)
-			})
-			t.Run("WatchResync", func(t *testing.T) {
-				t.Parallel()
-				fakeClock := testingclock.NewFakeClock(time.Now())
-				ctx, cacher, server, terminate := testSetupWithEtcdServer(t, withClock(fakeClock), withNodeNameAndNamespaceIndex)
-				t.Cleanup(terminate)
-				store := &createWrapper{CacheDelegator: cacher}
-				resync := func() {
-					time.Sleep(50 * time.Millisecond)
-					fakeClock.Step(100 * time.Millisecond)
-					time.Sleep(50 * time.Millisecond)
-					fakeClock.Step(2 * time.Second)
-					time.Sleep(50 * time.Millisecond)
-				}
-				triggerBookmarks := func() {
-					time.Sleep(50 * time.Millisecond)
-					fakeClock.Step(defaultBookmarkFrequency + time.Second)
-					time.Sleep(50 * time.Millisecond)
-				}
-				storagetesting.RunTestWatchResync(ctx, t, store, true, compactWatch(cacher, server.V3Client.Client), resync, triggerBookmarks)
-			})
-			// These tests override WatchList and must finish before the parallel subtests start.
-			t.Run("WatchSemantics", func(t *testing.T) {
-				store, terminate := testSetupWithEtcdAndCreateWrapper(t)
-				t.Cleanup(terminate)
-				storagetesting.RunWatchSemantics(context.TODO(), t, store)
-			})
-			t.Run("WatchSemanticInitialEventsExtended", func(t *testing.T) {
-				store, terminate := testSetupWithEtcdAndCreateWrapper(t)
-				t.Cleanup(terminate)
-				storagetesting.RunWatchSemanticInitialEventsExtended(context.TODO(), t, store)
-			})
-			t.Run("WatchListMatchSingle", func(t *testing.T) {
-				store, terminate := testSetupWithEtcdAndCreateWrapper(t)
-				t.Cleanup(terminate)
-				storagetesting.RunWatchListMatchSingle(context.TODO(), t, store)
-			})
+			testWatch(t)
 		})
 	}
+}
+
+func testWatch(t *testing.T) {
+	t.Run("Watch", func(t *testing.T) {
+		t.Parallel()
+		ctx, cacher, terminate := testSetup(t)
+		t.Cleanup(terminate)
+		storagetesting.RunTestWatch(ctx, t, cacher)
+	})
+	t.Run("WatchFromZero", func(t *testing.T) {
+		t.Parallel()
+		ctx, cacher, server, terminate := testSetupWithEtcdServer(t)
+		t.Cleanup(terminate)
+		storagetesting.RunTestWatchFromZero(ctx, t, cacher, compactWatch(cacher, server.V3Client.Client))
+	})
+	t.Run("DeleteTriggerWatch", func(t *testing.T) {
+		t.Parallel()
+		ctx, cacher, terminate := testSetup(t)
+		t.Cleanup(terminate)
+		storagetesting.RunTestDeleteTriggerWatch(ctx, t, cacher)
+	})
+	t.Run("WatchFromNonZero", func(t *testing.T) {
+		t.Parallel()
+		ctx, cacher, terminate := testSetup(t)
+		t.Cleanup(terminate)
+		storagetesting.RunTestWatchFromNonZero(ctx, t, cacher)
+	})
+	t.Run("DelayedWatchDelivery", func(t *testing.T) {
+		t.Parallel()
+		ctx, cacher, terminate := testSetup(t)
+		t.Cleanup(terminate)
+		storagetesting.RunTestDelayedWatchDelivery(ctx, t, cacher)
+	})
+	t.Run("WatchError", func(t *testing.T) {
+		// TODO(#109831): Enable use of this test and run it.
+	})
+	t.Run("WatchContextCancel", func(t *testing.T) {
+		t.Parallel()
+		ctx, cacher, terminate := testSetup(t)
+		t.Cleanup(terminate)
+		storagetesting.RunTestWatchContextCancel(ctx, t, cacher)
+	})
+	t.Run("WatcherTimeout", func(t *testing.T) {
+		t.Parallel()
+		ctx, cacher, terminate := testSetup(t)
+		t.Cleanup(terminate)
+		storagetesting.RunTestWatcherTimeout(ctx, t, cacher)
+	})
+	t.Run("WatchDeleteEventObjectHaveLatestRV", func(t *testing.T) {
+		t.Parallel()
+		ctx, cacher, terminate := testSetup(t)
+		t.Cleanup(terminate)
+		storagetesting.RunTestWatchDeleteEventObjectHaveLatestRV(ctx, t, cacher, true, false, nil)
+	})
+	t.Run("WatchInitializationSignal", func(t *testing.T) {
+		t.Parallel()
+		ctx, cacher, terminate := testSetup(t)
+		t.Cleanup(terminate)
+		storagetesting.RunTestWatchInitializationSignal(ctx, t, cacher)
+	})
+	t.Run("ClusterScopedWatch", func(t *testing.T) {
+		t.Parallel()
+		ctx, cacher, terminate := testSetup(t, withClusterScopedKeyFunc, withNodeNameAndNamespaceIndex)
+		t.Cleanup(terminate)
+		storagetesting.RunTestClusterScopedWatch(ctx, t, cacher)
+	})
+	t.Run("NamespaceScopedWatch", func(t *testing.T) {
+		t.Parallel()
+		ctx, cacher, terminate := testSetup(t, withNodeNameAndNamespaceIndex)
+		t.Cleanup(terminate)
+		storagetesting.RunTestNamespaceScopedWatch(ctx, t, cacher)
+	})
+	t.Run("WatchDispatchBookmarkEvents", func(t *testing.T) {
+		t.Parallel()
+		ctx, cacher, terminate := testSetup(t)
+		t.Cleanup(terminate)
+		storagetesting.RunTestWatchDispatchBookmarkEvents(ctx, t, cacher, true)
+	})
+	t.Run("WatchBookmarksWithCorrectResourceVersion", func(t *testing.T) {
+		t.Parallel()
+		ctx, cacher, terminate := testSetup(t)
+		t.Cleanup(terminate)
+		storagetesting.RunTestOptionalWatchBookmarksWithCorrectResourceVersion(ctx, t, cacher)
+	})
+	t.Run("SendInitialEventsBackwardCompatibility", func(t *testing.T) {
+		t.Parallel()
+		ctx, store, terminate := testSetup(t)
+		t.Cleanup(terminate)
+		storagetesting.RunSendInitialEventsBackwardCompatibility(ctx, t, store)
+	})
+	t.Run("WatchResync", func(t *testing.T) {
+		t.Parallel()
+		fakeClock := testingclock.NewFakeClock(time.Now())
+		ctx, cacher, server, terminate := testSetupWithEtcdServer(t, withClock(fakeClock), withNodeNameAndNamespaceIndex)
+		t.Cleanup(terminate)
+		store := &createWrapper{CacheDelegator: cacher}
+		resync := func() {
+			time.Sleep(50 * time.Millisecond)
+			fakeClock.Step(100 * time.Millisecond)
+			time.Sleep(50 * time.Millisecond)
+			fakeClock.Step(2 * time.Second)
+			time.Sleep(50 * time.Millisecond)
+		}
+		triggerBookmarks := func() {
+			time.Sleep(50 * time.Millisecond)
+			fakeClock.Step(defaultBookmarkFrequency + time.Second)
+			time.Sleep(50 * time.Millisecond)
+		}
+		storagetesting.RunTestWatchResync(ctx, t, store, true, compactWatch(cacher, server.V3Client.Client), resync, triggerBookmarks)
+	})
+	// These tests override WatchList and must finish before the parallel subtests start.
+	t.Run("WatchSemantics", func(t *testing.T) {
+		store, terminate := testSetupWithEtcdAndCreateWrapper(t)
+		t.Cleanup(terminate)
+		storagetesting.RunWatchSemantics(context.TODO(), t, store)
+	})
+	t.Run("WatchSemanticInitialEventsExtended", func(t *testing.T) {
+		store, terminate := testSetupWithEtcdAndCreateWrapper(t)
+		t.Cleanup(terminate)
+		storagetesting.RunWatchSemanticInitialEventsExtended(context.TODO(), t, store)
+	})
+	t.Run("WatchListMatchSingle", func(t *testing.T) {
+		store, terminate := testSetupWithEtcdAndCreateWrapper(t)
+		t.Cleanup(terminate)
+		storagetesting.RunWatchListMatchSingle(context.TODO(), t, store)
+	})
 }
 
 func TestOptimisticConcurrency(t *testing.T) {
@@ -815,7 +848,7 @@ func testSetupWithEtcdServer(t testing.TB, opts ...setupOption) (context.Context
 
 	// Since some tests depend on the fact that GetList shouldn't fail,
 	// we wait until the error from the underlying storage is consumed.
-	if err := wait.PollInfinite(100*time.Millisecond, wrappedStorage.ErrorsConsumed); err != nil {
+	if err := wait.PollInfinite(5*time.Millisecond, wrappedStorage.ErrorsConsumed); err != nil {
 		t.Fatalf("Failed to inject list errors: %v", err)
 	}
 
@@ -849,7 +882,7 @@ func (c *createWrapper) Create(ctx context.Context, key string, obj, out runtime
 	if err := c.CacheDelegator.Create(ctx, key, obj, out, ttl); err != nil {
 		return err
 	}
-	return wait.PollUntilContextTimeout(ctx, 100*time.Millisecond, wait.ForeverTestTimeout, true, func(ctx context.Context) (bool, error) {
+	return wait.PollUntilContextTimeout(ctx, 5*time.Millisecond, wait.ForeverTestTimeout, true, func(ctx context.Context) (bool, error) {
 		currentObj := c.CacheDelegator.cacher.newFunc()
 		err := c.CacheDelegator.Get(ctx, key, storage.GetOptions{ResourceVersion: "0"}, currentObj)
 		if err != nil {

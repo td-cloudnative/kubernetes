@@ -55,7 +55,7 @@ func BenchmarkRequestCost(b *testing.B) {
 	})
 
 	const (
-		perfDashMetricName = "BenchmarkRequestCostV2"
+		perfDashMetricName = "BenchmarkRequestCostV3"
 		podCount           = 1000
 		podPath            = "/api/v1/namespaces/" + metav1.NamespaceDefault + "/pods/pod-000"
 		unboundPodPath     = "/api/v1/namespaces/" + metav1.NamespaceDefault + "/pods/pod-999"
@@ -340,6 +340,63 @@ func BenchmarkRequestCost(b *testing.B) {
 		},
 		{
 			method:             "POST",
+			options:            "create admission=" + string(validatingPolicy),
+			httpMethod:         http.MethodPost,
+			path:               podsPath,
+			query:              "fieldManager=bench",
+			acceptContentTypes: writeFormats,
+			body:               staticPodBody(b),
+			admissionPolicy:    validatingPolicy,
+		},
+		{
+			method:             "POST",
+			options:            "create admission=" + string(mutatingApplyPolicy),
+			httpMethod:         http.MethodPost,
+			path:               podsPath,
+			query:              "fieldManager=bench",
+			acceptContentTypes: writeFormats,
+			body:               staticPodBody(b),
+			admissionPolicy:    mutatingApplyPolicy,
+		},
+		{
+			method:             "POST",
+			options:            "create admission=" + string(mutatingJSONPatchPolicy),
+			httpMethod:         http.MethodPost,
+			path:               podsPath,
+			query:              "fieldManager=bench",
+			acceptContentTypes: writeFormats,
+			body:               staticPodBody(b),
+			admissionPolicy:    mutatingJSONPatchPolicy,
+		},
+		{
+			method:             "POST",
+			options:            "create " + string(validatingPolicy),
+			httpMethod:         http.MethodPost,
+			path:               vapPath,
+			query:              "fieldManager=bench",
+			acceptContentTypes: writeFormats,
+			body:               staticObjectBody(b, benchVAP()),
+		},
+		{
+			method:             "POST",
+			options:            "create " + string(mutatingApplyPolicy),
+			httpMethod:         http.MethodPost,
+			path:               mapPath,
+			query:              "fieldManager=bench",
+			acceptContentTypes: writeFormats,
+			body:               staticObjectBody(b, benchMAPApply()),
+		},
+		{
+			method:             "POST",
+			options:            "create " + string(mutatingJSONPatchPolicy),
+			httpMethod:         http.MethodPost,
+			path:               mapPath,
+			query:              "fieldManager=bench",
+			acceptContentTypes: writeFormats,
+			body:               staticObjectBody(b, benchMAPJSONPatch()),
+		},
+		{
+			method:             "POST",
 			options:            "binding",
 			httpMethod:         http.MethodPost,
 			path:               unboundPodPath + "/binding",
@@ -548,13 +605,16 @@ func BenchmarkRequestCost(b *testing.B) {
 						targetPods = seedPods(tCtx, informer, ephemeralNamespace, count, sc.extraBytes)
 						defer clearNamespace(tCtx, informer, ephemeralNamespace)
 					}
+					if sc.admissionPolicy != admissionPolicyNone {
+						defer installAdmissionPolicy(tCtx, server, sc.admissionPolicy)()
+					}
 					for _, dryRun := range []bool{true, false} {
 						if !dryRun && !supportsCommit(sc) {
 							continue
 						}
 						b.Run(fmt.Sprintf("DryRun=%t", dryRun), func(b *testing.B) {
 							framework.FixBenchmarkJSONOutput(b)
-							report.DataItems = append(report.DataItems, benchmarkScenario(b, tCtx, server, informer, sc, targetPods, podCount, setupAllocBytes, dryRun)...)
+							report.DataItems = append(report.DataItems, benchmarkScenario(b, tCtx, server, informer, sc, targetPods, setupAllocBytes, dryRun)...)
 						})
 					}
 				})
@@ -576,12 +636,14 @@ type requestScenario struct {
 	requestContentType string
 	acceptContentTypes []contentType
 	body               bodyBuilder
+	// admissionPolicy, if set, is installed while the scenario is measured.
+	admissionPolicy admissionPolicy
 }
 
 func supportsCommit(sc requestScenario) bool {
 	return sc.httpMethod == http.MethodPut ||
 		sc.httpMethod == http.MethodPatch ||
-		(sc.httpMethod == http.MethodPost && sc.options == "create")
+		(sc.httpMethod == http.MethodPost && (sc.options == "create" || sc.admissionPolicy != admissionPolicyNone))
 }
 
 // perfData and dataItem match k8s.io/kubernetes/test/e2e/perftype (duplicated
@@ -597,10 +659,13 @@ type dataItem struct {
 	Labels map[string]string  `json:"labels,omitempty"`
 }
 
-func benchmarkScenario(b *testing.B, tCtx ktesting.TContext, server http.Handler, informer *informerWaiter, sc requestScenario, pods []*v1.Pod, podCount int, setupAllocBytes float64, dryRun bool) []dataItem {
+func benchmarkScenario(b *testing.B, tCtx ktesting.TContext, server http.Handler, informer *informerWaiter, sc requestScenario, pods []*v1.Pod, setupAllocBytes float64, dryRun bool) []dataItem {
 	var items []dataItem
-	nStr := strconv.Itoa(podCount)
-	dryRunStr := strconv.FormatBool(dryRun)
+	dryRunLabel := "DryRun=False"
+	if dryRun {
+		dryRunLabel = "DryRun=True"
+	}
+	optionsLabel := fmt.Sprintf("%s %s", sc.method, sc.options)
 
 	for _, wf := range sc.acceptContentTypes {
 		b.Run(fmt.Sprintf("Format=%s", wf.name), func(b *testing.B) {
@@ -648,10 +713,8 @@ func benchmarkScenario(b *testing.B, tCtx ktesting.TContext, server http.Handler
 				}
 				items = append(items, dataItem{
 					Labels: map[string]string{
-						"N":       nStr,
-						"DryRun":  dryRunStr,
-						"Method":  sc.method,
-						"Options": sc.options,
+						"DryRun":  dryRunLabel,
+						"Options": optionsLabel,
 						"Format":  wf.name,
 						"Metric":  m.name,
 					},

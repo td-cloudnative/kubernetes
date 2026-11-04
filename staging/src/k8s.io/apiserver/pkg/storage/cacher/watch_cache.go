@@ -41,18 +41,6 @@ import (
 	"k8s.io/utils/clock"
 )
 
-const (
-	// blockTimeout determines how long we're willing to block the request
-	// to wait for a given resource version to be propagated to cache,
-	// before terminating request and returning Timeout error with retry
-	// after suggestion.
-	blockTimeout = 3 * time.Second
-
-	// resourceVersionTooHighRetrySeconds is the seconds before a operation should be retried by the client
-	// after receiving a 'too high resource version' error.
-	resourceVersionTooHighRetrySeconds = 1
-)
-
 // watchCacheEvent is a single "watch event" that is send to users of
 // watchCache. Additionally to a typical "watch.Event" it contains
 // the previous value of the object to enable proper filtering in the
@@ -82,9 +70,8 @@ type watchCacheEvent struct {
 type watchCache struct {
 	sync.RWMutex
 
-	// Condition on which lists are waiting for the fresh enough
-	// resource version.
-	cond *sync.Cond
+	// freshness is used to notify waiters when the cache is fresh enough.
+	freshness *freshnessWaiter
 
 	// ResourceVersion up to which the watchCache is propagated.
 	resourceVersion uint64
@@ -121,10 +108,6 @@ type ImmutableWatchCacheConfig struct {
 	// For testing cache interval invalidation.
 	indexValidator indexValidator
 
-	// Requests progress notification if there are requests waiting for watch
-	// to be fresh
-	waitingUntilFresh *progress.ConditionalProgressRequester
-
 	getCurrentRV func(context.Context) (uint64, error)
 }
 
@@ -141,14 +124,13 @@ func newWatchCache(
 	getCurrentRV func(context.Context) (uint64, error),
 ) *watchCache {
 	config := &ImmutableWatchCacheConfig{
-		keyFunc:           keyFunc,
-		getAttrsFunc:      getAttrsFunc,
-		eventHandler:      eventHandler,
-		clock:             clock,
-		versioner:         versioner,
-		groupResource:     groupResource,
-		waitingUntilFresh: progressRequester,
-		getCurrentRV:      getCurrentRV,
+		keyFunc:       keyFunc,
+		getAttrsFunc:  getAttrsFunc,
+		eventHandler:  eventHandler,
+		clock:         clock,
+		versioner:     versioner,
+		groupResource: groupResource,
+		getCurrentRV:  getCurrentRV,
 	}
 
 	wc := &watchCache{
@@ -157,7 +139,7 @@ func newWatchCache(
 		history:         newWatchCacheHistory(config, eventFreshDuration),
 		storage:         store.NewWatchCacheStorage(indexers),
 	}
-	wc.cond = sync.NewCond(wc.RLocker())
+	wc.freshness = newFreshnessWaiter(wc.RLocker(), &wc.resourceVersion, clock, groupResource, progressRequester)
 	wc.config.indexValidator = wc.history.isIndexValidLocked
 
 	return wc
@@ -258,7 +240,7 @@ func (w *watchCache) processEvent(event watch.Event, resourceVersion uint64) err
 
 		w.history.updateCache(wcEvent)
 		w.resourceVersion = resourceVersion
-		defer w.cond.Broadcast()
+		defer w.freshness.broadcast()
 
 		if w.history.isCacheFullLocked() {
 			oldestRV := w.history.OldestResourceVersionLocked()
@@ -305,7 +287,7 @@ func (w *watchCache) UpdateResourceVersion(resourceVersion string) {
 		defer w.Unlock()
 		w.storage.UpdateResourceVersion(rv)
 		w.resourceVersion = rv
-		w.cond.Broadcast()
+		w.freshness.broadcast()
 	}()
 
 	// Avoid calling event handler under lock.
@@ -324,47 +306,7 @@ func (w *watchCache) UpdateResourceVersion(resourceVersion string) {
 
 // waitUntilFreshLocked waits until cache is at least as fresh as given resourceVersion.
 func (w *watchCache) waitUntilFreshLocked(ctx context.Context, resourceVersion uint64) error {
-	if resourceVersion == 0 || resourceVersion <= w.resourceVersion {
-		return nil
-	}
-	w.config.waitingUntilFresh.Add()
-	defer w.config.waitingUntilFresh.Remove()
-	startTime := w.config.clock.Now()
-	defer func() {
-		if resourceVersion > 0 {
-			metrics.WatchCacheReadWait.WithContext(ctx).WithLabelValues(w.config.groupResource.Group, w.config.groupResource.Resource).Observe(w.config.clock.Since(startTime).Seconds())
-		}
-	}()
-
-	// In case resourceVersion is 0, we accept arbitrarily stale result.
-	// As a result, the condition in the below for loop will never be
-	// satisfied (w.resourceVersion is never negative), this call will
-	// never hit the w.cond.Wait().
-	// As a result - we can optimize the code by not firing the wakeup
-	// function (and avoid starting a gorotuine), especially given that
-	// resourceVersion=0 is the most common case.
-	if resourceVersion > 0 {
-		go func() {
-			// Wake us up when the time limit has expired.  The docs
-			// promise that time.After (well, NewTimer, which it calls)
-			// will wait *at least* the duration given. Since this go
-			// routine starts sometime after we record the start time, and
-			// it will wake up the loop below sometime after the broadcast,
-			// we don't need to worry about waking it up before the time
-			// has expired accidentally.
-			<-w.config.clock.After(blockTimeout)
-			w.cond.Broadcast()
-		}()
-	}
-
-	for w.resourceVersion < resourceVersion {
-		if w.config.clock.Since(startTime) >= blockTimeout {
-			// Request that the client retry after 'resourceVersionTooHighRetrySeconds' seconds.
-			return storage.NewTooLargeResourceVersionError(resourceVersion, w.resourceVersion, resourceVersionTooHighRetrySeconds)
-		}
-		w.cond.Wait()
-	}
-	return nil
+	return w.freshness.waitUntilFreshLocked(ctx, resourceVersion)
 }
 
 func (c *watchCache) WaitUntilFreshAndGetList(ctx context.Context, key string, opts storage.ListOptions) (listResp, string, error) {
@@ -418,53 +360,83 @@ func (w *watchCache) WaitUntilFreshAndGetKeys(ctx context.Context, resourceVersi
 	return keys, nil
 }
 
-// NOTICE: Structure follows the shouldDelegateList function in
-// staging/src/k8s.io/apiserver/pkg/storage/cacher/delegator.go
+type readConsistency string
+
+const (
+	consistencyConsistent   readConsistency = "Consistent"
+	consistencyExact        readConsistency = "Exact"
+	consistencyNotOlderThan readConsistency = "NotOlderThan"
+)
+
 func (w *watchCache) waitUntilFreshAndListRecursive(ctx context.Context, key string, opts storage.ListOptions) (resp listResp, index string, err error) {
-	// The RV semantic below is for Recursive List, non-recursive lists should use waitUntilFreshAndListNonRecursive.
 	recursive := true
-	var continueKey string
-	var snap store.Snapshot
-	matchValues := opts.Predicate.MatcherIndex(ctx)
-	listRV, err := w.config.versioner.ParseResourceVersion(opts.ResourceVersion)
+	semantic, listRV, continueKey, matchValues, err := listRecursiveConsistency(ctx, key, w.config.versioner, opts)
 	if err != nil {
 		return listResp{}, "", err
 	}
-	switch opts.ResourceVersionMatch {
-	case metav1.ResourceVersionMatchExact:
-		snap, err = w.waitAndGetExactSnapshot(ctx, listRV)
-	case metav1.ResourceVersionMatchNotOlderThan:
-		snap, index, err = w.waitAndGetLatestSnapshot(ctx, recursive, listRV, matchValues)
-	case "":
-		var continueRV int64
-		// Continue
-		if len(opts.Predicate.Continue) > 0 {
-			continueKey, continueRV, err = storage.DecodeContinue(opts.Predicate.Continue, key)
-			if err != nil {
-				return listResp{}, "", errors.NewBadRequest(fmt.Sprintf("invalid continue token: %v", err))
-			}
-			if continueRV > 0 {
-				snap, err = w.waitAndGetExactSnapshot(ctx, uint64(continueRV))
-			} else {
-				// Don't pass matchValues as they don't support continueKey
-				matchValues = nil
-				snap, index, err = w.waitAndGetConsistentSnapshot(ctx, recursive, matchValues)
-			}
-		} else if opts.Predicate.Limit > 0 && len(opts.ResourceVersion) > 0 && opts.ResourceVersion != "0" {
-			// Legacy exact match
-			snap, err = w.waitAndGetExactSnapshot(ctx, listRV)
-		} else if opts.ResourceVersion == "" {
-			snap, index, err = w.waitAndGetConsistentSnapshot(ctx, recursive, matchValues)
-		} else {
-			snap, index, err = w.waitAndGetLatestSnapshot(ctx, recursive, listRV, matchValues)
-		}
-	default:
-		snap, index, err = w.waitAndGetLatestSnapshot(ctx, recursive, listRV, matchValues)
-	}
+	snap, index, err := w.waitAndReadSnapshot(ctx, semantic, listRV, recursive, matchValues)
 	if err != nil {
 		return listResp{}, "", err
 	}
 	return listResp{ResourceVersion: snap.ResourceVersion(), Range: snap.RangePrefix(key, continueKey)}, index, nil
+}
+
+// NOTICE: Structure follows the shouldDelegateList function in
+// staging/src/k8s.io/apiserver/pkg/storage/cacher/delegator.go
+func listRecursiveConsistency(ctx context.Context, keyPrefix string, versioner storage.Versioner, opts storage.ListOptions) (semantic readConsistency, listRV uint64, continueKey string, matchValues []storage.MatchValue, err error) {
+	matchValues = opts.Predicate.MatcherIndex(ctx)
+	listRV, err = versioner.ParseResourceVersion(opts.ResourceVersion)
+	if err != nil {
+		return "", 0, "", nil, err
+	}
+	// The RV semantic below is for Recursive List, non-recursive lists should use waitUntilFreshAndListNonRecursive.
+	switch opts.ResourceVersionMatch {
+	case metav1.ResourceVersionMatchExact:
+		semantic = consistencyExact
+	case metav1.ResourceVersionMatchNotOlderThan:
+		semantic = consistencyNotOlderThan
+	case "":
+		var continueRV int64
+		// Continue
+		if len(opts.Predicate.Continue) > 0 {
+			continueKey, continueRV, err = storage.DecodeContinue(opts.Predicate.Continue, keyPrefix)
+			if err != nil {
+				return "", 0, "", nil, errors.NewBadRequest(fmt.Sprintf("invalid continue token: %v", err))
+			}
+			if continueRV > 0 {
+				listRV = uint64(continueRV)
+				semantic = consistencyExact
+			} else {
+				// Don't pass matchValues as they don't support continueKey
+				matchValues = nil
+				semantic = consistencyConsistent
+			}
+		} else if opts.Predicate.Limit > 0 && len(opts.ResourceVersion) > 0 && opts.ResourceVersion != "0" {
+			// Legacy exact match
+			semantic = consistencyExact
+		} else if opts.ResourceVersion == "" {
+			semantic = consistencyConsistent
+		} else {
+			semantic = consistencyNotOlderThan
+		}
+	default:
+		semantic = consistencyNotOlderThan
+	}
+	return semantic, listRV, continueKey, matchValues, nil
+}
+
+func (w *watchCache) waitAndReadSnapshot(ctx context.Context, semantic readConsistency, resourceVersion uint64, recursive bool, matchValues []storage.MatchValue) (snap store.Snapshot, index string, err error) {
+	switch semantic {
+	case consistencyExact:
+		snap, err = w.waitAndGetExactSnapshot(ctx, resourceVersion)
+		return snap, "", err
+	case consistencyConsistent:
+		return w.waitAndGetConsistentSnapshot(ctx, recursive, matchValues)
+	case consistencyNotOlderThan:
+		return w.waitAndGetLatestSnapshot(ctx, recursive, resourceVersion, matchValues)
+	default:
+		return nil, "", fmt.Errorf("unknown RV semantic: %s", semantic)
+	}
 }
 
 func (w *watchCache) waitAndGetExactSnapshot(ctx context.Context, resourceVersion uint64) (store.Snapshot, error) {
@@ -630,7 +602,7 @@ func (w *watchCache) Replace(objs []interface{}, resourceVersion string) error {
 	if w.onReplace != nil {
 		w.onReplace()
 	}
-	w.cond.Broadcast()
+	w.freshness.broadcast()
 
 	metrics.RecordResourceVersion(w.config.groupResource, version)
 	klog.V(3).Infof("Replaced watchCache (rev: %v) ", resourceVersion)
