@@ -1299,7 +1299,7 @@ type SecretVolumeSource struct {
 	Optional *bool
 	// The owner UID of the created files by default.
 	// The defaultUser field is only used as a fallback when the item-level user field is unset.
-	// (Alpha) This field requires the AtomicWriteVolumeUserFields feature gate to be enabled.
+	// (Beta) This field requires the AtomicWriteVolumeUserFields feature gate to be enabled.
 	// +featureGate=AtomicWriteVolumeUserFields
 	// +optional
 	DefaultUser *int64
@@ -1604,7 +1604,7 @@ type DownwardAPIVolumeSource struct {
 	DefaultMode *int32
 	// The owner UID of the created files by default.
 	// The defaultUser field is only used as a fallback when the item-level user field is unset.
-	// (Alpha) This field requires the AtomicWriteVolumeUserFields feature gate to be enabled.
+	// (Beta) This field requires the AtomicWriteVolumeUserFields feature gate to be enabled.
 	// +featureGate=AtomicWriteVolumeUserFields
 	// +optional
 	DefaultUser *int64
@@ -1629,7 +1629,7 @@ type DownwardAPIVolumeFile struct {
 	Mode *int32
 	// The owner UID of the created file.
 	// If specified, the item-level user field takes precedence over defaultUser.
-	// (Alpha) This field requires the AtomicWriteVolumeUserFields feature gate to be enabled.
+	// (Beta) This field requires the AtomicWriteVolumeUserFields feature gate to be enabled.
 	// +featureGate=AtomicWriteVolumeUserFields
 	// +optional
 	User *int64
@@ -1913,7 +1913,7 @@ type ConfigMapVolumeSource struct {
 	Optional *bool
 	// The owner UID of the created files by default.
 	// The defaultUser field is only used as a fallback when the item-level user field is unset.
-	// (Alpha) This field requires the AtomicWriteVolumeUserFields feature gate to be enabled.
+	// (Beta) This field requires the AtomicWriteVolumeUserFields feature gate to be enabled.
 	// +featureGate=AtomicWriteVolumeUserFields
 	// +optional
 	DefaultUser *int64
@@ -1965,7 +1965,7 @@ type ServiceAccountTokenProjection struct {
 	Path string
 	// The owner UID of the created file.
 	// If specified, the item-level user field takes precedence over defaultUser.
-	// (Alpha) This field requires the AtomicWriteVolumeUserFields feature gate to be enabled.
+	// (Beta) This field requires the AtomicWriteVolumeUserFields feature gate to be enabled.
 	// +featureGate=AtomicWriteVolumeUserFields
 	// +optional
 	User *int64
@@ -1995,7 +1995,7 @@ type ClusterTrustBundleProjection struct {
 
 	// The owner UID of the created file.
 	// If specified, the item-level user field takes precedence over defaultUser.
-	// (Alpha) This field requires the AtomicWriteVolumeUserFields feature gate to be enabled.
+	// (Beta) This field requires the AtomicWriteVolumeUserFields feature gate to be enabled.
 	// +featureGate=AtomicWriteVolumeUserFields
 	// +optional
 	User *int64
@@ -2074,7 +2074,7 @@ type PodCertificateProjection struct {
 
 	// The owner UID of the created file.
 	// If specified, the item-level user field takes precedence over defaultUser.
-	// (Alpha) This field requires the AtomicWriteVolumeUserFields feature gate to be enabled.
+	// (Beta) This field requires the AtomicWriteVolumeUserFields feature gate to be enabled.
 	// +featureGate=AtomicWriteVolumeUserFields
 	// +optional
 	User *int64
@@ -2093,7 +2093,7 @@ type ProjectedVolumeSource struct {
 	DefaultMode *int32
 	// The owner UID of the created files by default.
 	// The defaultUser field is only used as a fallback when the item-level user field is unset.
-	// (Alpha) This field requires the AtomicWriteVolumeUserFields feature gate to be enabled.
+	// (Beta) This field requires the AtomicWriteVolumeUserFields feature gate to be enabled.
 	// +featureGate=AtomicWriteVolumeUserFields
 	// +optional
 	DefaultUser *int64
@@ -2135,7 +2135,7 @@ type KeyToPath struct {
 	Mode *int32
 	// The owner UID of the created file.
 	// If specified, the item-level user field takes precedence over defaultUser.
-	// (Alpha) This field requires the AtomicWriteVolumeUserFields feature gate to be enabled.
+	// (Beta) This field requires the AtomicWriteVolumeUserFields feature gate to be enabled.
 	// +featureGate=AtomicWriteVolumeUserFields
 	// +optional
 	User *int64
@@ -4572,7 +4572,44 @@ type SeccompProfile struct {
 	// LocalhostProfile cannot be an absolute nor a descending path.
 	// +optional
 	LocalhostProfile *string
+	// Use a profile stored as an artifact in an OCI registry.
+	// +featureGate=SecurityProfileOCI
+	// +optional
+	OCI *SecurityProfileOCI
 }
+
+// SecurityProfileOCI references a security profile stored as an artifact in an
+// OCI registry, with an optional base profile.
+type SecurityProfileOCI struct {
+	// Fully qualified, digest-pinned OCI reference of the profile.
+	Ref string
+	// Base profile that the container runtime merges with the OCI profile; the
+	// runtime default profile when omitted.
+	// +optional
+	BaseProfile *SecurityProfileOCIBase
+}
+
+// SecurityProfileOCIBase specifies the base profile of an OCI security profile.
+// +union
+type SecurityProfileOCIBase struct {
+	// +unionDiscriminator
+	Type SecurityProfileOCIBaseType
+	// Load a base profile defined in a static file on the node.
+	// LocalhostProfile must be a relative path without '..' elements.
+	// +optional
+	LocalhostProfile *string
+}
+
+// SecurityProfileOCIBaseType defines the supported base profile types of an
+// OCI security profile.
+type SecurityProfileOCIBaseType string
+
+const (
+	// SecurityProfileOCIBaseTypeRuntimeDefault represents the default container runtime profile.
+	SecurityProfileOCIBaseTypeRuntimeDefault SecurityProfileOCIBaseType = "RuntimeDefault"
+	// SecurityProfileOCIBaseTypeLocalhost represents custom made profiles stored on the node's disk.
+	SecurityProfileOCIBaseTypeLocalhost SecurityProfileOCIBaseType = "Localhost"
+)
 
 // SeccompProfileType defines the supported seccomp profile types.
 type SeccompProfileType string
@@ -4584,6 +4621,8 @@ const (
 	SeccompProfileTypeRuntimeDefault SeccompProfileType = "RuntimeDefault"
 	// SeccompProfileTypeLocalhost represents custom made profiles stored on the node's disk.
 	SeccompProfileTypeLocalhost SeccompProfileType = "Localhost"
+	// SeccompProfileTypeOCI represents profiles pulled from an OCI registry.
+	SeccompProfileTypeOCI SeccompProfileType = "OCI"
 )
 
 // AppArmorProfile defines a pod or container's AppArmor settings.

@@ -87,6 +87,7 @@ import (
 	podutil "k8s.io/kubernetes/pkg/api/v1/pod"
 	"k8s.io/kubernetes/pkg/features"
 	"k8s.io/kubernetes/pkg/kubelet/allocation"
+	"k8s.io/kubernetes/pkg/kubelet/allocation/state"
 	kubeletconfiginternal "k8s.io/kubernetes/pkg/kubelet/apis/config"
 	"k8s.io/kubernetes/pkg/kubelet/apis/config/v1beta1"
 	"k8s.io/kubernetes/pkg/kubelet/apis/podresources"
@@ -238,6 +239,8 @@ const (
 
 	// instrumentationScope is the name of OpenTelemetry instrumentation scope
 	instrumentationScope = "k8s.io/kubernetes/pkg/kubelet"
+
+	actuatedPodsStateFile = "actuated_pods_state"
 )
 
 var (
@@ -522,7 +525,7 @@ func NewMainKubelet(ctx context.Context,
 		nodeInformer = kubeInformers.Core().V1().Nodes()
 		nodeLister = nodeInformer.Lister()
 		nodeHasSynced = newNodeHasSyncedFunc(nodeLister, nodeName)
-		kubeInformers.Start(wait.NeverStop)
+		kubeInformers.StartWithContext(ctx)
 		logger.Info("Attempting to sync node with API server")
 	} else {
 		// we don't have a client to sync!
@@ -585,7 +588,7 @@ func NewMainKubelet(ctx context.Context,
 		}))
 		serviceLister = kubeInformers.Core().V1().Services().Lister()
 		serviceHasSynced = kubeInformers.Core().V1().Services().Informer().HasSynced
-		kubeInformers.Start(wait.NeverStop)
+		kubeInformers.StartWithContext(ctx)
 	} else {
 		serviceIndexer := cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{cache.NamespaceIndex: cache.MetaNamespaceIndexFunc})
 		serviceLister = corelisters.NewServiceLister(serviceIndexer)
@@ -760,6 +763,7 @@ func NewMainKubelet(ctx context.Context,
 
 	// setup containerLogManager for CRI container runtime
 	containerLogManager, err := logs.NewContainerLogManager(
+		logger.WithName("ContainerLogManager"),
 		klet.runtimeService,
 		kubeDeps.OSInterface,
 		kubeCfg.ContainerLogMaxSize,
@@ -811,6 +815,11 @@ func NewMainKubelet(ctx context.Context,
 		}
 	}
 
+	actuatedState, err := state.NewStateCheckpoint(logger, rootDirectory, actuatedPodsStateFile, kuberuntime.KeepOnlyResourceValues)
+	if err != nil {
+		return nil, fmt.Errorf("failed to initialize actuated state checkpoint: %w", err)
+	}
+
 	runtime, postImageGCHooks, err := kuberuntime.NewKubeGenericRuntimeManager(
 		ctx,
 		kubecontainer.FilterEventRecorder(kubeDeps.Recorder),
@@ -853,6 +862,7 @@ func NewMainKubelet(ctx context.Context,
 		tokenManager,
 		getServiceAccount,
 		klet.podStartupLatencyTracker,
+		actuatedState,
 	)
 	if err != nil {
 		return nil, err
@@ -1034,6 +1044,7 @@ func NewMainKubelet(ctx context.Context,
 			}),
 		)
 		podCertificateManager := podcertificate.NewIssuingManager(
+			klog.FromContext(ctx),
 			kubeDeps.KubeClient,
 			klet.podManager,
 			kubeDeps.Recorder,
@@ -1043,7 +1054,7 @@ func NewMainKubelet(ctx context.Context,
 			clock.RealClock{},
 		)
 		klet.podCertificateManager = podCertificateManager
-		kubeInformers.Start(ctx.Done())
+		kubeInformers.StartWithContext(ctx)
 		go podCertificateManager.Run(ctx)
 
 		metrics.RegisterCollectors(collectors.PodCertificateCollectorFor(podCertificateManager))
@@ -1092,7 +1103,8 @@ func NewMainKubelet(ctx context.Context,
 		kubeDeps.Recorder,
 		volumepathhandler.NewBlockVolumePathHandler(),
 		klet.statusManager,
-		kubeCfg.VolumeStatsAggPeriod.Duration)
+		kubeCfg.VolumeStatsAggPeriod.Duration,
+		actuatedState)
 
 	boMax, base := newCrashLoopBackOff(kubeCfg)
 
@@ -1996,7 +2008,7 @@ func (kl *Kubelet) Run(ctx context.Context, updates <-chan kubetypes.PodUpdate) 
 
 	// Start syncing RuntimeClasses if enabled.
 	if kl.runtimeClassManager != nil {
-		kl.runtimeClassManager.Start(wait.NeverStop)
+		kl.runtimeClassManager.Start(ctx)
 	}
 
 	// Start the pod lifecycle event generator.

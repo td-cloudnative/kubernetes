@@ -380,6 +380,12 @@ const (
 	// DisableNodeKubeProxyVersion disable the status.nodeInfo.kubeProxyVersion field of v1.Node
 	DisableNodeKubeProxyVersion featuregate.Feature = "DisableNodeKubeProxyVersion"
 
+	// owner: @natasha41575
+	// kep: https://kep.k8s.io/6395
+	//
+	// Allow dynamically adding and removing node-local ephemeral volumes and container volumeMounts on running pods.
+	DynamicNodeLocalEphemeralVolumes featuregate.Feature = "DynamicNodeLocalEphemeralVolumes"
+
 	// owner: @nispriha
 	// kep: https://kep.k8s.io/5502
 	//
@@ -819,12 +825,6 @@ const (
 	// Enables controlling pod ranking on replicaset scale-down.
 	PodDeletionCost featuregate.Feature = "PodDeletionCost"
 
-	// owner: @wojtek-t @argh4k
-	// kep: https://kep.k8s.io/5710
-	//
-	// Enables specifying PreemptionPolicy at podgroup level.
-	PodGroupPreemptionPolicy featuregate.Feature = "PodGroupPreemptionPolicy"
-
 	// owner: @KevinTMtz
 	// kep: https://kep.k8s.io/5526
 	//
@@ -1027,6 +1027,13 @@ const (
 	//
 	// Enables PreQueueingHint extension point to narrow pod evaluation on events.
 	SchedulerPreQueueingHints featuregate.Feature = "SchedulerPreQueueingHints"
+
+	// owner: @saschagrunert
+	// kep: https://kep.k8s.io/6061
+	//
+	// Enables seccomp profiles of type OCI, pulled from OCI registries by the
+	// container runtime and merged with a base profile.
+	SecurityProfileOCI featuregate.Feature = "SecurityProfileOCI"
 
 	// owner: @aramase
 	// kep: https://kep.k8s.io/4412
@@ -1238,6 +1245,7 @@ var defaultVersionedKubernetesFeatureGates = map[featuregate.Feature]featuregate
 
 	AtomicWriteVolumeUserFields: {
 		{Version: version.MustParse("1.37"), Default: false, PreRelease: featuregate.Alpha},
+		{Version: version.MustParse("1.38"), Default: true, PreRelease: featuregate.Beta},
 	},
 
 	AuthorizePodWebsocketUpgradeCreatePermission: {
@@ -1337,6 +1345,7 @@ var defaultVersionedKubernetesFeatureGates = map[featuregate.Feature]featuregate
 	DRAConsumableCapacity: {
 		{Version: version.MustParse("1.34"), Default: false, PreRelease: featuregate.Alpha},
 		{Version: version.MustParse("1.36"), Default: true, PreRelease: featuregate.Beta},
+		{Version: version.MustParse("1.38"), Default: true, PreRelease: featuregate.GA, LockToDefault: false}, // LockToDefault: true in 1.39; remove in 1.42
 	},
 
 	DRADerivedAttributes: {
@@ -1346,6 +1355,7 @@ var defaultVersionedKubernetesFeatureGates = map[featuregate.Feature]featuregate
 	DRADeviceBindingConditions: {
 		{Version: version.MustParse("1.34"), Default: false, PreRelease: featuregate.Alpha},
 		{Version: version.MustParse("1.36"), Default: true, PreRelease: featuregate.Beta},
+		{Version: version.MustParse("1.38"), Default: true, PreRelease: featuregate.GA, LockToDefault: true}, // GA in 1.38; remove in 1.41
 	},
 
 	DRADeviceCompatibilityGroups: {
@@ -1375,6 +1385,7 @@ var defaultVersionedKubernetesFeatureGates = map[featuregate.Feature]featuregate
 	DRAFractionalCapacityRange: {
 		{Version: version.MustParse("1.37"), Default: false, PreRelease: featuregate.Beta},
 		{Version: version.MustParse("1.37"), Default: true, PreRelease: featuregate.Beta, MinCompatibilityVersion: version.MustParse("1.37")},
+		{Version: version.MustParse("1.38"), Default: true, PreRelease: featuregate.GA, LockToDefault: false}, // LockToDefault: true in 1.39; remove in 1.42
 	},
 
 	DRAListTypeAttributes: {
@@ -1449,6 +1460,10 @@ var defaultVersionedKubernetesFeatureGates = map[featuregate.Feature]featuregate
 		{Version: version.MustParse("1.31"), Default: false, PreRelease: featuregate.Deprecated},
 		{Version: version.MustParse("1.33"), Default: true, PreRelease: featuregate.Deprecated},
 		{Version: version.MustParse("1.36"), Default: true, PreRelease: featuregate.Deprecated, LockToDefault: true}, // lock to default in 1.36 and remove in v1.39
+	},
+
+	DynamicNodeLocalEphemeralVolumes: {
+		{Version: version.MustParse("1.38"), Default: false, PreRelease: featuregate.Alpha},
 	},
 
 	EmptyDirVolumeMode: {
@@ -1793,10 +1808,6 @@ var defaultVersionedKubernetesFeatureGates = map[featuregate.Feature]featuregate
 		{Version: version.MustParse("1.22"), Default: true, PreRelease: featuregate.Beta},
 	},
 
-	PodGroupPreemptionPolicy: {
-		{Version: version.MustParse("1.37"), Default: false, PreRelease: featuregate.Alpha},
-	},
-
 	PodLevelResourceManagers: {
 		{Version: version.MustParse("1.36"), Default: false, PreRelease: featuregate.Alpha},
 		{Version: version.MustParse("1.37"), Default: false, PreRelease: featuregate.Beta},
@@ -1951,6 +1962,10 @@ var defaultVersionedKubernetesFeatureGates = map[featuregate.Feature]featuregate
 	SchedulerPreQueueingHints: {
 		{Version: version.MustParse("1.37"), Default: false, PreRelease: featuregate.Alpha},
 		{Version: version.MustParse("1.38"), Default: true, PreRelease: featuregate.Beta},
+	},
+
+	SecurityProfileOCI: {
+		{Version: version.MustParse("1.38"), Default: false, PreRelease: featuregate.Alpha},
 	},
 
 	ServiceAccountNodeAudienceRestriction: {
@@ -2416,6 +2431,8 @@ var defaultKubernetesFeatureGateDependencies = map[featuregate.Feature][]feature
 
 	DisableNodeKubeProxyVersion: {},
 
+	DynamicNodeLocalEphemeralVolumes: {InPlacePodVerticalScaling, NodeDeclaredFeatures},
+
 	EmptyDirVolumeMode: {},
 
 	EnvFiles: {},
@@ -2552,8 +2569,6 @@ var defaultKubernetesFeatureGateDependencies = map[featuregate.Feature][]feature
 
 	PodDeletionCost: {},
 
-	PodGroupPreemptionPolicy: {GenericWorkload},
-
 	PodLevelResourceManagers: {PodLevelResources},
 
 	PodLevelResources: {},
@@ -2616,6 +2631,8 @@ var defaultKubernetesFeatureGateDependencies = map[featuregate.Feature][]feature
 
 	SchedulerPopFromBackoffQ:  {},
 	SchedulerPreQueueingHints: {},
+
+	SecurityProfileOCI: {},
 
 	ServiceAccountNodeAudienceRestriction: {},
 

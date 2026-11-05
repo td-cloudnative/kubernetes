@@ -61,7 +61,6 @@ func testDeclarativeValidate(t *testing.T, apiVersion string) {
 		input                           scheduling.Workload
 		enableTopologyAwareScheduling   bool
 		enableDRAWorkloadResourceClaims bool
-		enablePodGroupPreemptionPolicy  bool
 		enableCompositePodGroup         bool
 		expectedErrs                    field.ErrorList
 	}{
@@ -234,20 +233,12 @@ func testDeclarativeValidate(t *testing.T, apiVersion string) {
 			input: mkValidWorkload(setPriority(0, scheduling.SystemCriticalPriority+1000)),
 		},
 		"valid PreemptionPolicy": {
-			input:                          mkValidWorkload(setPreemptionPolicy(0, scheduling.PreemptLowerPriority)),
-			enablePodGroupPreemptionPolicy: true,
+			input: mkValidWorkload(setPreemptionPolicy(0, scheduling.PreemptLowerPriority)),
 		},
 		"invalid PreemptionPolicy": {
-			input:                          mkValidWorkload(setPreemptionPolicy(0, scheduling.PreemptionPolicy("Invalid"))),
-			enablePodGroupPreemptionPolicy: true,
+			input: mkValidWorkload(setPreemptionPolicy(0, scheduling.PreemptionPolicy("Invalid"))),
 			expectedErrs: field.ErrorList{
 				field.NotSupported(field.NewPath("spec", "podGroupTemplates").Index(0).Child("preemptionPolicy"), scheduling.PreemptionPolicy("Invalid"), []string{"Never", "PreemptLowerPriority"}),
-			},
-		},
-		"forbidden PreemptionPolicy when PodGroupPreemptionPolicy is disabled": {
-			input: mkValidWorkload(setPreemptionPolicy(0, scheduling.PreemptLowerPriority)),
-			expectedErrs: field.ErrorList{
-				field.Forbidden(field.NewPath("spec", "podGroupTemplates").Index(0).Child("preemptionPolicy"), ""),
 			},
 		},
 
@@ -414,7 +405,7 @@ func testDeclarativeValidate(t *testing.T, apiVersion string) {
 			input:                         mkValidWorkload(setCPGPriorityClassName(0, "my-priority")),
 			enableTopologyAwareScheduling: true,
 			enableCompositePodGroup:       true,
-			expectedErrs:                  field.ErrorList{field.Invalid(field.NewPath("spec"), nil, "detected multiple priority configurations").MarkFromImperative()},
+			expectedErrs:                  field.ErrorList{field.Invalid(field.NewPath("spec"), nil, "all priority, priorityClassName, and preemptionPolicy values must be identical, detected multiple values").MarkFromImperative()},
 		},
 		"cpg invalid priorityClassName": {
 			input:                         mkValidWorkload(setCPGPriorityClassName(0, "Invalid_Class"), setNestedPGPriorityClassName(0, 0, "Invalid_Class")),
@@ -429,7 +420,7 @@ func testDeclarativeValidate(t *testing.T, apiVersion string) {
 			input: mkValidWorkload(setCPGPriority(0, 100)),
 			expectedErrs: field.ErrorList{
 				field.Forbidden(field.NewPath("spec", "compositePodGroupTemplates"), ""),
-				field.Invalid(field.NewPath("spec"), nil, "detected multiple priority configurations").MarkFromImperative(),
+				field.Invalid(field.NewPath("spec"), nil, "all priority, priorityClassName, and preemptionPolicy values must be identical, detected multiple values").MarkFromImperative(),
 			},
 		},
 		"cpg disruption mode single": {
@@ -566,7 +557,7 @@ func testDeclarativeValidate(t *testing.T, apiVersion string) {
 			input: mkValidWorkload(setNestedPGPriorityClassName(0, 0, "my-priority")),
 			expectedErrs: field.ErrorList{
 				field.Forbidden(field.NewPath("spec", "compositePodGroupTemplates"), ""),
-				field.Invalid(field.NewPath("spec"), nil, "detected multiple priority configurations").MarkFromImperative(),
+				field.Invalid(field.NewPath("spec"), nil, "all priority, priorityClassName, and preemptionPolicy values must be identical, detected multiple values").MarkFromImperative(),
 			},
 		},
 		"nested pg invalid priorityClassName": {
@@ -582,7 +573,7 @@ func testDeclarativeValidate(t *testing.T, apiVersion string) {
 			input: mkValidWorkload(setNestedPGPriority(0, 0, 100)),
 			expectedErrs: field.ErrorList{
 				field.Forbidden(field.NewPath("spec", "compositePodGroupTemplates"), ""),
-				field.Invalid(field.NewPath("spec"), nil, "detected multiple priority configurations").MarkFromImperative(),
+				field.Invalid(field.NewPath("spec"), nil, "all priority, priorityClassName, and preemptionPolicy values must be identical, detected multiple values").MarkFromImperative(),
 			},
 		},
 		"nested pg valid priority above user-defined maximum": {
@@ -694,7 +685,7 @@ func testDeclarativeValidate(t *testing.T, apiVersion string) {
 			enableTopologyAwareScheduling: true,
 			enableCompositePodGroup:       true,
 			expectedErrs: field.ErrorList{
-				field.Invalid(field.NewPath("spec", "compositePodGroupTemplates").Index(0), nil, "maximum tree depth is 4").MarkFromImperative(),
+				field.Invalid(field.NewPath("spec", "compositePodGroupTemplates").Index(0), nil, "maximum template hierarchy depth is 4").MarkFromImperative(),
 			},
 		},
 		"mismatched PriorityClassName in root podGroupTemplates": {
@@ -704,7 +695,7 @@ func testDeclarativeValidate(t *testing.T, apiVersion string) {
 				setPriorityClassName(1, "low-priority"),
 			),
 			expectedErrs: field.ErrorList{
-				field.Invalid(field.NewPath("spec"), nil, "detected multiple priority configurations").MarkFromImperative(),
+				field.Invalid(field.NewPath("spec"), nil, "all priority, priorityClassName, and preemptionPolicy values must be identical, detected multiple values").MarkFromImperative(),
 			},
 		},
 		"mismatched Priority in root podGroupTemplates": {
@@ -714,7 +705,7 @@ func testDeclarativeValidate(t *testing.T, apiVersion string) {
 				setPriority(1, 200),
 			),
 			expectedErrs: field.ErrorList{
-				field.Invalid(field.NewPath("spec"), nil, "detected multiple priority configurations").MarkFromImperative(),
+				field.Invalid(field.NewPath("spec"), nil, "all priority, priorityClassName, and preemptionPolicy values must be identical, detected multiple values").MarkFromImperative(),
 			},
 		},
 		"mismatched PriorityClassName in cpg hierarchy": {
@@ -728,7 +719,7 @@ func testDeclarativeValidate(t *testing.T, apiVersion string) {
 			enableTopologyAwareScheduling: true,
 			enableCompositePodGroup:       true,
 			expectedErrs: field.ErrorList{
-				field.Invalid(field.NewPath("spec"), nil, "detected multiple priority configurations").MarkFromImperative(),
+				field.Invalid(field.NewPath("spec"), nil, "all priority, priorityClassName, and preemptionPolicy values must be identical, detected multiple values").MarkFromImperative(),
 			},
 		},
 		"mismatched Priority in cpg hierarchy": {
@@ -742,31 +733,45 @@ func testDeclarativeValidate(t *testing.T, apiVersion string) {
 			enableTopologyAwareScheduling: true,
 			enableCompositePodGroup:       true,
 			expectedErrs: field.ErrorList{
-				field.Invalid(field.NewPath("spec"), nil, "detected multiple priority configurations").MarkFromImperative(),
+				field.Invalid(field.NewPath("spec"), nil, "all priority, priorityClassName, and preemptionPolicy values must be identical, detected multiple values").MarkFromImperative(),
+			},
+		},
+		"mismatched PreemptionPolicy in root podGroupTemplates": {
+			input: mkValidWorkload(
+				setPreemptionPolicy(0, scheduling.PreemptLowerPriority),
+				addPodGroupTemplate("second-pg"),
+				setPreemptionPolicy(1, scheduling.PreemptNever),
+			),
+			expectedErrs: field.ErrorList{
+				field.Invalid(field.NewPath("spec"), nil, "all priority, priorityClassName, and preemptionPolicy values must be identical, detected multiple values").MarkFromImperative(),
+			},
+		},
+		"mismatched PreemptionPolicy in cpg hierarchy": {
+			input: mkValidWorkload(
+				clearPodGroupTemplates(),
+				addCompositePodGroupTemplate("cpg-root"),
+				setCPGPreemptionPolicy(0, scheduling.PreemptLowerPriority),
+				addNestedPodGroupTemplate(0, "child-pg-1", "child-pg-2"),
+				setNestedPGPreemptionPolicy(0, 0, scheduling.PreemptNever),
+			),
+			enableTopologyAwareScheduling: true,
+			enableCompositePodGroup:       true,
+			expectedErrs: field.ErrorList{
+				field.Invalid(field.NewPath("spec"), nil, "all priority, priorityClassName, and preemptionPolicy values must be identical, detected multiple values").MarkFromImperative(),
 			},
 		},
 		"valid nested pg PreemptionPolicy": {
-			input:                          mkValidWorkload(setNestedPGPreemptionPolicy(0, 0, scheduling.PreemptLowerPriority)),
-			enableTopologyAwareScheduling:  true,
-			enableCompositePodGroup:        true,
-			enablePodGroupPreemptionPolicy: true,
+			input:                         mkValidWorkload(setCPGPreemptionPolicy(0, scheduling.PreemptLowerPriority), setNestedPGPreemptionPolicy(0, 0, scheduling.PreemptLowerPriority)),
+			enableTopologyAwareScheduling: true,
+			enableCompositePodGroup:       true,
 		},
 		"invalid nested pg PreemptionPolicy": {
-			input:                          mkValidWorkload(setNestedPGPreemptionPolicy(0, 0, scheduling.PreemptionPolicy("Invalid"))),
-			enableTopologyAwareScheduling:  true,
-			enableCompositePodGroup:        true,
-			enablePodGroupPreemptionPolicy: true,
+			input:                         mkValidWorkload(setNestedPGPreemptionPolicy(0, 0, scheduling.PreemptionPolicy("Invalid"))),
+			enableTopologyAwareScheduling: true,
+			enableCompositePodGroup:       true,
 			expectedErrs: field.ErrorList{
 				field.NotSupported(field.NewPath("spec", "compositePodGroupTemplates").Index(0).Child("podGroupTemplates").Index(0).Child("preemptionPolicy"), scheduling.PreemptionPolicy("Invalid"), []string{"Never", "PreemptLowerPriority"}),
-			},
-		},
-		"forbidden nested pg PreemptionPolicy when PodGroupPreemptionPolicy is disabled": {
-			input:                          mkValidWorkload(setNestedPGPreemptionPolicy(0, 0, scheduling.PreemptLowerPriority)),
-			enableTopologyAwareScheduling:  true,
-			enableCompositePodGroup:        true,
-			enablePodGroupPreemptionPolicy: false,
-			expectedErrs: field.ErrorList{
-				field.Forbidden(field.NewPath("spec", "compositePodGroupTemplates").Index(0).Child("podGroupTemplates").Index(0).Child("preemptionPolicy"), ""),
+				field.Invalid(field.NewPath("spec"), nil, "all priority, priorityClassName, and preemptionPolicy values must be identical, detected multiple values").MarkFromImperative(),
 			},
 		},
 		"cpg valid with schedulingConstraints": {
@@ -826,27 +831,17 @@ func testDeclarativeValidate(t *testing.T, apiVersion string) {
 			expectedErrs:                  field.ErrorList{field.Invalid(field.NewPath("spec", "compositePodGroupTemplates").Index(0).Child("schedulingConstraints", "topology").Index(0).Child("key"), nil, "").WithOrigin("format=k8s-label-key")},
 		},
 		"valid cpg PreemptionPolicy": {
-			input:                          mkValidWorkload(setCPGPreemptionPolicy(0, scheduling.PreemptLowerPriority)),
-			enableTopologyAwareScheduling:  true,
-			enableCompositePodGroup:        true,
-			enablePodGroupPreemptionPolicy: true,
+			input:                         mkValidWorkload(setCPGPreemptionPolicy(0, scheduling.PreemptLowerPriority), setNestedPGPreemptionPolicy(0, 0, scheduling.PreemptLowerPriority)),
+			enableTopologyAwareScheduling: true,
+			enableCompositePodGroup:       true,
 		},
 		"invalid cpg PreemptionPolicy": {
-			input:                          mkValidWorkload(setCPGPreemptionPolicy(0, scheduling.PreemptionPolicy("Invalid"))),
-			enableTopologyAwareScheduling:  true,
-			enableCompositePodGroup:        true,
-			enablePodGroupPreemptionPolicy: true,
+			input:                         mkValidWorkload(setCPGPreemptionPolicy(0, scheduling.PreemptionPolicy("Invalid"))),
+			enableTopologyAwareScheduling: true,
+			enableCompositePodGroup:       true,
 			expectedErrs: field.ErrorList{
 				field.NotSupported(field.NewPath("spec", "compositePodGroupTemplates").Index(0).Child("preemptionPolicy"), scheduling.PreemptionPolicy("Invalid"), []string{"Never", "PreemptLowerPriority"}),
-			},
-		},
-		"forbidden cpg PreemptionPolicy when PodGroupPreemptionPolicy is disabled": {
-			input:                          mkValidWorkload(setCPGPreemptionPolicy(0, scheduling.PreemptLowerPriority)),
-			enableTopologyAwareScheduling:  true,
-			enableCompositePodGroup:        true,
-			enablePodGroupPreemptionPolicy: false,
-			expectedErrs: field.ErrorList{
-				field.Forbidden(field.NewPath("spec", "compositePodGroupTemplates").Index(0).Child("preemptionPolicy"), ""),
+				field.Invalid(field.NewPath("spec"), nil, "all priority, priorityClassName, and preemptionPolicy values must be identical, detected multiple values").MarkFromImperative(),
 			},
 		},
 	}
@@ -856,10 +851,20 @@ func testDeclarativeValidate(t *testing.T, apiVersion string) {
 				features.GenericWorkload:                 true,
 				features.TopologyAwareWorkloadScheduling: tc.enableTopologyAwareScheduling,
 				features.DRAWorkloadResourceClaims:       tc.enableDRAWorkloadResourceClaims,
-				features.PodGroupPreemptionPolicy:        tc.enablePodGroupPreemptionPolicy,
 				features.CompositePodGroup:               tc.enableCompositePodGroup,
 			})
 			apitesting.VerifyValidationEquivalence(t, ctx, &tc.input, registry.Strategy, tc.expectedErrs)
+
+			// VerifyValidationEquivalence does not compare Detail, so check the
+			// messages of handwritten-only errors against Strategy.Validate.
+			var wantImperative field.ErrorList
+			for _, err := range tc.expectedErrs {
+				if err.FromImperative {
+					wantImperative = append(wantImperative, err)
+				}
+			}
+			gotImperative := registry.Strategy.Validate(ctx, &tc.input).RemoveCoveredByDeclarative()
+			field.ErrorMatcher{}.ByType().ByField().ByDetailSubstring().Test(t, wantImperative, gotImperative)
 		})
 	}
 
@@ -882,7 +887,6 @@ func testDeclarativeValidateUpdate(t *testing.T, apiVersion string) {
 		updateObj                       scheduling.Workload
 		enableTopologyAwareScheduling   bool
 		enableDRAWorkloadResourceClaims bool
-		enablePodGroupPreemptionPolicy  bool
 		enableCompositePodGroup         bool
 		expectedErrs                    field.ErrorList
 	}{
@@ -1162,29 +1166,13 @@ func testDeclarativeValidateUpdate(t *testing.T, apiVersion string) {
 			},
 		},
 		"valid update with unchanged PreemptionPolicy": {
-			oldObj:                         mkValidWorkload(setResourceVersion("1"), setPreemptionPolicy(0, scheduling.PreemptLowerPriority)),
-			updateObj:                      mkValidWorkload(setResourceVersion("1"), setPreemptionPolicy(0, scheduling.PreemptLowerPriority)),
-			enablePodGroupPreemptionPolicy: true,
+			oldObj:    mkValidWorkload(setResourceVersion("1"), setPreemptionPolicy(0, scheduling.PreemptLowerPriority)),
+			updateObj: mkValidWorkload(setResourceVersion("1"), setPreemptionPolicy(0, scheduling.PreemptLowerPriority)),
 		},
 		"invalid update of PreemptionPolicy": {
-			oldObj:                         mkValidWorkload(setResourceVersion("1"), setPreemptionPolicy(0, scheduling.PreemptLowerPriority)),
-			updateObj:                      mkValidWorkload(setResourceVersion("1"), setPreemptionPolicy(0, scheduling.PreemptNever)),
-			enablePodGroupPreemptionPolicy: true,
+			oldObj:    mkValidWorkload(setResourceVersion("1"), setPreemptionPolicy(0, scheduling.PreemptLowerPriority)),
+			updateObj: mkValidWorkload(setResourceVersion("1"), setPreemptionPolicy(0, scheduling.PreemptNever)),
 			expectedErrs: field.ErrorList{
-				field.Invalid(field.NewPath("spec", "podGroupTemplates").Index(0).Child("preemptionPolicy"), nil, "").WithOrigin("immutable"),
-			},
-		},
-		"valid update with unchanged PreemptionPolicy when PodGroupPreemptionPolicy is disabled": {
-			oldObj:                         mkValidWorkload(setResourceVersion("1"), setPreemptionPolicy(0, scheduling.PreemptLowerPriority)),
-			updateObj:                      mkValidWorkload(setResourceVersion("1"), setPreemptionPolicy(0, scheduling.PreemptLowerPriority)),
-			enablePodGroupPreemptionPolicy: false,
-		},
-		"invalid update of PreemptionPolicy when PodGroupPreemptionPolicy is disabled": {
-			oldObj:                         mkValidWorkload(setResourceVersion("1"), setPreemptionPolicy(0, scheduling.PreemptLowerPriority)),
-			updateObj:                      mkValidWorkload(setResourceVersion("1"), setPreemptionPolicy(0, scheduling.PreemptNever)),
-			enablePodGroupPreemptionPolicy: false,
-			expectedErrs: field.ErrorList{
-				field.Forbidden(field.NewPath("spec", "podGroupTemplates").Index(0).Child("preemptionPolicy"), ""),
 				field.Invalid(field.NewPath("spec", "podGroupTemplates").Index(0).Child("preemptionPolicy"), nil, "").WithOrigin("immutable"),
 			},
 		},
@@ -1598,37 +1586,17 @@ func testDeclarativeValidateUpdate(t *testing.T, apiVersion string) {
 			},
 		},
 		"valid update with unchanged nested pg PreemptionPolicy": {
-			oldObj:                         mkValidWorkload(setResourceVersion("1"), setNestedPGPreemptionPolicy(0, 0, scheduling.PreemptLowerPriority)),
-			updateObj:                      mkValidWorkload(setResourceVersion("1"), setNestedPGPreemptionPolicy(0, 0, scheduling.PreemptLowerPriority)),
-			enableTopologyAwareScheduling:  true,
-			enableCompositePodGroup:        true,
-			enablePodGroupPreemptionPolicy: true,
+			oldObj:                        mkValidWorkload(setResourceVersion("1"), setNestedPGPreemptionPolicy(0, 0, scheduling.PreemptLowerPriority)),
+			updateObj:                     mkValidWorkload(setResourceVersion("1"), setNestedPGPreemptionPolicy(0, 0, scheduling.PreemptLowerPriority)),
+			enableTopologyAwareScheduling: true,
+			enableCompositePodGroup:       true,
 		},
 		"invalid update of nested pg PreemptionPolicy": {
-			oldObj:                         mkValidWorkload(setResourceVersion("1"), setNestedPGPreemptionPolicy(0, 0, scheduling.PreemptLowerPriority)),
-			updateObj:                      mkValidWorkload(setResourceVersion("1"), setNestedPGPreemptionPolicy(0, 0, scheduling.PreemptNever)),
-			enableTopologyAwareScheduling:  true,
-			enableCompositePodGroup:        true,
-			enablePodGroupPreemptionPolicy: true,
+			oldObj:                        mkValidWorkload(setResourceVersion("1"), setNestedPGPreemptionPolicy(0, 0, scheduling.PreemptLowerPriority)),
+			updateObj:                     mkValidWorkload(setResourceVersion("1"), setNestedPGPreemptionPolicy(0, 0, scheduling.PreemptNever)),
+			enableTopologyAwareScheduling: true,
+			enableCompositePodGroup:       true,
 			expectedErrs: field.ErrorList{
-				field.Invalid(field.NewPath("spec", "compositePodGroupTemplates").Index(0).Child("podGroupTemplates").Index(0).Child("preemptionPolicy"), nil, "").WithOrigin("immutable"),
-			},
-		},
-		"valid update with unchanged nested pg PreemptionPolicy when PodGroupPreemptionPolicy is disabled": {
-			oldObj:                         mkValidWorkload(setResourceVersion("1"), setNestedPGPreemptionPolicy(0, 0, scheduling.PreemptLowerPriority)),
-			updateObj:                      mkValidWorkload(setResourceVersion("1"), setNestedPGPreemptionPolicy(0, 0, scheduling.PreemptLowerPriority)),
-			enableTopologyAwareScheduling:  true,
-			enableCompositePodGroup:        true,
-			enablePodGroupPreemptionPolicy: false,
-		},
-		"invalid update of nested pg PreemptionPolicy when PodGroupPreemptionPolicy is disabled": {
-			oldObj:                         mkValidWorkload(setResourceVersion("1"), setNestedPGPreemptionPolicy(0, 0, scheduling.PreemptLowerPriority)),
-			updateObj:                      mkValidWorkload(setResourceVersion("1"), setNestedPGPreemptionPolicy(0, 0, scheduling.PreemptNever)),
-			enableTopologyAwareScheduling:  true,
-			enableCompositePodGroup:        true,
-			enablePodGroupPreemptionPolicy: false,
-			expectedErrs: field.ErrorList{
-				field.Forbidden(field.NewPath("spec", "compositePodGroupTemplates").Index(0).Child("podGroupTemplates").Index(0).Child("preemptionPolicy"), ""),
 				field.Invalid(field.NewPath("spec", "compositePodGroupTemplates").Index(0).Child("podGroupTemplates").Index(0).Child("preemptionPolicy"), nil, "").WithOrigin("immutable"),
 			},
 		},
@@ -1666,37 +1634,17 @@ func testDeclarativeValidateUpdate(t *testing.T, apiVersion string) {
 			},
 		},
 		"valid update with unchanged cpg PreemptionPolicy": {
-			oldObj:                         mkValidWorkload(setResourceVersion("1"), setCPGPreemptionPolicy(0, scheduling.PreemptLowerPriority)),
-			updateObj:                      mkValidWorkload(setResourceVersion("1"), setCPGPreemptionPolicy(0, scheduling.PreemptLowerPriority)),
-			enableTopologyAwareScheduling:  true,
-			enableCompositePodGroup:        true,
-			enablePodGroupPreemptionPolicy: true,
+			oldObj:                        mkValidWorkload(setResourceVersion("1"), setCPGPreemptionPolicy(0, scheduling.PreemptLowerPriority)),
+			updateObj:                     mkValidWorkload(setResourceVersion("1"), setCPGPreemptionPolicy(0, scheduling.PreemptLowerPriority)),
+			enableTopologyAwareScheduling: true,
+			enableCompositePodGroup:       true,
 		},
 		"invalid update of cpg PreemptionPolicy": {
-			oldObj:                         mkValidWorkload(setResourceVersion("1"), setCPGPreemptionPolicy(0, scheduling.PreemptLowerPriority)),
-			updateObj:                      mkValidWorkload(setResourceVersion("1"), setCPGPreemptionPolicy(0, scheduling.PreemptNever)),
-			enableTopologyAwareScheduling:  true,
-			enableCompositePodGroup:        true,
-			enablePodGroupPreemptionPolicy: true,
+			oldObj:                        mkValidWorkload(setResourceVersion("1"), setCPGPreemptionPolicy(0, scheduling.PreemptLowerPriority)),
+			updateObj:                     mkValidWorkload(setResourceVersion("1"), setCPGPreemptionPolicy(0, scheduling.PreemptNever)),
+			enableTopologyAwareScheduling: true,
+			enableCompositePodGroup:       true,
 			expectedErrs: field.ErrorList{
-				field.Invalid(field.NewPath("spec", "compositePodGroupTemplates").Index(0).Child("preemptionPolicy"), nil, "").WithOrigin("immutable"),
-			},
-		},
-		"valid update with unchanged cpg PreemptionPolicy when PodGroupPreemptionPolicy is disabled": {
-			oldObj:                         mkValidWorkload(setResourceVersion("1"), setCPGPreemptionPolicy(0, scheduling.PreemptLowerPriority)),
-			updateObj:                      mkValidWorkload(setResourceVersion("1"), setCPGPreemptionPolicy(0, scheduling.PreemptLowerPriority)),
-			enableTopologyAwareScheduling:  true,
-			enableCompositePodGroup:        true,
-			enablePodGroupPreemptionPolicy: false,
-		},
-		"invalid update of cpg PreemptionPolicy when PodGroupPreemptionPolicy is disabled": {
-			oldObj:                         mkValidWorkload(setResourceVersion("1"), setCPGPreemptionPolicy(0, scheduling.PreemptLowerPriority)),
-			updateObj:                      mkValidWorkload(setResourceVersion("1"), setCPGPreemptionPolicy(0, scheduling.PreemptNever)),
-			enableTopologyAwareScheduling:  true,
-			enableCompositePodGroup:        true,
-			enablePodGroupPreemptionPolicy: false,
-			expectedErrs: field.ErrorList{
-				field.Forbidden(field.NewPath("spec", "compositePodGroupTemplates").Index(0).Child("preemptionPolicy"), ""),
 				field.Invalid(field.NewPath("spec", "compositePodGroupTemplates").Index(0).Child("preemptionPolicy"), nil, "").WithOrigin("immutable"),
 			},
 		},
@@ -1716,10 +1664,20 @@ func testDeclarativeValidateUpdate(t *testing.T, apiVersion string) {
 				features.GenericWorkload:                 true,
 				features.TopologyAwareWorkloadScheduling: tc.enableTopologyAwareScheduling,
 				features.DRAWorkloadResourceClaims:       tc.enableDRAWorkloadResourceClaims,
-				features.PodGroupPreemptionPolicy:        tc.enablePodGroupPreemptionPolicy,
 				features.CompositePodGroup:               tc.enableCompositePodGroup,
 			})
 			apitesting.VerifyUpdateValidationEquivalence(t, ctx, &tc.updateObj, &tc.oldObj, registry.Strategy, tc.expectedErrs)
+
+			// VerifyUpdateValidationEquivalence does not compare Detail, so check the
+			// messages of handwritten-only errors against Strategy.ValidateUpdate.
+			var wantImperative field.ErrorList
+			for _, err := range tc.expectedErrs {
+				if err.FromImperative {
+					wantImperative = append(wantImperative, err)
+				}
+			}
+			gotImperative := registry.Strategy.ValidateUpdate(ctx, &tc.updateObj, &tc.oldObj).RemoveCoveredByDeclarative()
+			field.ErrorMatcher{}.ByType().ByField().ByDetailSubstring().Test(t, wantImperative, gotImperative)
 		})
 	}
 

@@ -5267,12 +5267,12 @@ func TestComputeVolumeResizeAction(t *testing.T) {
 			expectDownsize: false,
 		},
 		{
-			testName:       "Force sync: new limit specified, no actuated limit",
+			testName:       "Unmounted volume: new limit specified, no actuated limit",
 			enableGate:     true,
 			actuatedLimit:  nil,
 			newLimit:       resource.NewQuantity(100, resource.BinarySI),
 			volMedium:      v1.StorageMediumMemory,
-			expectUpsize:   true,
+			expectUpsize:   false,
 			expectDownsize: false,
 		},
 		{
@@ -7009,6 +7009,87 @@ func TestSysctlFiltering(t *testing.T) {
 	}
 }
 
+func TestSyncPodKillsUnwantedContainers(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		// failOneKill injects an error into one of the StopContainer calls made to the fake container runtime.
+		failOneKill bool
+	}{
+		{
+			name: "all kills succeed",
+		},
+		{
+			name:        "one kill fails",
+			failOneKill: true,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			tCtx := ktesting.Init(t)
+
+			fakeRuntime, _, m, err := createTestRuntimeManager(tCtx)
+			require.NoError(t, err)
+
+			pod, _ := makeBasePodAndStatus()
+			makeAndSetFakePod(tCtx, m, fakeRuntime, pod)
+			runtimePod, err := m.GetPod(tCtx, pod.UID)
+			require.NoError(t, err)
+			podStatus, err := m.GetPodStatus(tCtx, runtimePod)
+			require.NoError(t, err)
+			// Change the hash of every container so computePodActions marks all of them as containers to kill.
+			var containerNames []string
+			for _, cs := range podStatus.ContainerStatuses {
+				cs.Hash = 999999
+				containerNames = append(containerNames, cs.Name)
+			}
+
+			if tc.failOneKill {
+				// Containers are killed concurrently, so the error goes to whichever
+				// StopContainer call reaches the fake runtime first.
+				fakeRuntime.InjectError("StopContainer", errors.New("injected StopContainer failure"))
+			}
+
+			backOff := flowcontrol.NewBackOff(time.Second, time.Minute)
+			result := m.SyncPod(tCtx, pod, podStatus, []v1.Secret{}, backOff, false)
+
+			// Every container must be attempted exactly once, even if one of the kills fails.
+			var killResults []*kubecontainer.SyncResult
+			var killTargets []string
+			for _, r := range result.SyncResults {
+				if r.Action == kubecontainer.KillContainer {
+					killResults = append(killResults, r)
+					killTargets = append(killTargets, r.Target.(string))
+				}
+			}
+			assert.ElementsMatch(t, containerNames, killTargets, "expected exactly one KillContainer result per container")
+
+			if !tc.failOneKill {
+				require.NoError(t, result.Error())
+				assert.Contains(t, fakeRuntime.GetCalls(), "CreateContainer", "SyncPod should recreate the killed containers")
+				return
+			}
+
+			require.Error(t, result.Error())
+			var failed []string
+			for _, r := range killResults {
+				if r.Error != nil {
+					require.ErrorIs(t, r.Error, kubecontainer.ErrKillContainer, "container %v", r.Target)
+					failed = append(failed, r.Target.(string))
+				}
+			}
+			require.Len(t, failed, 1, "expected exactly one failed kill")
+			// The failed kill must not prevent the other containers from being killed.
+			for _, c := range fakeRuntime.Containers {
+				wantState := runtimeapi.ContainerState_CONTAINER_EXITED
+				if c.Metadata.Name == failed[0] {
+					wantState = runtimeapi.ContainerState_CONTAINER_RUNNING
+				}
+				assert.Equal(t, wantState, c.State, "container %s", c.Metadata.Name)
+			}
+			assert.NotContains(t, fakeRuntime.GetCalls(), "CreateContainer", "SyncPod should return before creating containers")
+		})
+	}
+}
+
 func TestSyncResultErrorsMetric(t *testing.T) {
 	metrics.Register()
 
@@ -7087,4 +7168,107 @@ func TestSyncResultErrorsMetric(t *testing.T) {
 			))
 		})
 	}
+}
+
+func TestInitializeActuatedPod_PreservesActuatedVolumes(t *testing.T) {
+	tCtx := ktesting.Init(t)
+	featuregatetesting.SetFeatureGatesDuringTest(t, utilfeature.DefaultFeatureGate, featuregatetesting.FeatureOverrides{
+		features.InPlacePodVerticalScaling:                    true,
+		features.InPlacePodLevelResourcesVerticalScaling:      true,
+		features.InPlacePodVerticalScalingMemoryBackedVolumes: true,
+	})
+
+	_, _, m, err := createTestRuntimeManager(tCtx)
+	require.NoError(t, err)
+
+	memLimit := resource.MustParse("100Mi")
+	cmVol := v1.Volume{
+		Name: "cm-vol",
+		VolumeSource: v1.VolumeSource{
+			ConfigMap: &v1.ConfigMapVolumeSource{
+				LocalObjectReference: v1.LocalObjectReference{Name: "my-cm"},
+			},
+		},
+	}
+	memVol := v1.Volume{
+		Name: "mem-vol",
+		VolumeSource: v1.VolumeSource{
+			EmptyDir: &v1.EmptyDirVolumeSource{
+				Medium:    v1.StorageMediumMemory,
+				SizeLimit: &memLimit,
+			},
+		},
+	}
+	unmountedMemVol := v1.Volume{
+		Name: "unmounted-mem-vol",
+		VolumeSource: v1.VolumeSource{
+			EmptyDir: &v1.EmptyDirVolumeSource{
+				Medium:    v1.StorageMediumMemory,
+				SizeLimit: &memLimit,
+			},
+		},
+	}
+
+	podRes := &v1.ResourceRequirements{
+		Requests: v1.ResourceList{v1.ResourceCPU: resource.MustParse("200m")},
+		Limits:   v1.ResourceList{v1.ResourceCPU: resource.MustParse("200m")},
+	}
+	pod := &v1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			UID:       "pod-uid-1",
+			Name:      "pod1",
+			Namespace: "ns1",
+		},
+		Spec: v1.PodSpec{
+			Resources: podRes,
+			Containers: []v1.Container{
+				{
+					Name:  "c1",
+					Image: "busybox",
+					Resources: v1.ResourceRequirements{
+						Requests: v1.ResourceList{v1.ResourceCPU: resource.MustParse("100m")},
+					},
+				},
+			},
+			Volumes: []v1.Volume{cmVol, memVol, unmountedMemVol},
+		},
+	}
+
+	// Simulate VolumeManager recording mounted volumes during WaitForAttachAndMount (before InitializeActuatedPod),
+	// without UpdateActuatedPodLevelResources having run (e.g. cgroupsPerQOS: false).
+	require.NoError(t, m.actuatedState.SetPodVolume(tCtx.Logger(), pod.UID, cmVol))
+	require.NoError(t, m.actuatedState.SetPodVolume(tCtx.Logger(), pod.UID, memVol))
+
+	m.InitializeActuatedPod(tCtx.Logger(), pod)
+
+	actuatedPod, ok := m.actuatedState.GetPod(pod.UID)
+	require.True(t, ok)
+	require.Equal(t, "pod1", actuatedPod.Name)
+	require.Equal(t, "ns1", actuatedPod.Namespace)
+	require.Equal(t, podRes, actuatedPod.Spec.Resources, "pod-level resources should be preserved when SetPodVolume runs before InitializeActuatedPod")
+
+	// Only mounted volumes recorded via SetPodVolume are in actuatedState (unmountedMemVol is excluded).
+	actuatedVols, ok := m.actuatedState.GetPodVolumes(pod.UID)
+	require.True(t, ok)
+	require.Equal(t, []v1.Volume{cmVol, memVol}, actuatedVols)
+
+	// Mark the pod content as removable; GarbageCollect should keep the pod in actuatedState while volumes remain mounted.
+	m.podStateProvider.(*fakePodStateProvider).removed[pod.UID] = struct{}{}
+	require.NoError(t, m.GarbageCollect(tCtx, kubecontainer.GCPolicy{}, true, false))
+	require.True(t, m.actuatedState.HasPod(pod.UID))
+
+	// Once all disk-mounted volumes are unmounted and removed from actuatedState, GarbageCollect
+	// removes the pod entry even if a HostPath volume remains (e.g. if the pod was deleted while
+	// the kubelet was stopped and reconstructVolumes skipped the HostPath volume).
+	hpVol := v1.Volume{
+		Name: "hp-vol",
+		VolumeSource: v1.VolumeSource{
+			HostPath: &v1.HostPathVolumeSource{Path: "/tmp"},
+		},
+	}
+	require.NoError(t, m.actuatedState.SetPodVolume(tCtx.Logger(), pod.UID, hpVol))
+	require.NoError(t, m.actuatedState.RemovePodVolume(tCtx.Logger(), pod.UID, cmVol.Name))
+	require.NoError(t, m.actuatedState.RemovePodVolume(tCtx.Logger(), pod.UID, memVol.Name))
+	require.NoError(t, m.GarbageCollect(tCtx, kubecontainer.GCPolicy{}, true, false))
+	require.False(t, m.actuatedState.HasPod(pod.UID))
 }
