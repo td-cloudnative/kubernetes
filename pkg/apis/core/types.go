@@ -539,9 +539,8 @@ type PersistentVolumeClaimSpec struct {
 	// +optional
 	Selector *metav1.LabelSelector
 	// Resources represents the minimum resources required
-	// If RecoverVolumeExpansionFailure feature is enabled users are allowed to specify resource requirements
-	// that are lower than previous value but must still be higher than capacity recorded in the
-	// status field of the claim.
+	// Users are allowed to specify resource requirements that are lower than the previous value
+	// but must still be higher than capacity recorded in the status field of the claim.
 	// +optional
 	Resources VolumeResourceRequirements
 	// VolumeName is the binding reference to the PersistentVolume backing this
@@ -626,7 +625,7 @@ type TypedObjectReference struct {
 // Valid values are:
 //   - "Resizing", "FileSystemResizePending"
 //
-// If RecoverVolumeExpansionFailure feature gate is enabled, then following additional values can be expected:
+// The following additional values can be expected:
 //   - "ControllerResizeError", "NodeResizeError"
 //
 // If VolumeAttributesClass feature gate is enabled, then following additional values can be expected:
@@ -2873,7 +2872,6 @@ type Container struct {
 	Resources ResourceRequirements
 	// Resources resize policy for the container.
 	// This field cannot be set on ephemeral containers.
-	// +featureGate=InPlacePodVerticalScaling
 	// +optional
 	ResizePolicy []ContainerResizePolicy
 	// RestartPolicy defines the restart behavior of individual containers in a pod.
@@ -3238,7 +3236,6 @@ type ContainerStatus struct {
 	AllocatedResources ResourceList
 	// Resources represents the compute resource requests and limits that have been successfully
 	// enacted on the running container after it has been started or has been successfully resized.
-	// +featureGate=InPlacePodVerticalScaling
 	// +optional
 	Resources *ResourceRequirements
 	// Status of volume mounts.
@@ -4759,7 +4756,6 @@ type EphemeralContainerCommon struct {
 	// +optional
 	Resources ResourceRequirements
 	// Resources resize policy for the container.
-	// +featureGate=InPlacePodVerticalScaling
 	// +optional
 	ResizePolicy []ContainerResizePolicy
 	// Restart policy for the container to manage the restart behavior of each
@@ -4975,7 +4971,6 @@ type PodStatus struct {
 	// Deprecated: Resize status is moved to two pod conditions PodResizePending and PodResizeInProgress.
 	// PodResizePending will track states where the spec has been resized, but the Kubelet has not yet allocated the resources.
 	// PodResizeInProgress will track in-progress resizes, and should be present whenever allocated resources != acknowledged resources.
-	// +featureGate=InPlacePodVerticalScaling
 	// +optional
 	Resize PodResizeStatus
 

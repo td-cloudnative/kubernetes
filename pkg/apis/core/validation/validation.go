@@ -2350,8 +2350,6 @@ func ValidatePersistentVolumeStatusUpdate(newPv, oldPv *core.PersistentVolume) f
 }
 
 type PersistentVolumeClaimSpecValidationOptions struct {
-	// Allow users to recover from previously failing expansion operation
-	EnableRecoverFromExpansionFailure bool
 	// Allow to validate the label value of the label selector
 	AllowInvalidLabelValueInSelector bool
 	// Allow to validate the API group of the data source and data source reference
@@ -2362,9 +2360,8 @@ type PersistentVolumeClaimSpecValidationOptions struct {
 
 func ValidationOptionsForPersistentVolumeClaimCreate() PersistentVolumeClaimSpecValidationOptions {
 	return PersistentVolumeClaimSpecValidationOptions{
-		EnableRecoverFromExpansionFailure: utilfeature.DefaultFeatureGate.Enabled(features.RecoverVolumeExpansionFailure),
-		AllowInvalidLabelValueInSelector:  false,
-		EnableVolumeAttributesClass:       utilfeature.DefaultFeatureGate.Enabled(features.VolumeAttributesClass),
+		AllowInvalidLabelValueInSelector: false,
+		EnableVolumeAttributesClass:      utilfeature.DefaultFeatureGate.Enabled(features.VolumeAttributesClass),
 	}
 }
 
@@ -2391,10 +2388,6 @@ func ValidationOptionsForPersistentVolumeClaim(pvc, oldPvc *core.PersistentVolum
 		opts.AllowInvalidLabelValueInSelector = true
 	}
 
-	if helper.ClaimContainsAllocatedResources(oldPvc) ||
-		helper.ClaimContainsAllocatedResourceStatus(oldPvc) {
-		opts.EnableRecoverFromExpansionFailure = true
-	}
 	return opts
 }
 
@@ -2619,15 +2612,11 @@ func ValidatePersistentVolumeClaimUpdate(newPvc, oldPvc *core.PersistentVolumeCl
 		allErrs = append(allErrs, field.Forbidden(field.NewPath("spec"), fmt.Sprintf("spec is immutable after creation except resources.requests and volumeAttributesClassName for bound claims\n%v", specDiff)))
 	}
 	if newSize.Cmp(oldSize) < 0 {
-		if !opts.EnableRecoverFromExpansionFailure {
-			allErrs = append(allErrs, field.Forbidden(field.NewPath("spec", "resources", "requests", "storage"), "field can not be less than previous value"))
-		} else {
-			// This validation permits reducing pvc requested size up to capacity recorded in pvc.status
-			// so that users can recover from volume expansion failure, but Kubernetes does not actually
-			// support volume shrinking
-			if newSize.Cmp(statusSize) <= 0 {
-				allErrs = append(allErrs, field.Forbidden(field.NewPath("spec", "resources", "requests", "storage"), "field can not be less than status.capacity"))
-			}
+		// This validation permits reducing pvc requested size up to capacity recorded in pvc.status
+		// so that users can recover from volume expansion failure, but Kubernetes does not actually
+		// support volume shrinking
+		if newSize.Cmp(statusSize) <= 0 {
+			allErrs = append(allErrs, field.Forbidden(field.NewPath("spec", "resources", "requests", "storage"), "field can not be less than status.capacity"))
 		}
 	}
 
@@ -2763,32 +2752,30 @@ func ValidatePersistentVolumeClaimStatusUpdate(newPvc, oldPvc *core.PersistentVo
 		allErrs = append(allErrs, validateBasicResource(qty, capPath.Key(string(r)))...)
 	}
 	allErrs = append(allErrs, validateVolumeHealthStatus(newPvc.Status.HealthStatus, field.NewPath("status", "healthStatus"))...)
-	if validationOpts.EnableRecoverFromExpansionFailure {
-		resizeStatusPath := field.NewPath("status", "allocatedResourceStatuses")
-		if newPvc.Status.AllocatedResourceStatuses != nil {
-			resizeStatus := newPvc.Status.AllocatedResourceStatuses
-			for k, v := range resizeStatus {
-				if errs := validatePersistentVolumeClaimResourceKey(k.String(), resizeStatusPath); len(errs) > 0 {
-					allErrs = append(allErrs, errs...)
-				}
-				if !resizeStatusSet.Has(v) {
-					allErrs = append(allErrs, field.NotSupported(resizeStatusPath, k, sets.List(resizeStatusSet)))
-					continue
-				}
-			}
-		}
-		allocPath := field.NewPath("status", "allocatedResources")
-		for r, qty := range newPvc.Status.AllocatedResources {
-			if errs := validatePersistentVolumeClaimResourceKey(r.String(), allocPath); len(errs) > 0 {
+	resizeStatusPath := field.NewPath("status", "allocatedResourceStatuses")
+	if newPvc.Status.AllocatedResourceStatuses != nil {
+		resizeStatus := newPvc.Status.AllocatedResourceStatuses
+		for k, v := range resizeStatus {
+			if errs := validatePersistentVolumeClaimResourceKey(k.String(), resizeStatusPath); len(errs) > 0 {
 				allErrs = append(allErrs, errs...)
+			}
+			if !resizeStatusSet.Has(v) {
+				allErrs = append(allErrs, field.NotSupported(resizeStatusPath, k, sets.List(resizeStatusSet)))
 				continue
 			}
+		}
+	}
+	allocPath := field.NewPath("status", "allocatedResources")
+	for r, qty := range newPvc.Status.AllocatedResources {
+		if errs := validatePersistentVolumeClaimResourceKey(r.String(), allocPath); len(errs) > 0 {
+			allErrs = append(allErrs, errs...)
+			continue
+		}
 
-			if errs := validateBasicResource(qty, allocPath.Key(string(r))); len(errs) > 0 {
-				allErrs = append(allErrs, errs...)
-			} else {
-				allErrs = append(allErrs, ValidateResourceQuantityValue(core.ResourceStorage, qty, allocPath.Key(string(r)))...)
-			}
+		if errs := validateBasicResource(qty, allocPath.Key(string(r))); len(errs) > 0 {
+			allErrs = append(allErrs, errs...)
+		} else {
+			allErrs = append(allErrs, ValidateResourceQuantityValue(core.ResourceStorage, qty, allocPath.Key(string(r)))...)
 		}
 	}
 	return allErrs
@@ -3985,10 +3972,6 @@ func validateInitContainers(containers []core.Container, os *core.PodOS, regular
 			}
 		}
 
-		if !opts.AllowSidecarResizePolicy && len(ctr.ResizePolicy) > 0 {
-			allErrs = append(allErrs, field.Invalid(idxPath.Child("resizePolicy"), ctr.ResizePolicy, "must not be set for init containers"))
-		}
-
 		if !restartAlways && !opts.AllowExistingRestartContainerForNonSidecarInitContainer {
 			for j, p := range ctr.ResizePolicy {
 				if p.RestartPolicy == core.RestartContainer {
@@ -4608,8 +4591,6 @@ type PodValidationOptions struct {
 	// Indicates whether InPlacePodVerticalScalingMemoryBackedVolumes feature is enabled
 	// or disabled.
 	InPlacePodVerticalScalingMemoryBackedVolumesEnabled bool
-	// Allow sidecar containers resize policy for backward compatibility
-	AllowSidecarResizePolicy bool
 	// Allow invalid label-value in RequiredNodeSelector
 	AllowInvalidLabelValueInRequiredNodeAffinity bool
 	// Allow feature of MatchLabelKeys in TopologySpreadConstraints
@@ -6583,10 +6564,6 @@ func ValidatePodResize(newPod, oldPod *core.Pod, opts PodValidationOptions) fiel
 		allErrs = append(allErrs, field.Invalid(specPath, newPod.Status.QOSClass, "Pod QOS Class may not change as a result of resizing"))
 	}
 
-	if !isPodResizeRequestSupported(*oldPod) {
-		allErrs = append(allErrs, field.Forbidden(specPath, "Pod running on node without support for resize"))
-	}
-
 	// Part 2: Validate that changes between pod-level resources in oldPod.Spec.Resources and
 	// newPod.Spec.Resources are allowed.
 
@@ -6971,23 +6948,6 @@ func validatePodLevelResourcesCoverDRA(pod *v1.Pod) (bool, string) {
 	}
 
 	return true, ""
-}
-
-// isPodResizeRequestSupported checks whether the pod is running on a node with InPlacePodVerticalScaling enabled.
-func isPodResizeRequestSupported(pod core.Pod) bool {
-	// TODO: Remove this after GA+3 releases of InPlacePodVerticalScaling
-	// This code handles the version skew as described in the KEP.
-	// For handling version skew we're only allowing to update the Pod's Resources
-	// if the Pod already has Pod.Status.ContainerStatuses[i].Resources. This means
-	// that the apiserver would only allow updates to Pods running on Nodes with
-	// the InPlacePodVerticalScaling feature gate enabled.
-	for _, c := range pod.Status.ContainerStatuses {
-		if c.State.Running != nil {
-			return c.Resources != nil
-		}
-	}
-	// No running containers. We cannot tell whether the node supports resize at this point, so we assume it does.
-	return true
 }
 
 // validateContainerResize validates the changes to the container's resource requirements for a pod resize request.

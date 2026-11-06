@@ -9059,7 +9059,7 @@ func schema_k8sio_api_apps_v1_StatefulSetUpdateStrategy(ref common.ReferenceCall
 				Properties: map[string]spec.Schema{
 					"type": {
 						SchemaProps: spec.SchemaProps{
-							Description: "type indicates the type of the StatefulSetUpdateStrategy. Default is RollingUpdate.\n\nPossible enum values:\n - `\"OnDelete\"` disables ordered rolling restarts. Version tracking is done on a best-effort basis - the controller will try to eventually converge StatefulSet's currentRevision with updateRevision. Pods are recreated from the StatefulSetSpec when they are manually deleted. When a scale operation is performed with this strategy, new Pods will be created from the specification version indicated by the StatefulSet's updateRevision.\n - `\"Recreate\"` indicates that all existing pods will be deleted and fully terminated before any new-revision pods are created. This ensures that old and new revision Pods never run at the same time. This is an alpha type and requires enabling StatefulSetRecreateStrategy feature gate. Switching to the Recreate strategy is allowed when the feature gate is enabled, and switching away from it to a different update strategy is also allowed. +featureGate=StatefulSetRecreateStrategy\n - `\"RollingUpdate\"` indicates that update will be applied to all Pods in the StatefulSet with respect to the StatefulSet ordering constraints. When a scale operation is performed with this strategy, new Pods will be created from the specification version indicated by the StatefulSet's updateRevision.",
+							Description: "type indicates the type of the StatefulSetUpdateStrategy. Default is RollingUpdate.\n\nPossible enum values:\n - `\"OnDelete\"` disables ordered rolling restarts. Version tracking is done on a best-effort basis - the controller will try to eventually converge StatefulSet's currentRevision with updateRevision. Pods are recreated from the StatefulSetSpec when they are manually deleted. When a scale operation is performed with this strategy, new Pods will be created from the specification version indicated by the StatefulSet's updateRevision.\n - `\"Recreate\"` indicates that all existing pods will be deleted and fully terminated before any new-revision pods are created. This ensures that old and new revision Pods never run at the same time. This is a beta type and requires enabling StatefulSetRecreateStrategy feature gate. Switching to the Recreate strategy is allowed when the feature gate is enabled, and switching away from it to a different update strategy is also allowed. +featureGate=StatefulSetRecreateStrategy\n - `\"RollingUpdate\"` indicates that update will be applied to all Pods in the StatefulSet with respect to the StatefulSet ordering constraints. When a scale operation is performed with this strategy, new Pods will be created from the specification version indicated by the StatefulSet's updateRevision.",
 							Type:        []string{"string"},
 							Format:      "",
 							Enum:        []interface{}{"OnDelete", "Recreate", "RollingUpdate"},
@@ -70331,6 +70331,13 @@ func schema_pkg_apis_clientauthentication_v1_Cluster(ref common.ReferenceCallbac
 							Format:      "",
 						},
 					},
+					"min-connection-pool-size": {
+						SchemaProps: spec.SchemaProps{
+							Description: "MinConnectionPoolSize, if greater than 1, spreads requests to the server across at least this many independent transports, each with its own connections, preferring the one with fewer requests in flight. More connections may be opened, for example when a connection reaches the server's limit of concurrent HTTP/2 streams. Values <= 1 keep the default of a single shared transport. Ignored if the ClientsAllowConnectionPool feature gate is disabled.",
+							Type:        []string{"integer"},
+							Format:      "int32",
+						},
+					},
 					"config": {
 						SchemaProps: spec.SchemaProps{
 							Description: "Config holds additional config data that is specific to the exec plugin with regards to the cluster being authenticated to.\n\nThis data is sourced from the clientcmd Cluster object's extensions[client.authentication.k8s.io/exec] field:\n\nclusters: - name: my-cluster\n  cluster:\n    ...\n    extensions:\n    - name: client.authentication.k8s.io/exec  # reserved extension name for per cluster exec config\n      extension:\n        audience: 06e3fbd18de8  # arbitrary config\n\nIn some environments, the user config may be exactly the same across many clusters (i.e. call this exec plugin) minus some details that are specific to each cluster such as the audience.  This field allows the per cluster config to be directly specified with the cluster info.  Using this field to store secret data is not recommended as one of the prime benefits of exec plugins is that no secrets need to be stored directly in the kubeconfig.",
@@ -70513,6 +70520,13 @@ func schema_pkg_apis_clientauthentication_v1beta1_Cluster(ref common.ReferenceCa
 							Description: "DisableCompression allows client to opt-out of response compression for all requests to the server. This is useful to speed up requests (specifically lists) when client-server network bandwidth is ample, by saving time on compression (server-side) and decompression (client-side): https://github.com/kubernetes/kubernetes/issues/112296.",
 							Type:        []string{"boolean"},
 							Format:      "",
+						},
+					},
+					"min-connection-pool-size": {
+						SchemaProps: spec.SchemaProps{
+							Description: "MinConnectionPoolSize, if greater than 1, spreads requests to the server across at least this many independent transports, each with its own connections, preferring the one with fewer requests in flight. More connections may be opened, for example when a connection reaches the server's limit of concurrent HTTP/2 streams. Values <= 1 keep the default of a single shared transport. Ignored if the ClientsAllowConnectionPool feature gate is disabled.",
+							Type:        []string{"integer"},
+							Format:      "int32",
 						},
 					},
 					"config": {
