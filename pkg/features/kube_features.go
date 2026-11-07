@@ -173,6 +173,7 @@ const (
 	ContainerRestartRules featuregate.Feature = "ContainerRestartRules"
 
 	// owner: @sreeram-venkitesh
+	// kep: https://kep.k8s.io/4960
 	//
 	// Enables configuring custom stop signals for containers from container lifecycle
 	ContainerStopSignals featuregate.Feature = "ContainerStopSignals"
@@ -1327,6 +1328,7 @@ var defaultVersionedKubernetesFeatureGates = map[featuregate.Feature]featuregate
 
 	ContainerStopSignals: {
 		{Version: version.MustParse("1.33"), Default: false, PreRelease: featuregate.Alpha},
+		{Version: version.MustParse("1.38"), Default: true, PreRelease: featuregate.Beta},
 	},
 
 	CrossNamespaceVolumeDataSource: {
@@ -1588,6 +1590,7 @@ var defaultVersionedKubernetesFeatureGates = map[featuregate.Feature]featuregate
 
 	InPlacePodVerticalScalingMemoryBackedVolumes: {
 		{Version: version.MustParse("1.37"), Default: false, PreRelease: featuregate.Alpha},
+		{Version: version.MustParse("1.38"), Default: true, PreRelease: featuregate.Beta},
 	},
 
 	InPlacePodVerticalScalingSchedulerPreemption: {
@@ -2302,6 +2305,7 @@ var defaultVersionedKubernetesFeatureGates = map[featuregate.Feature]featuregate
 
 	kcmfeatures.CloudControllerManagerWatchBasedRoutesReconciliation: {
 		{Version: version.MustParse("1.35"), Default: false, PreRelease: featuregate.Alpha},
+		{Version: version.MustParse("1.38"), Default: false, PreRelease: featuregate.Beta},
 	},
 
 	kcmfeatures.CloudControllerManagerWebhook: {

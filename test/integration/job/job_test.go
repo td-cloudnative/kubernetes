@@ -55,6 +55,7 @@ import (
 	featuregatetesting "k8s.io/component-base/featuregate/testing"
 	basemetrics "k8s.io/component-base/metrics"
 	"k8s.io/component-base/metrics/testutil"
+	"k8s.io/component-helpers/scheduling/schedulingv1/workloadbuilder"
 	"k8s.io/klog/v2"
 	"k8s.io/klog/v2/ktesting"
 	kubeapiservertesting "k8s.io/kubernetes/cmd/kube-apiserver/app/testing"
@@ -3142,8 +3143,43 @@ func BenchmarkLargeFailureHandling(b *testing.B) {
 	}
 }
 
-// cleanUp removes the specified pod finalizers, then deletes all pods and the job.
+// cleanUp suspends and deletes the job first to prevent recreation, removes the specified pod finalizers, and deletes remaining pods.
 func cleanUp(ctx context.Context, clientSet clientset.Interface, jobObj *batchv1.Job, podFinalizersToRemove []string) error {
+	ctx, cancel := context.WithTimeout(ctx, wait.ForeverTestTimeout)
+	defer cancel()
+
+	jobClient := clientSet.BatchV1().Jobs(jobObj.Namespace)
+
+	// Custom-managed Jobs are ignored by the built-in controller and don't create Pods.
+	if managedByBuiltInJobController(jobObj) {
+		_, err := updateJob(ctx, jobClient, jobObj.Name, func(j *batchv1.Job) {
+			j.Spec.Suspend = new(true)
+		})
+		if err != nil && !apierrors.IsNotFound(err) {
+			return err
+		}
+
+		// wait for any condition which will indicate "no more pods"
+		if err == nil {
+			if err := waitForAnyJobCondition(ctx, jobClient, jobObj.Name,
+				batchv1.JobSuspended,
+				batchv1.JobFailureTarget,
+				batchv1.JobSuccessCriteriaMet,
+				batchv1.JobFailed,
+				batchv1.JobComplete,
+			); err != nil {
+				return err
+			}
+		}
+	}
+
+	// Set the propagation policy to background to ensure that the job doesn't receive any finalizer at deletion time,
+	// and delete the job first so the controller doesn't create replacement pods while pods are being deleted.
+	if err := jobClient.Delete(ctx, jobObj.Name, metav1.DeleteOptions{
+		PropagationPolicy: ptr.To(metav1.DeletePropagationBackground),
+	}); err != nil && !apierrors.IsNotFound(err) {
+		return err
+	}
 	if err := removePodsFinalizers(ctx, clientSet, jobObj.Namespace, podFinalizersToRemove); err != nil {
 		return err
 	}
@@ -3166,10 +3202,28 @@ func cleanUp(ctx context.Context, clientSet clientset.Interface, jobObj *batchv1
 			return err
 		}
 	}
+	return nil
+}
 
-	// Set the propagation policy to background to ensure that the job doesn't receive any finalizer at deletion time
-	return clientSet.BatchV1().Jobs(jobObj.Namespace).Delete(ctx, jobObj.Name, metav1.DeleteOptions{
-		PropagationPolicy: ptr.To(metav1.DeletePropagationBackground),
+func managedByBuiltInJobController(job *batchv1.Job) bool {
+	return job.Spec.ManagedBy == nil || *job.Spec.ManagedBy == batchv1.JobControllerName
+}
+
+func waitForAnyJobCondition(ctx context.Context, jobClient typedv1.JobInterface, jobName string, conditions ...batchv1.JobConditionType) error {
+	return wait.PollUntilContextTimeout(ctx, 10*time.Millisecond, wait.ForeverTestTimeout, true, func(ctx context.Context) (bool, error) {
+		job, err := jobClient.Get(ctx, jobName, metav1.GetOptions{})
+		if err != nil {
+			if apierrors.IsNotFound(err) {
+				return true, nil
+			}
+			return false, err
+		}
+		for _, cond := range conditions {
+			if getJobConditionStatus(ctx, job, cond) == v1.ConditionTrue {
+				return true, nil
+			}
+		}
+		return false, nil
 	})
 }
 
@@ -4724,6 +4778,20 @@ func startJobControllerAndWaitForCaches(tb testing.TB, restConfig *restclient.Co
 	tb.Helper()
 	informerSet := informers.NewSharedInformerFactoryWithOptions(clientset.NewForConfigOrDie(restclient.AddUserAgent(restConfig, "job-informers")), 0, options...)
 	jc, ctx, cancel := createJobControllerWithSharedInformers(tb, restConfig, informerSet)
+	if feature.DefaultFeatureGate.Enabled(features.GenericWorkload) {
+		// The PodGroupProtection admission plugin adds a finalizer to every
+		// PodGroup, so a deleted PodGroup only goes away while this controller runs.
+		pgc, err := podgroupprotection.NewPodGroupProtectionController(klog.FromContext(ctx),
+			informerSet.Scheduling().V1beta1().PodGroups(),
+			informerSet.Scheduling().V1beta1().CompositePodGroups(),
+			informerSet.Core().V1().Pods(),
+			clientset.NewForConfigOrDie(restclient.AddUserAgent(restConfig, "podgroup-protection")),
+			feature.DefaultFeatureGate.Enabled(features.CompositePodGroup))
+		if err != nil {
+			tb.Fatalf("Error creating PodGroup protection controller: %v", err)
+		}
+		go pgc.Run(ctx, 1)
+	}
 	informerSet.Start(ctx.Done())
 	go jc.Run(ctx, 1)
 
@@ -4875,6 +4943,27 @@ func waitForPodGroup(ctx context.Context, t *testing.T, clientSet clientset.Inte
 		t.Fatalf("Timed out waiting for PodGroup owned by Job %q (expectAbsent=%v): %v", job.Name, expectAbsent, err)
 	}
 	return podGroup
+}
+
+func waitForSchedulingBlocked(ctx context.Context, t *testing.T, clientSet clientset.Interface, job *batchv1.Job, status v1.ConditionStatus, reason string) {
+	t.Helper()
+	var lastConditions []batchv1.JobCondition
+	if err := wait.PollUntilContextTimeout(ctx, waitInterval, wait.ForeverTestTimeout, true, func(ctx context.Context) (bool, error) {
+		j, err := clientSet.BatchV1().Jobs(job.Namespace).Get(ctx, job.Name, metav1.GetOptions{})
+		if err != nil {
+			return false, err
+		}
+		lastConditions = j.Status.Conditions
+		for _, c := range j.Status.Conditions {
+			if c.Type == batchv1.JobSchedulingBlocked {
+				return c.Status == status && c.Reason == reason, nil
+			}
+		}
+		return false, nil
+	}); err != nil {
+		t.Fatalf("Timed out waiting for Job %s SchedulingBlocked=%s with reason %q: %v; last observed conditions: %+v",
+			job.Name, status, reason, err, lastConditions)
+	}
 }
 
 func deletePods(ctx context.Context, t *testing.T, clientSet clientset.Interface, namespace string) {
@@ -5143,6 +5232,7 @@ func TestJobGangScheduling(t *testing.T) {
 	})
 
 	cases := map[string]struct {
+		jobName        string
 		jobSpec        batchv1.JobSpec
 		expectWorkload bool
 		expectPodGroup bool
@@ -5150,10 +5240,13 @@ func TestJobGangScheduling(t *testing.T) {
 		suspend        bool
 		// restarts the controller after the Workload is created
 		// and verifies the Workload UID is preserved.
-		simulateRestart   bool
-		wantGangMinCount  *int32
-		wantDisruptionAll bool
-		wantTopologyKey   string
+		simulateRestart     bool
+		conflictingWorkload bool
+		conflictingPodGroup bool
+		wantTemplateName    string
+		wantGangMinCount    *int32
+		wantDisruptionAll   bool
+		wantTopologyKey     string
 	}{
 		"eligible job creates workload and podgroup": {
 			jobSpec: batchv1.JobSpec{
@@ -5172,6 +5265,16 @@ func TestJobGangScheduling(t *testing.T) {
 			expectWorkload: true,
 			expectPodGroup: true,
 			wantActivePods: 3,
+		},
+		"non-indexed job with dots in name creates workload and podgroup": {
+			jobName: "backup.daily",
+			jobSpec: batchv1.JobSpec{
+				Parallelism: ptr.To[int32](1),
+			},
+			expectWorkload:   true,
+			expectPodGroup:   true,
+			wantActivePods:   1,
+			wantTemplateName: "backup-daily-pgt-0",
 		},
 		"single-pod basic job materializes objects": {
 			jobSpec: batchv1.JobSpec{
@@ -5232,6 +5335,28 @@ func TestJobGangScheduling(t *testing.T) {
 			expectPodGroup:  true,
 			wantActivePods:  4,
 			simulateRestart: true,
+		},
+		"Workload name taken by another owner blocks until it is deleted": {
+			jobSpec: batchv1.JobSpec{
+				Parallelism:    ptr.To[int32](4),
+				Completions:    ptr.To[int32](4),
+				CompletionMode: new(batchv1.IndexedCompletion),
+			},
+			conflictingWorkload: true,
+			expectWorkload:      true,
+			expectPodGroup:      true,
+			wantActivePods:      4,
+		},
+		"PodGroup name taken by another template blocks until it is deleted": {
+			jobSpec: batchv1.JobSpec{
+				Parallelism:    ptr.To[int32](4),
+				Completions:    ptr.To[int32](4),
+				CompletionMode: new(batchv1.IndexedCompletion),
+			},
+			conflictingPodGroup: true,
+			expectWorkload:      true,
+			expectPodGroup:      true,
+			wantActivePods:      4,
 		},
 		"gang job with all-or-nothing disruption mode": {
 			jobSpec: batchv1.JobSpec{
@@ -5317,13 +5442,58 @@ func TestJobGangScheduling(t *testing.T) {
 			t.Cleanup(closeFn)
 
 			jobObj, err := createJobWithDefaults(t.Context(), clientSet, ns.Name, &batchv1.Job{
-				Spec: tc.jobSpec,
+				ObjectMeta: metav1.ObjectMeta{Name: tc.jobName},
+				Spec:       tc.jobSpec,
 			})
 			if err != nil {
 				t.Fatalf("Failed to create Job: %v", err)
 			}
+			workloadClient := clientSet.SchedulingV1beta1().Workloads(ns.Name)
 			podGroupClient := clientSet.SchedulingV1beta1().PodGroups(ns.Name)
+			workloadName := workloadbuilder.GenerateWorkloadName(jobObj.Name, jobObj.UID)
+			templateName := fmt.Sprintf("%s-pgt-0", jobObj.Name)
 			basicPolicy := schedulingv1beta1.PodGroupSchedulingPolicy{Basic: &schedulingv1beta1.BasicSchedulingPolicy{}}
+			var deleteConflict func(ctx context.Context) error
+			if tc.conflictingWorkload {
+				wl, err := workloadClient.Create(t.Context(), &schedulingv1beta1.Workload{
+					ObjectMeta: metav1.ObjectMeta{Name: workloadName},
+					Spec: schedulingv1beta1.WorkloadSpec{
+						ControllerRef: &schedulingv1beta1.TypedLocalObjectReference{
+							APIGroup: batchv1.GroupName,
+							Kind:     "Job",
+							Name:     "other-job",
+						},
+						PodGroupTemplates: []schedulingv1beta1.PodGroupTemplate{{
+							Name:             templateName,
+							SchedulingPolicy: basicPolicy,
+						}},
+					},
+				}, metav1.CreateOptions{})
+				if err != nil {
+					t.Fatalf("Failed to create conflicting Workload: %v", err)
+				}
+				deleteConflict = func(ctx context.Context) error {
+					return workloadClient.Delete(ctx, wl.Name, metav1.DeleteOptions{})
+				}
+			}
+			if tc.conflictingPodGroup {
+				pg, err := podGroupClient.Create(t.Context(), &schedulingv1beta1.PodGroup{
+					ObjectMeta: metav1.ObjectMeta{Name: workloadbuilder.GeneratePodGroupName(workloadName, templateName, jobObj.UID)},
+					Spec: schedulingv1beta1.PodGroupSpec{
+						WorkloadRef: &schedulingv1beta1.WorkloadReference{
+							WorkloadName: workloadName,
+							TemplateName: "other-template",
+						},
+						SchedulingPolicy: basicPolicy,
+					},
+				}, metav1.CreateOptions{})
+				if err != nil {
+					t.Fatalf("Failed to create conflicting PodGroup: %v", err)
+				}
+				deleteConflict = func(ctx context.Context) error {
+					return podGroupClient.Delete(ctx, pg.Name, metav1.DeleteOptions{})
+				}
+			}
 			var byoPodGroup *schedulingv1beta1.PodGroup
 			if sg := tc.jobSpec.Template.Spec.SchedulingGroup; sg != nil {
 				byoPodGroup, err = podGroupClient.Create(t.Context(), &schedulingv1beta1.PodGroup{
@@ -5337,6 +5507,17 @@ func TestJobGangScheduling(t *testing.T) {
 
 			ctx, cancel := startJobControllerAndWaitForCaches(t, restConfig)
 			t.Cleanup(cancel)
+
+			if deleteConflict != nil {
+				waitForSchedulingBlocked(ctx, t, clientSet, jobObj, v1.ConditionTrue, jobcontroller.ReasonInvalidSchedulingObjects)
+				validateJobsPodsStatusOnly(ctx, t, clientSet, jobObj, "", podsByStatus{
+					Active: 0, Ready: ptr.To[int32](0), Terminating: ptr.To[int32](0),
+				})
+				if err := deleteConflict(ctx); err != nil {
+					t.Fatalf("Failed to delete the conflicting object: %v", err)
+				}
+				waitForSchedulingBlocked(ctx, t, clientSet, jobObj, v1.ConditionFalse, jobcontroller.ReasonSchedulingObjectsValid)
+			}
 
 			// verify scheduling objects exist before pods, then unsuspend.
 			if tc.suspend {
@@ -5460,6 +5641,10 @@ func TestJobGangScheduling(t *testing.T) {
 					t.Fatalf("expected exactly one PodGroupTemplate, got %d", len(workload.Spec.PodGroupTemplates))
 				}
 				pgt := workload.Spec.PodGroupTemplates[0]
+
+				if tc.wantTemplateName != "" && pgt.Name != tc.wantTemplateName {
+					t.Errorf("Workload template name = %q, want %q", pgt.Name, tc.wantTemplateName)
+				}
 
 				if tc.wantGangMinCount != nil {
 					if pgt.SchedulingPolicy.Gang == nil || pgt.SchedulingPolicy.Gang.MinCount != *tc.wantGangMinCount {
@@ -5643,9 +5828,135 @@ func TestJobGangSchedulingSuspendResume(t *testing.T) {
 	verifyPodsInPodGroup("after second resume")
 }
 
+// TestJobGangSchedulingFeatureGateReEnable verifies a gang Job while the
+// WorkloadWithJob gate is enabled, disabled and re-enabled, with a controller
+// restart at each step. The scheduling objects are kept while the gate is off,
+// and a gang never mixes pods with and without a schedulingGroup.
+func TestJobGangSchedulingFeatureGateReEnable(t *testing.T) {
+	featuregatetesting.SetFeatureGatesDuringTest(t, feature.DefaultFeatureGate, featuregatetesting.FeatureOverrides{
+		features.GenericWorkload: true,
+		features.WorkloadWithJob: true,
+	})
+	t.Cleanup(setDurationDuringTest(&jobcontroller.DefaultJobPodFailureBackOff, fastPodFailureBackoff))
+
+	closeFn, restConfig, clientSet, ns := setup(t, "gang-gate-reenable")
+	t.Cleanup(closeFn)
+	ctx, cancel := startJobControllerAndWaitForCaches(t, restConfig)
+	t.Cleanup(func() { cancel() })
+
+	events, err := clientSet.EventsV1().Events(ns.Name).Watch(t.Context(), metav1.ListOptions{})
+	if err != nil {
+		t.Fatalf("Failed to watch events: %v", err)
+	}
+	defer events.Stop()
+
+	jobObj, err := createJobWithDefaults(ctx, clientSet, ns.Name, &batchv1.Job{
+		Spec: batchv1.JobSpec{
+			Parallelism:    new(int32(4)),
+			Completions:    new(int32(4)),
+			CompletionMode: new(batchv1.IndexedCompletion),
+			Scheduling: &batchv1.JobSchedulingConfiguration{
+				SchedulingPolicy: &schedulingv1.WorkloadPodGroupSchedulingPolicy{
+					Gang: &schedulingv1.WorkloadPodGroupGangSchedulingPolicy{MinCount: ptr.To[int32](4)},
+				},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Failed to create Job: %v", err)
+	}
+	workload := waitForWorkload(ctx, t, clientSet, jobObj, false, wait.ForeverTestTimeout)
+	podGroup := waitForPodGroup(ctx, t, clientSet, jobObj, false, wait.ForeverTestTimeout)
+	validateJobsPodsStatusOnly(ctx, t, clientSet, jobObj, "", podsByStatus{
+		Active: 4, Ready: new(int32(0)), Terminating: new(int32(0)),
+	})
+
+	restartController := func(gateEnabled bool) {
+		cancel()
+		featuregatetesting.SetFeatureGateDuringTest(t, feature.DefaultFeatureGate, features.WorkloadWithJob, gateEnabled)
+		ctx, cancel = startJobControllerAndWaitForCaches(t, restConfig)
+	}
+	setIndexPhase := func(ix int, phase v1.PodPhase) {
+		if err := setJobPhaseForIndex(ctx, clientSet, jobObj, phase, ix); err != nil {
+			t.Fatalf("Failed to set phase %s for index %d: %v", phase, ix, err)
+		}
+	}
+	// checks whether the active pod for the index joined the original PodGroup
+	// through both its schedulingGroup and its ownerReference.
+	verifyIndexGrouped := func(stage string, ix int, wantGrouped bool) {
+		pods, err := getJobPods(ctx, t, clientSet, jobObj, func(s v1.PodStatus) bool {
+			return s.Phase != v1.PodSucceeded && s.Phase != v1.PodFailed
+		})
+		if err != nil {
+			t.Fatalf("[%s] Failed to get job pods: %v", stage, err)
+		}
+		for _, pod := range pods {
+			if pix, err := getCompletionIndex(pod.Annotations); err != nil || pix != ix {
+				continue
+			}
+			sg := pod.Spec.SchedulingGroup
+			hasGroup := sg != nil && sg.PodGroupName != nil && *sg.PodGroupName == podGroup.Name
+			if hasGroup != wantGrouped {
+				t.Errorf("[%s] Pod %s for index %d: schedulingGroup = %+v, want grouped = %v", stage, pod.Name, ix, sg, wantGrouped)
+			}
+			if slices.ContainsFunc(pod.OwnerReferences, func(ref metav1.OwnerReference) bool { return ref.Kind == "PodGroup" }) {
+				t.Errorf("[%s] Pod %s ownerReferences = %+v, want no PodGroup owner", stage, pod.Name, pod.OwnerReferences)
+			}
+			return
+		}
+		t.Fatalf("[%s] No active pod for index %d", stage, ix)
+	}
+	verifySchedulingObjectsKept := func(stage string) {
+		if got := waitForWorkload(ctx, t, clientSet, jobObj, false, wait.ForeverTestTimeout); got.UID != workload.UID {
+			t.Errorf("[%s] Workload UID = %v, want %v", stage, got.UID, workload.UID)
+		}
+		if got := waitForPodGroup(ctx, t, clientSet, jobObj, false, wait.ForeverTestTimeout); got.UID != podGroup.UID {
+			t.Errorf("[%s] PodGroup UID = %v, want %v", stage, got.UID, podGroup.UID)
+		}
+	}
+
+	for ix := range 4 {
+		verifyIndexGrouped("gate enabled", ix, true)
+	}
+
+	// With the gate off, a replacement pod is created without a schedulingGroup.
+	restartController(false)
+	setIndexPhase(0, v1.PodFailed)
+	validateJobsPodsStatusOnly(ctx, t, clientSet, jobObj, "", podsByStatus{
+		Active: 4, Failed: 1, Ready: new(int32(0)), Terminating: new(int32(0)),
+	})
+	verifyIndexGrouped("gate disabled", 0, false)
+	verifySchedulingObjectsKept("gate disabled")
+
+	// After re-enabling, the ungrouped pod keeps new pods out of the PodGroup.
+	restartController(true)
+	setIndexPhase(1, v1.PodFailed)
+	validateJobsPodsStatusOnly(ctx, t, clientSet, jobObj, "", podsByStatus{
+		Active: 4, Failed: 2, Ready: new(int32(0)), Terminating: new(int32(0)),
+	})
+	verifyIndexGrouped("gate re-enabled with an ungrouped pod", 1, false)
+	if err := waitForEvent(t.Context(), events, jobObj.UID, "MixedSchedulingGroup"); err != nil {
+		t.Errorf("Waiting for the MixedSchedulingGroup event: %v", err)
+	}
+	verifySchedulingObjectsKept("gate re-enabled")
+
+	// Once the ungrouped pods finish, new pods join the PodGroup again.
+	setIndexPhase(0, v1.PodSucceeded)
+	setIndexPhase(1, v1.PodSucceeded)
+	validateJobsPodsStatusOnly(ctx, t, clientSet, jobObj, "", podsByStatus{
+		Active: 2, Succeeded: 2, Failed: 2, Ready: new(int32(0)), Terminating: new(int32(0)),
+	})
+	setIndexPhase(2, v1.PodFailed)
+	validateJobsPodsStatusOnly(ctx, t, clientSet, jobObj, "", podsByStatus{
+		Active: 2, Succeeded: 2, Failed: 3, Ready: new(int32(0)), Terminating: new(int32(0)),
+	})
+	verifyIndexGrouped("ungrouped pods finished", 2, true)
+}
+
 // TestJobDelegatedPodGroup verifies Jobs that select a template in an external
 // Workload through the workload-name and group-template-name annotations. The
-// controller creates only the runtime PodGroup, from the persisted template.
+// controller creates only the runtime PodGroup, from the persisted template,
+// and blocks while the Workload or the template does not exist.
 func TestJobDelegatedPodGroup(t *testing.T) {
 	featuregatetesting.SetFeatureGatesDuringTest(t, feature.DefaultFeatureGate, featuregatetesting.FeatureOverrides{
 		features.GenericWorkload: true,
@@ -5666,6 +5977,7 @@ func TestJobDelegatedPodGroup(t *testing.T) {
 		ownedByParent   bool
 		jobCount        int
 		initialTemplate string
+		wantBlockReason string
 	}{
 		"parent-owned Workload": {
 			ownedByParent:   true,
@@ -5683,6 +5995,17 @@ func TestJobDelegatedPodGroup(t *testing.T) {
 			ownedByParent:   true,
 			jobCount:        2,
 			initialTemplate: templateName,
+		},
+		"Job created before its Workload blocks, then recovers": {
+			ownedByParent:   true,
+			jobCount:        1,
+			wantBlockReason: jobcontroller.ReasonSchedulingDependencyNotFound,
+		},
+		"Job created before its template blocks, then recovers": {
+			ownedByParent:   true,
+			jobCount:        1,
+			initialTemplate: "other",
+			wantBlockReason: jobcontroller.ReasonSchedulingDependencyNotFound,
 		},
 	}
 
@@ -5749,6 +6072,26 @@ func TestJobDelegatedPodGroup(t *testing.T) {
 				var err error
 				if jobs[i], err = createJobWithDefaults(ctx, clientSet, ns.Name, job); err != nil {
 					t.Fatalf("Failed to create Job %s: %v", job.Name, err)
+				}
+			}
+
+			if tc.wantBlockReason != "" {
+				for _, job := range jobs {
+					waitForSchedulingBlocked(ctx, t, clientSet, job, v1.ConditionTrue, tc.wantBlockReason)
+					validateJobsPodsStatusOnly(ctx, t, clientSet, job, "", podsByStatus{
+						Active: 0, Ready: new(int32(0)), Terminating: new(int32(0)),
+					})
+					waitForPodGroup(ctx, t, clientSet, job, true, wait.ForeverTestTimeout)
+				}
+				// Templates cannot be added to an existing Workload, so it is recreated.
+				if tc.initialTemplate != "" {
+					if err := workloadClient.Delete(ctx, workloadName, metav1.DeleteOptions{}); err != nil {
+						t.Fatalf("Failed to delete Workload %s: %v", workloadName, err)
+					}
+				}
+				createWorkload(templateName)
+				for _, job := range jobs {
+					waitForSchedulingBlocked(ctx, t, clientSet, job, v1.ConditionFalse, jobcontroller.ReasonSchedulingObjectsValid)
 				}
 			}
 

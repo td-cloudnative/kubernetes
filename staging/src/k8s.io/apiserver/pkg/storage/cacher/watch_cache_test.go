@@ -42,6 +42,7 @@ import (
 	"k8s.io/apiserver/pkg/storage/cacher/metrics"
 	"k8s.io/apiserver/pkg/storage/cacher/progress"
 	"k8s.io/apiserver/pkg/storage/cacher/store"
+	cachertesting "k8s.io/apiserver/pkg/storage/cacher/testing"
 	utilfeature "k8s.io/apiserver/pkg/util/feature"
 	"k8s.io/client-go/tools/cache"
 	featuregatetesting "k8s.io/component-base/featuregate/testing"
@@ -134,6 +135,7 @@ func newTestWatchCache(capacity int, eventFreshDuration time.Duration, indexers 
 		return wc.resourceVersion, nil
 	}
 	wc.watchCache = newWatchCache(keyFunc, mockHandler, getAttrsFunc, versioner, indexers, testingclock.NewFakeClock(time.Now()), eventFreshDuration, schema.GroupResource{Resource: "pods"}, pr, getCurrentRV)
+	go wc.freshness.Run(wc.stopCh)
 	// To preserve behavior of tests that assume a given capacity,
 	// resize it to th expected size.
 	wc.history.capacity = capacity
@@ -575,7 +577,7 @@ func TestWaitUntilFreshAndGetList(t *testing.T) {
 }
 
 func TestWaitUntilFreshAndListFromCache(t *testing.T) {
-	forceRequestWatchProgressSupport(t)
+	cachertesting.ForceRequestWatchProgressSupport(t)
 	ctx := context.Background()
 	store := newTestWatchCache(3, DefaultEventFreshDuration, &cache.Indexers{})
 	defer store.Stop()

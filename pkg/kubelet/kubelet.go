@@ -819,6 +819,7 @@ func NewMainKubelet(ctx context.Context,
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize actuated state checkpoint: %w", err)
 	}
+	klet.actuatedState = actuatedState
 
 	runtime, postImageGCHooks, err := kuberuntime.NewKubeGenericRuntimeManager(
 		ctx,
@@ -1340,6 +1341,9 @@ type Kubelet struct {
 
 	// allocationManager manages allocated resources for pods.
 	allocationManager allocation.Manager
+
+	// actuatedState tracks actuated resources, volumes, and volume mounts for pods.
+	actuatedState state.State
 
 	// podCertificateManager is fed updates as pods are added and removed from
 	// the node, and requests certificates for them based on their configured
@@ -3111,24 +3115,42 @@ func recordContainerResizeOperations(oldPod, newPod *v1.Pod) {
 
 // recordVolumeResizeOperations records if any of the pod's memory-backed emptyDir volumes needs to be resized.
 func recordVolumeResizeOperations(oldPod, newPod *v1.Pod) {
-	if !utilfeature.DefaultFeatureGate.Enabled(features.InPlacePodVerticalScalingMemoryBackedVolumes) {
+	if !utilfeature.DefaultFeatureGate.Enabled(features.InPlacePodVerticalScalingMemoryBackedVolumes) || oldPod == nil || newPod == nil {
 		return
 	}
-
-	// TODO(natasha41575): Add metrics for volume resizes.
+	for i, oldVol := range oldPod.Spec.Volumes {
+		if !allocation.VolHasMemoryBackedEmptyDir(&oldVol) {
+			continue
+		}
+		newVol := allocation.FindVolume(newPod.Spec.Volumes, oldVol.Name, i)
+		if newVol == nil || !allocation.VolHasMemoryBackedEmptyDir(newVol) {
+			continue
+		}
+		if op := resizeOperationForResources(newVol.EmptyDir.SizeLimit, oldVol.EmptyDir.SizeLimit); op != "" {
+			metrics.VolumeRequestedResizes.WithLabelValues(strings.ToLower(string(newVol.EmptyDir.Medium)), op).Inc()
+		}
+	}
 }
 
 func resizeOperationForResources(new, old *resource.Quantity) string {
-	if new.IsZero() && !old.IsZero() {
+	hasNew := new != nil && !new.IsZero()
+	hasOld := old != nil && !old.IsZero()
+
+	if !hasNew && !hasOld {
+		return ""
+	}
+	if !hasNew && hasOld {
 		return "remove"
 	}
-	if old.IsZero() && !new.IsZero() {
+	if !hasOld && hasNew {
 		return "add"
 	}
-	if new.Cmp(*old) < 0 {
+
+	cmp := new.Cmp(*old)
+	if cmp < 0 {
 		return "decrease"
 	}
-	if new.Cmp(*old) > 0 {
+	if cmp > 0 {
 		return "increase"
 	}
 	return ""
@@ -3675,14 +3697,18 @@ type allocatedPodManager struct {
 }
 
 func (a *allocatedPodManager) getAllocatedPod(pod *v1.Pod) (*v1.Pod, bool) {
-	// TODO: Should this be a public method on the allocation manager?
+	// TODO: Add a method on the allocation manager for volumeManager to read the allocated pod
+	// without requiring a deep copy or DeepEqual check, especially in preparation for dynamic volumes.
 	if pod == nil {
 		return nil, false
 	}
-	if allocatedPod, ok := a.allocationManager.UpdatePodFromAllocation(pod); ok {
-		return allocatedPod, true
+	if utilfeature.DefaultFeatureGate.Enabled(features.InPlacePodVerticalScalingMemoryBackedVolumes) && allocation.PodHasMemoryBackedEmptyDir(pod) {
+		if allocatedPod, ok := a.allocationManager.UpdatePodFromAllocation(pod); ok {
+			return allocatedPod, true
+		}
 	}
-	// When there is no allocation stored for this pod, return the pod as-is.
+	// When the feature gate is disabled, the pod has no memory-backed emptyDir volumes, or there is
+	// no allocation stored for this pod, return the pod as-is.
 	return pod, true
 }
 

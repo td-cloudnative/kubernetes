@@ -79,6 +79,14 @@ func TestStateMemory_EmptyDirVolumeLimits(t *testing.T) {
 	qty2, exists2 := state.GetEmptyDirVolumeLimit(podUID, anotherVolName)
 	assert.True(t, exists2)
 	assert.True(t, anotherLimit.Equal(*qty2))
+
+	// Setting a volume limit to nil (removing size limit) should return (nil, true)
+	err = state.SetEmptyDirVolumeLimit(logger, podUID, volName, &v1.EmptyDirVolumeSource{Medium: v1.StorageMediumMemory, SizeLimit: nil})
+	require.NoError(t, err)
+
+	nilQty, nilExists := state.GetEmptyDirVolumeLimit(podUID, volName)
+	assert.True(t, nilExists)
+	assert.Nil(t, nilQty)
 }
 
 func TestStateMemory_ResourceIsolation(t *testing.T) {
@@ -508,6 +516,64 @@ func TestStateMemory_PodVolumes(t *testing.T) {
 	gotVols, found = state.GetPodVolumes(podUID)
 	assert.Nil(t, gotVols)
 	assert.False(t, found)
+}
+
+func TestStateMemory_ContainerVolumeMounts(t *testing.T) {
+	logger, _ := ktesting.NewTestContext(t)
+	state := NewStateMemory(logger, PodMap{}, nil)
+	podUID := types.UID("pod-1")
+
+	mounts, found := state.GetContainerVolumeMounts(podUID, "main")
+	assert.Nil(t, mounts)
+	assert.False(t, found)
+
+	rro := v1.RecursiveReadOnlyEnabled
+	inputMounts := []v1.VolumeMount{
+		{Name: "vol1", MountPath: "/mnt/vol1", ReadOnly: true, RecursiveReadOnly: &rro},
+		{Name: "vol2", MountPath: "/mnt/vol2", SubPath: "sub"},
+	}
+	cpuReq := v1.ResourceRequirements{Requests: v1.ResourceList{v1.ResourceCPU: resource.MustParse("100m")}}
+	require.NoError(t, state.SetContainer(logger, podUID, podutil.Containers, v1.Container{
+		Name:         "main",
+		Resources:    cpuReq,
+		VolumeMounts: inputMounts,
+	}))
+
+	// Mutating input slice or pointer fields does not affect stored state.
+	rroChanged := v1.RecursiveReadOnlyDisabled
+	inputMounts[0].RecursiveReadOnly = &rroChanged
+	inputMounts[0].Name = "mutated"
+
+	gotMounts, found := state.GetContainerVolumeMounts(podUID, "main")
+	require.True(t, found)
+	require.Len(t, gotMounts, 2)
+	assert.Equal(t, "vol1", gotMounts[0].Name)
+	require.NotNil(t, gotMounts[0].RecursiveReadOnly)
+	assert.Equal(t, v1.RecursiveReadOnlyEnabled, *gotMounts[0].RecursiveReadOnly)
+
+	// Mutating returned slice does not affect stored state.
+	gotMounts[0].Name = "mutated-return"
+	gotMountsAgain, found := state.GetContainerVolumeMounts(podUID, "main")
+	require.True(t, found)
+	assert.Equal(t, "vol1", gotMountsAgain[0].Name)
+
+	// Container resources remain intact.
+	gotRes, found := state.GetContainerResources(podUID, "main")
+	require.True(t, found)
+	assert.True(t, resource.MustParse("100m").Equal(*gotRes.Requests.Cpu()))
+
+	// Setting container with empty volume mounts clears mounts while keeping container resources.
+	require.NoError(t, state.SetContainer(logger, podUID, podutil.Containers, v1.Container{
+		Name:      "main",
+		Resources: cpuReq,
+	}))
+	mounts, found = state.GetContainerVolumeMounts(podUID, "main")
+	assert.Nil(t, mounts)
+	assert.True(t, found)
+
+	gotRes, found = state.GetContainerResources(podUID, "main")
+	require.True(t, found)
+	assert.True(t, resource.MustParse("100m").Equal(*gotRes.Requests.Cpu()))
 }
 
 func TestStateMemory_ToPodList(t *testing.T) {

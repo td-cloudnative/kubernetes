@@ -123,6 +123,10 @@ type Config struct {
 	Codec runtime.Codec
 
 	Clock clock.WithTicker
+
+	// CompactorPollPeriod specifies how frequently compactor polls storage for compaction revision.
+	// Defaults to 15s when zero.
+	CompactorPollPeriod time.Duration
 }
 
 type watchersMap map[int]*cacheWatcher
@@ -470,12 +474,13 @@ func NewCacherFromConfig(config Config) (*Cacher, error) {
 	}
 
 	if utilfeature.DefaultFeatureGate.Enabled(features.ListFromCacheSnapshot) {
-		cacher.compactor = newCompactor(config.Storage, watchCache, config.Clock)
+		cacher.compactor = newCompactor(config.Storage, watchCache, config.Clock, config.CompactorPollPeriod)
 		go cacher.compactor.Run(stopCh)
 	}
 
 	go cacher.dispatchEvents()
 	go progressRequester.Run(stopCh)
+	go watchCache.freshness.Run(stopCh)
 
 	cacher.stopWg.Add(1)
 	go func() {
@@ -628,6 +633,13 @@ func (c *Cacher) watch(ctx context.Context, key string, requestedWatchRV uint64,
 		span.AddEvent("watchCache fresh enough")
 	}
 
+	// requiredResourceVersion = 0 means that we don't require any specific starting point
+	// and we would like to start watching from ~now.
+	if requiredResourceVersion == 0 && opts.SendInitialEvents != nil && !*opts.SendInitialEvents {
+		requiredResourceVersion = c.watchCache.resourceVersion
+		watcher.requiredResourceVersion = requiredResourceVersion
+	}
+
 	cacheInterval, err := c.initWatcherIntervalLocked(ctx, watcher)
 	if err != nil {
 		return nil, err
@@ -732,9 +744,6 @@ func (c *Cacher) Get(ctx context.Context, key string, opts storage.GetOptions, o
 	key, err := c.prepareKey(key, false)
 	if err != nil {
 		return err
-	}
-	if opts.ResourceVersion == "" {
-		return storage.NewInternalError(fmt.Errorf("cacher doesn't support consistent Get"))
 	}
 
 	objVal, err := conversion.EnforcePtr(objPtr)
@@ -1435,28 +1444,31 @@ type errWatcher struct {
 }
 
 func newErrWatcher(err error) *errWatcher {
-	// Create an error event
-	errEvent := watch.Event{Type: watch.Error}
-	switch err := err.(type) {
-	case runtime.Object:
-		errEvent.Object = err
-	case *errors.StatusError:
-		errEvent.Object = &err.ErrStatus
-	default:
-		errEvent.Object = &metav1.Status{
-			Status:  metav1.StatusFailure,
-			Message: err.Error(),
-			Reason:  metav1.StatusReasonInternalError,
-			Code:    http.StatusInternalServerError,
-		}
-	}
-
 	// Create a watcher with room for a single event, populate it, and close the channel
 	watcher := &errWatcher{result: make(chan watch.Event, 1)}
-	watcher.result <- errEvent
+	watcher.result <- newWatchErrorEvent(err)
 	close(watcher.result)
 
 	return watcher
+}
+
+func newWatchErrorEvent(err error) watch.Event {
+	switch err := err.(type) {
+	case runtime.Object:
+		return watch.Event{Type: watch.Error, Object: err}
+	case *errors.StatusError:
+		return watch.Event{Type: watch.Error, Object: &err.ErrStatus}
+	default:
+		return watch.Event{
+			Type: watch.Error,
+			Object: &metav1.Status{
+				Status:  metav1.StatusFailure,
+				Message: err.Error(),
+				Reason:  metav1.StatusReasonInternalError,
+				Code:    http.StatusInternalServerError,
+			},
+		}
+	}
 }
 
 func (c *Cacher) ShouldDelegateExactRV(resourceVersion string, recursive bool) (delegator.Result, error) {

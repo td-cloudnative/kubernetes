@@ -139,7 +139,7 @@ func newWatchCache(
 		history:         newWatchCacheHistory(config, eventFreshDuration),
 		storage:         store.NewWatchCacheStorage(indexers),
 	}
-	wc.freshness = newFreshnessWaiter(wc.RLocker(), &wc.resourceVersion, clock, groupResource, progressRequester)
+	wc.freshness = newFreshnessWaiter(clock, groupResource, progressRequester)
 	wc.config.indexValidator = wc.history.isIndexValidLocked
 
 	return wc
@@ -240,7 +240,7 @@ func (w *watchCache) processEvent(event watch.Event, resourceVersion uint64) err
 
 		w.history.updateCache(wcEvent)
 		w.resourceVersion = resourceVersion
-		defer w.freshness.broadcast()
+		defer w.freshness.broadcast(resourceVersion)
 
 		if w.history.isCacheFullLocked() {
 			oldestRV := w.history.OldestResourceVersionLocked()
@@ -287,7 +287,7 @@ func (w *watchCache) UpdateResourceVersion(resourceVersion string) {
 		defer w.Unlock()
 		w.storage.UpdateResourceVersion(rv)
 		w.resourceVersion = rv
-		w.freshness.broadcast()
+		w.freshness.broadcast(rv)
 	}()
 
 	// Avoid calling event handler under lock.
@@ -306,7 +306,7 @@ func (w *watchCache) UpdateResourceVersion(resourceVersion string) {
 
 // waitUntilFreshLocked waits until cache is at least as fresh as given resourceVersion.
 func (w *watchCache) waitUntilFreshLocked(ctx context.Context, resourceVersion uint64) error {
-	return w.freshness.waitUntilFreshLocked(ctx, resourceVersion)
+	return w.freshness.waitUntilFreshLockedWithLocker(ctx, resourceVersion, w.RLocker())
 }
 
 func (c *watchCache) WaitUntilFreshAndGetList(ctx context.Context, key string, opts storage.ListOptions) (listResp, string, error) {
@@ -602,7 +602,7 @@ func (w *watchCache) Replace(objs []interface{}, resourceVersion string) error {
 	if w.onReplace != nil {
 		w.onReplace()
 	}
-	w.freshness.broadcast()
+	w.freshness.broadcast(version)
 
 	metrics.RecordResourceVersion(w.config.groupResource, version)
 	klog.V(3).Infof("Replaced watchCache (rev: %v) ", resourceVersion)
@@ -641,21 +641,13 @@ func (w *watchCache) getAllEventsSinceLocked(ctx context.Context, resourceVersio
 		return interval, err
 	}
 
-	if resourceVersion == 0 {
-		if opts.SendInitialEvents == nil {
-			// resourceVersion = 0 means that we don't require any specific starting point
-			// and we would like to start watching from ~now.
-			// However, to keep backward compatibility, we additionally need to return the
-			// current state and only then start watching from that point.
-			//
-			// TODO: In v2 api, we should stop returning the current state - #13969.
-			interval, _, err := w.getIntervalFromStoreLocked(ctx, key, opts)
-			return interval, err
-		}
-		// SendInitialEvents = false and resourceVersion = 0
-		// means that the request would like to start watching
-		// from Any resourceVersion
-		resourceVersion = w.resourceVersion
+	if resourceVersion == 0 && opts.SendInitialEvents == nil {
+		// To keep backward compatibility, we additionally need to return the
+		// current state and only then start watching from that point.
+		//
+		// TODO: In v2 api, we should stop returning the current state - #13969.
+		interval, _, err := w.getIntervalFromStoreLocked(ctx, key, opts)
+		return interval, err
 	}
 
 	return w.history.GetIntervalLocked(resourceVersion, w.RWMutex.RLocker())
