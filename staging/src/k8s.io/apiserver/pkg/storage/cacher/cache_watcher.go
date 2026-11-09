@@ -63,6 +63,7 @@ type watcherInput struct {
 // cacheWatcher implements watch.Interface
 // this is not thread-safe
 type cacheWatcher struct {
+	id        int
 	input     chan watcherInput
 	result    chan watch.Event
 	done      chan struct{}
@@ -103,6 +104,7 @@ type cacheWatcher struct {
 
 	selector                watchSelector
 	requiredResourceVersion uint64
+	matchedValues           []storage.MatchValue
 }
 
 func newCacheWatcher(
@@ -118,6 +120,7 @@ func newCacheWatcher(
 	identifier string,
 	selector watchSelector,
 	requiredResourceVersion uint64,
+	matchedValues []storage.MatchValue,
 ) *cacheWatcher {
 	if clk == nil {
 		clk = clock.RealClock{}
@@ -139,6 +142,7 @@ func newCacheWatcher(
 		identifier:              identifier,
 		selector:                selector,
 		requiredResourceVersion: requiredResourceVersion,
+		matchedValues:           matchedValues,
 	}
 }
 

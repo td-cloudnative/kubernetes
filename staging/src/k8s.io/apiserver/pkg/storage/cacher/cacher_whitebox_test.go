@@ -1810,16 +1810,21 @@ func TestDispatchingBookmarkEventsWithConcurrentStop(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to add a pod: %v", err)
 	}
+	readyGeneration, _, err := cacher.ready.checkAndReadGeneration()
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	for i := 0; i < 1000; i++ {
 		pred := storage.Everything
 		pred.AllowWatchBookmarks = true
 		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 		defer cancel()
-		w, err := cacher.Watch(ctx, "/pods/ns", storage.ListOptions{ResourceVersion: "999", Predicate: pred, Recursive: true})
+		w, err := cacher.watch(ctx, "/pods/ns", 999, readyGeneration, storage.ListOptions{ResourceVersion: "999", Predicate: pred, Recursive: true})
 		if err != nil {
 			t.Fatalf("Failed to create watch: %v", err)
 		}
+		go w.process(ctx)
 		bookmark := &watchCacheEvent{
 			Type:            watch.Bookmark,
 			ResourceVersion: uint64(i),
@@ -2837,13 +2842,13 @@ func TestStartDispatchingSelectsWatchers(t *testing.T) {
 				{namespace: "other-ns", name: "pod"}, {namespace: "ns", name: "other-pod"}, {namespace: "other-ns"}, {name: "other-pod"},
 			} {
 				for range 2 {
-					cacher.watchers.addWatcher(&cacheWatcher{identifier: scope.namespace + "/" + scope.name, selector: watchSelector{scope: scope}}, number)
+					cacher.watchers.addWatcher(&cacheWatcher{id: number, identifier: scope.namespace + "/" + scope.name, selector: watchSelector{scope: scope}})
 					number++
 				}
 			}
 			for _, value := range []string{"node-a", "node-b", "node-c"} {
 				for range 2 {
-					cacher.watchers.addWatcher(&cacheWatcher{identifier: value, selector: watchSelector{indexValue: &value}}, number)
+					cacher.watchers.addWatcher(&cacheWatcher{id: number, identifier: value, selector: watchSelector{indexValue: &value}})
 					number++
 				}
 			}
@@ -2959,13 +2964,14 @@ func TestForgetWatcher(t *testing.T) {
 		"1",
 		watchSelector{},
 		0,
+		nil,
 	)
-	forgetWatcherFn = forgetWatcher(cacher, w, 0)
+	forgetWatcherFn = forgetWatcher(cacher, w)
 	addWatcher := func(w *cacheWatcher) {
 		cacher.Lock()
 		defer cacher.Unlock()
 
-		cacher.watchers.addWatcher(w, 0)
+		cacher.watchers.addWatcher(w)
 	}
 
 	addWatcher(w)
