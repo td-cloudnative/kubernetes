@@ -19,6 +19,7 @@ package cacher
 import (
 	"context"
 	"fmt"
+	"iter"
 	"net/http"
 	"reflect"
 	"strings"
@@ -493,7 +494,7 @@ func NewCacherFromConfig(config Config) (*Cacher, error) {
 
 	go cacher.dispatchEvents()
 	if utilfeature.DefaultFeatureGate.Enabled(features.WatchCacheStallResume) {
-		go cacher.startBackgroundResync()
+		cacher.startBackgroundResync()
 	}
 	go progressRequester.Run(stopCh)
 	go watchCache.freshness.Run(stopCh)
@@ -760,6 +761,7 @@ func (c *Cacher) watch(ctx context.Context, key string, requestedWatchRV uint64,
 }
 
 func (c *Cacher) registerWatcherLocked(watcher *cacheWatcher, cacheInterval *watchCacheInterval) {
+	watcher.dispatchedResourceVersion = cacheInterval.resourceVersion
 	c.watchers.addWatcher(watcher)
 	// Add it to the queue only when the client support watch bookmarks.
 	if watcher.allowWatchBookmarks {
@@ -1154,6 +1156,9 @@ func (c *Cacher) dispatchEvent(event *watchCacheEvent) {
 	// not be blocked by slower ones.
 	if event.Type == watch.Bookmark {
 		for _, watcher := range c.watchersBuffer {
+			if event.ResourceVersion < watcher.dispatchedResourceVersion {
+				continue
+			}
 			watcher.nonblockingAdd(event)
 		}
 	} else {
@@ -1177,7 +1182,13 @@ func (c *Cacher) dispatchEvent(event *watchCacheEvent) {
 
 		c.blockedWatchers = c.blockedWatchers[:0]
 		for _, watcher := range c.watchersBuffer {
-			if !watcher.nonblockingAdd(event) {
+			if event.ResourceVersion <= watcher.dispatchedResourceVersion {
+				continue
+			}
+			if watcher.nonblockingAdd(event) {
+				watcher.dispatchedResourceVersion = event.ResourceVersion
+			} else {
+				watcher.dispatchedResourceVersion = event.ResourceVersion - 1
 				c.blockedWatchers = append(c.blockedWatchers, watcher)
 			}
 		}
@@ -1196,7 +1207,9 @@ func (c *Cacher) dispatchEvent(event *watchCacheEvent) {
 			// is running, not only the first ones in the list.
 			timer := c.timer
 			for _, watcher := range c.blockedWatchers {
-				if !watcher.add(event, timer) {
+				if watcher.add(event, timer) {
+					watcher.dispatchedResourceVersion = event.ResourceVersion
+				} else {
 					// fired, clean the timer by set it to nil.
 					timer = nil
 				}
@@ -1257,24 +1270,41 @@ func (c *Cacher) startDispatching(event *watchCacheEvent) {
 
 	namespace := event.ObjFields["metadata.namespace"]
 	name := event.ObjFields["metadata.name"]
-	forEachSelectionKey(namespace, name, triggerValues, supported,
-		func(scope namespacedName) {
-			for _, watcher := range c.watchers.scopeWatchers[scope] {
-				c.watchersBuffer = append(c.watchersBuffer, watcher)
+	for watcher := range c.watchers.allMatchingWatchers(namespace, name, triggerValues, supported) {
+		c.watchersBuffer = append(c.watchersBuffer, watcher)
+	}
+}
+
+func (i *indexedWatchers) allMatchingWatchers(namespace, name string, triggerValues []string, triggerSupported bool) iter.Seq[*cacheWatcher] {
+	return func(yield func(*cacheWatcher) bool) {
+		stopped := false
+		yieldWatchers := func(watchers watchersMap) {
+			if stopped {
+				return
 			}
-		},
-		func(indexValue string) {
-			for _, watcher := range c.watchers.indexWatchers[indexValue] {
-				c.watchersBuffer = append(c.watchersBuffer, watcher)
-			}
-		},
-		func() {
-			for _, watchers := range c.watchers.indexWatchers {
-				for _, watcher := range watchers {
-					c.watchersBuffer = append(c.watchersBuffer, watcher)
+			for _, watcher := range watchers {
+				if !yield(watcher) {
+					stopped = true
+					return
 				}
 			}
-		})
+		}
+		forEachSelectionKey(namespace, name, triggerValues, triggerSupported,
+			func(scope namespacedName) {
+				yieldWatchers(i.scopeWatchers[scope])
+			},
+			func(indexValue string) {
+				yieldWatchers(i.indexWatchers[indexValue])
+			},
+			func() {
+				for _, watchers := range i.indexWatchers {
+					yieldWatchers(watchers)
+					if stopped {
+						return
+					}
+				}
+			})
+	}
 }
 
 // forEachSelectionKey encodes how an event selects watchers. It calls scope

@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"reflect"
 	goruntime "runtime"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -275,10 +276,19 @@ func TestUpdatePodFromAllocation(t *testing.T) {
 			featuregatetesting.SetFeatureGateDuringTest(t, utilfeature.DefaultFeatureGate, features.InPlacePodLevelResourcesVerticalScaling, test.inPlacePodLevelResizeEnabled)
 			allocationManager := makeAllocationManager(t, &containertest.FakeRuntime{}, nil, nil)
 			pod := test.pod.DeepCopy()
+			var storedBefore *v1.Pod
+			var storedSnapshot *v1.Pod
 			if test.allocated != nil {
 				require.NoError(t, allocationManager.(*manager).allocated.SetPod(logger, test.allocated))
+				var ok bool
+				storedBefore, ok = allocationManager.(*manager).allocated.GetPodReadOnly(pod.UID)
+				require.True(t, ok)
+				storedSnapshot = storedBefore.DeepCopy()
 			}
 			allocatedPod, updated := allocationManager.UpdatePodFromAllocation(pod)
+			if storedBefore != nil {
+				assert.Equal(t, storedSnapshot, storedBefore, "UpdatePodFromAllocation must not mutate stored read-only pod")
+			}
 
 			if test.expectUpdate {
 				assert.True(t, updated, "updated")
@@ -1192,8 +1202,8 @@ func TestRetryPendingResizes(t *testing.T) {
 				allocationManager.(*manager).podProvider.(*fakePodProvider).getPodByUID = func(uid types.UID) (*v1.Pod, bool) {
 					return newPod, true
 				}
-				allocationManager.PushPendingResize(logger, originalPod.UID)
-				allocationManager.RetryPendingResizes(tCtx, TriggerReasonPodUpdated)
+				allocationManager.PushPendingAllocation(logger, originalPod.UID)
+				allocationManager.RetryPendingAllocations(tCtx, TriggerReasonPodUpdated)
 
 				var updatedPod *v1.Pod
 				if allocationManager.(*manager).statusManager.IsPodResizeInfeasible(newPod.UID) || allocationManager.(*manager).statusManager.IsPodResizeDeferred(newPod.UID) {
@@ -1450,8 +1460,8 @@ func TestRetryPendingResizesGuanteedQOSPods(t *testing.T) {
 				allocationManager.(*manager).podProvider.(*fakePodProvider).getPodByUID = func(uid types.UID) (*v1.Pod, bool) {
 					return newPod, true
 				}
-				allocationManager.PushPendingResize(logger, originalPod.UID)
-				allocationManager.RetryPendingResizes(tCtx, TriggerReasonPodUpdated)
+				allocationManager.PushPendingAllocation(logger, originalPod.UID)
+				allocationManager.RetryPendingAllocations(tCtx, TriggerReasonPodUpdated)
 
 				var updatedPod *v1.Pod
 				if allocationManager.(*manager).statusManager.IsPodResizeInfeasible(newPod.UID) || allocationManager.(*manager).statusManager.IsPodResizeDeferred(newPod.UID) {
@@ -1660,8 +1670,8 @@ func TestRetryPendingResizesMemoryBackedVolumes(t *testing.T) {
 			allocationManager.(*manager).podProvider.(*fakePodProvider).getPodByUID = func(uid types.UID) (*v1.Pod, bool) {
 				return newPod, true
 			}
-			allocationManager.PushPendingResize(logger, originalPod.UID)
-			allocationManager.RetryPendingResizes(tCtx, TriggerReasonPodUpdated)
+			allocationManager.PushPendingAllocation(logger, originalPod.UID)
+			allocationManager.RetryPendingAllocations(tCtx, TriggerReasonPodUpdated)
 
 			resizeStatus := allocationManager.(*manager).statusManager.GetPodResizeConditions(newPod.UID)
 			verifyResizeConditions(t, tt.expectedResize, resizeStatus)
@@ -1818,8 +1828,8 @@ func TestRetryPendingResizesWithSwap(t *testing.T) {
 			allocationManager.(*manager).podProvider.(*fakePodProvider).getPodByUID = func(uid types.UID) (*v1.Pod, bool) {
 				return newPod, true
 			}
-			allocationManager.PushPendingResize(logger, testPod.UID)
-			allocationManager.RetryPendingResizes(tCtx, TriggerReasonPodUpdated)
+			allocationManager.PushPendingAllocation(logger, testPod.UID)
+			allocationManager.RetryPendingAllocations(tCtx, TriggerReasonPodUpdated)
 
 			var updatedPod *v1.Pod
 			if allocationManager.(*manager).statusManager.IsPodResizeInfeasible(newPod.UID) {
@@ -2020,8 +2030,8 @@ func TestRetryPendingResizesMultipleConditions(t *testing.T) {
 				},
 			}
 
-			allocationManager.PushPendingResize(logger, testPod.UID)
-			allocationManager.RetryPendingResizes(tCtx, TriggerReasonPodUpdated)
+			allocationManager.PushPendingAllocation(logger, testPod.UID)
+			allocationManager.RetryPendingAllocations(tCtx, TriggerReasonPodUpdated)
 
 			conditions := allocationManager.(*manager).statusManager.GetPodResizeConditions(testPod.UID)
 			verifyResizeConditions(t, tc.expectedConditions, conditions)
@@ -2146,8 +2156,8 @@ func TestRetryPendingResizesNonResourceChange(t *testing.T) {
 				statusManager.SetPodResizePendingCondition(pod.UID, v1.PodReasonDeferred, "deferred by the test", pod.Generation)
 			}
 
-			allocationManager.PushPendingResize(logger, pod.UID)
-			allocationManager.RetryPendingResizes(tCtx, TriggerReasonPodUpdated)
+			allocationManager.PushPendingAllocation(logger, pod.UID)
+			allocationManager.RetryPendingAllocations(tCtx, TriggerReasonPodUpdated)
 
 			verifyResizeConditions(t, tc.expectedConditions, statusManager.GetPodResizeConditions(pod.UID))
 			fakeRecorder := allocationManager.(*manager).recorder.(*record.FakeRecorder)
@@ -2878,7 +2888,7 @@ func TestSortPendingResizes(t *testing.T) {
 		}
 	}
 
-	testPods := []*v1.Pod{createTestPod(0), createTestPod(1), createTestPod(2), createTestPod(3), createTestPod(4), createTestPod(5), createTestPod(6)}
+	testPods := []*v1.Pod{createTestPod(0), createTestPod(1), createTestPod(2), createTestPod(3), createTestPod(4), createTestPod(5), createTestPod(6), createTestPod(7), createTestPod(8)}
 	allocationManager := makeAllocationManager(t, &containertest.FakeRuntime{}, testPods, nil)
 	for _, testPod := range testPods {
 		require.NoError(t, allocationManager.SetAllocatedResources(logger, testPod))
@@ -2886,10 +2896,12 @@ func TestSortPendingResizes(t *testing.T) {
 
 	// testPods[0] has the highest priority, as it doesn't increase resource requests (pod-level).
 	// testPods[1] has the next highest priority, as it doesn't increase resource requests (container-level).
-	// testPods[2] has the highest PriorityClass.
-	// testPods[3] is the only pod with QoS class "guaranteed" (all others are burstable).
+	// testPods[2] has the highest PriorityClass (even with PreemptNever).
+	// testPods[3] has QoS class "guaranteed" and can preempt (nil PreemptionPolicy).
 	// testPods[4] has been in a "deferred" state for longer than testPods[5].
-	// testPods[6] has no resize conditions yet, indicating it is a newer request than the other deferred resizes.
+	// testPods[6] has no resize conditions yet (explicit PreemptLowerPriority).
+	// testPods[7] has QoS class "guaranteed" and has been deferred longest, but has PreemptNever.
+	// testPods[8] is burstable and deferred before testPods[4], but has PreemptNever.
 
 	featuregatetesting.SetFeatureGateDuringTest(t, utilfeature.DefaultFeatureGate, features.InPlacePodLevelResourcesVerticalScaling, true)
 
@@ -2900,7 +2912,16 @@ func TestSortPendingResizes(t *testing.T) {
 	}
 
 	testPods[2].Spec.Priority = ptr.To(int32(100))
+	testPods[2].Spec.PreemptionPolicy = new(v1.PreemptNever)
 	testPods[3].Status.QOSClass = v1.PodQOSGuaranteed
+	testPods[6].Spec.PreemptionPolicy = new(v1.PreemptLowerPriority)
+	testPods[7].Status.QOSClass = v1.PodQOSGuaranteed
+	testPods[7].Spec.PreemptionPolicy = new(v1.PreemptNever)
+	testPods[8].Spec.PreemptionPolicy = new(v1.PreemptNever)
+
+	allocationManager.(*manager).statusManager.SetPodResizePendingCondition(testPods[7].UID, v1.PodReasonDeferred, "some-message", 1)
+	allocationManager.(*manager).statusManager.SetPodResizePendingCondition(testPods[8].UID, v1.PodReasonDeferred, "some-message", 1)
+	time.Sleep(5 * time.Millisecond)
 	allocationManager.(*manager).statusManager.SetPodResizePendingCondition(testPods[4].UID, v1.PodReasonDeferred, "some-message", 1)
 	time.Sleep(5 * time.Millisecond)
 	allocationManager.(*manager).statusManager.SetPodResizePendingCondition(testPods[5].UID, v1.PodReasonDeferred, "some-message", 1)
@@ -2914,20 +2935,30 @@ func TestSortPendingResizes(t *testing.T) {
 		return pod, found
 	}
 
-	expected := []types.UID{testPods[0].UID, testPods[1].UID, testPods[2].UID, testPods[3].UID, testPods[4].UID, testPods[5].UID, testPods[6].UID}
+	for _, schedulerPreemptionEnabled := range []bool{true, false} {
+		t.Run(fmt.Sprintf("schedulerPreemptionEnabled=%v", schedulerPreemptionEnabled), func(t *testing.T) {
+			featuregatetesting.SetFeatureGateDuringTest(t, utilfeature.DefaultFeatureGate, features.InPlacePodVerticalScalingSchedulerPreemption, schedulerPreemptionEnabled)
 
-	// Push all the pods to the queue.
-	for i := range testPods {
-		allocationManager.PushPendingResize(logger, testPods[i].UID)
-	}
-	require.Equal(t, expected, allocationManager.(*manager).podsWithPendingResizes)
+			expected := []types.UID{testPods[0].UID, testPods[1].UID, testPods[2].UID, testPods[3].UID, testPods[4].UID, testPods[5].UID, testPods[6].UID, testPods[7].UID, testPods[8].UID}
+			if !schedulerPreemptionEnabled {
+				expected = []types.UID{testPods[0].UID, testPods[1].UID, testPods[2].UID, testPods[7].UID, testPods[3].UID, testPods[8].UID, testPods[4].UID, testPods[5].UID, testPods[6].UID}
+			}
 
-	// Clear the queue and push the pods in reverse order to spice things up.
-	allocationManager.(*manager).podsWithPendingResizes = nil
-	for i := len(testPods) - 1; i >= 0; i-- {
-		allocationManager.PushPendingResize(logger, testPods[i].UID)
+			// Push all the pods to the queue.
+			allocationManager.(*manager).podsWithPendingAllocations = nil
+			for i := range testPods {
+				allocationManager.PushPendingAllocation(logger, testPods[i].UID)
+			}
+			require.Equal(t, expected, allocationManager.(*manager).podsWithPendingAllocations)
+
+			// Clear the queue and push the pods in reverse order to spice things up.
+			allocationManager.(*manager).podsWithPendingAllocations = nil
+			for _, pod := range slices.Backward(testPods) {
+				allocationManager.PushPendingAllocation(logger, pod.UID)
+			}
+			require.Equal(t, expected, allocationManager.(*manager).podsWithPendingAllocations)
+		})
 	}
-	require.Equal(t, expected, allocationManager.(*manager).podsWithPendingResizes)
 }
 
 func TestRecordPodDeferredAcceptedResizes(t *testing.T) {
@@ -3023,8 +3054,8 @@ func TestRecordPodDeferredAcceptedResizes(t *testing.T) {
 			am.(*manager).podProvider.(*fakePodProvider).getPodByUID = func(uid types.UID) (*v1.Pod, bool) {
 				return resizedPod, true
 			}
-			am.PushPendingResize(logger, original.UID)
-			resizedPods := am.(*manager).retryPendingResizes(tCtx, tc.trigger)
+			am.PushPendingAllocation(logger, original.UID)
+			resizedPods := am.(*manager).retryPendingAllocations(tCtx, tc.trigger)
 
 			require.Len(t, resizedPods, 1)
 			require.Equal(t, original.UID, resizedPods[0].UID)
@@ -4071,7 +4102,7 @@ func TestAllocationManager_EmptyDirVolumeLimits_RetryPendingResizes(t *testing.T
 			}
 
 			// Actuate
-			resizeAllocated, err := allocationManager.(*manager).handlePodResourcesResize(tCtx, test.targetPod)
+			resizeAllocated, err := allocationManager.(*manager).handlePendingAllocation(tCtx, test.targetPod)
 			require.NoError(t, err)
 			assert.Equal(t, test.expectResizeAllocated, resizeAllocated)
 
@@ -4230,8 +4261,8 @@ func TestNonAllocatedPodsExcludedFromCapacity_Resize(t *testing.T) {
 		return nil, false
 	}
 
-	allocationManager.PushPendingResize(logger, runningPod.UID)
-	allocationManager.RetryPendingResizes(tCtx, TriggerReasonPodUpdated)
+	allocationManager.PushPendingAllocation(logger, runningPod.UID)
+	allocationManager.RetryPendingAllocations(tCtx, TriggerReasonPodUpdated)
 
 	// If pendingPod was incorrectly included in capacity calculations, this
 	// resize would be deferred (1500m + 10000m > 4000m allocatable).
@@ -4480,13 +4511,13 @@ func TestRetryPendingResizesTerminatingPods(t *testing.T) {
 				am.statusManager.SetPodResizePendingCondition(resizedPod.UID, v1.PodReasonDeferred, "deferred", resizedPod.Generation)
 			}
 
-			allocationManager.PushPendingResize(logger, resizedPod.UID)
-			require.True(t, allocationManager.HasPendingResizes())
+			allocationManager.PushPendingAllocation(logger, resizedPod.UID)
+			require.True(t, allocationManager.HasPendingAllocations())
 
 			am.podProvider.(*fakePodProvider).terminating = tc.terminating
-			allocationManager.RetryPendingResizes(tCtx, TriggerReasonPodUpdated)
+			allocationManager.RetryPendingAllocations(tCtx, TriggerReasonPodUpdated)
 
-			assert.False(t, allocationManager.HasPendingResizes(), "pending resize queue should be drained")
+			assert.False(t, allocationManager.HasPendingAllocations(), "pending resize queue should be drained")
 
 			alloc, found := allocationManager.GetContainerResourceAllocation(resizedPod.UID, "c1")
 			require.True(t, found)
@@ -4650,4 +4681,90 @@ func TestIsMemoryBackedVolumeResizeRequested(t *testing.T) {
 			assert.Equal(t, tt.expectedResult, result)
 		})
 	}
+}
+
+type recordingAdmitHandler struct {
+	recorded []*lifecycle.PodAdmitAttributes
+}
+
+func (h *recordingAdmitHandler) Admit(_ context.Context, attrs *lifecycle.PodAdmitAttributes) lifecycle.PodAdmitResult {
+	h.recorded = append(h.recorded, attrs)
+	return lifecycle.PodAdmitResult{Admit: true}
+}
+
+func TestAllocationManagerPopulatesPodUpdate(t *testing.T) {
+	if goruntime.GOOS == "windows" {
+		t.Skip("InPlacePodVerticalScaling is not currently supported for Windows")
+	}
+	logger, tCtx := ktesting.NewTestContext(t)
+
+	cpu100m := resource.MustParse("100m")
+	cpu200m := resource.MustParse("200m")
+	mem100Mi := resource.MustParse("100Mi")
+
+	pod := &v1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			UID:        "pod-update-attrs",
+			Name:       "pod-update-attrs",
+			Namespace:  "default",
+			Generation: 1,
+		},
+		Spec: v1.PodSpec{
+			Containers: []v1.Container{{
+				Name:  "c1",
+				Image: "image:v1",
+				Resources: v1.ResourceRequirements{
+					Requests: v1.ResourceList{v1.ResourceCPU: cpu100m, v1.ResourceMemory: mem100Mi},
+				},
+			}},
+		},
+		Status: v1.PodStatus{
+			Phase: v1.PodRunning,
+		},
+	}
+
+	allocationManager := makeAllocationManager(t, &containertest.FakeRuntime{}, []*v1.Pod{pod}, nil)
+	recorder := &recordingAdmitHandler{}
+	allocationManager.AddPodAdmitHandlers(lifecycle.PodAdmitHandlers{recorder})
+
+	// 1. AddPod should pass Operation == AddOperation and Update == nil.
+	ok, _, _ := allocationManager.AddPod(tCtx, []*v1.Pod{}, pod)
+	require.True(t, ok)
+	require.Len(t, recorder.recorded, 1)
+	assert.Equal(t, lifecycle.AddOperation, recorder.recorded[0].Operation)
+	assert.Nil(t, recorder.recorded[0].Update)
+
+	// 2. Non-resize pending allocation should pass Operation == UpdateOperation, AllocatedPod, and Resize == false.
+	recorder.recorded = nil
+	nonResizePod := pod.DeepCopy()
+	nonResizePod.Generation = 2
+	nonResizePod.Spec.Containers[0].Command = []string{"new-cmd"}
+	allocationManager.(*manager).podProvider.(*fakePodProvider).getPodByUID = func(uid types.UID) (*v1.Pod, bool) {
+		return nonResizePod, true
+	}
+	allocationManager.PushPendingAllocation(logger, pod.UID)
+	allocationManager.RetryPendingAllocations(tCtx, TriggerReasonPodUpdated)
+	require.Len(t, recorder.recorded, 1)
+	assert.Equal(t, lifecycle.UpdateOperation, recorder.recorded[0].Operation)
+	require.NotNil(t, recorder.recorded[0].Update)
+	assert.False(t, recorder.recorded[0].Update.Resize)
+	require.NotNil(t, recorder.recorded[0].Update.AllocatedPod)
+	assert.Empty(t, recorder.recorded[0].Update.AllocatedPod.Spec.Containers[0].Command)
+
+	// 3. Resize pending allocation should pass Operation == UpdateOperation, AllocatedPod, and Resize == true.
+	recorder.recorded = nil
+	resizePod := nonResizePod.DeepCopy()
+	resizePod.Generation = 3
+	resizePod.Spec.Containers[0].Resources.Requests[v1.ResourceCPU] = cpu200m
+	allocationManager.(*manager).podProvider.(*fakePodProvider).getPodByUID = func(uid types.UID) (*v1.Pod, bool) {
+		return resizePod, true
+	}
+	allocationManager.PushPendingAllocation(logger, pod.UID)
+	allocationManager.RetryPendingAllocations(tCtx, TriggerReasonPodUpdated)
+	require.Len(t, recorder.recorded, 1)
+	assert.Equal(t, lifecycle.UpdateOperation, recorder.recorded[0].Operation)
+	require.NotNil(t, recorder.recorded[0].Update)
+	assert.True(t, recorder.recorded[0].Update.Resize)
+	require.NotNil(t, recorder.recorded[0].Update.AllocatedPod)
+	assert.True(t, cpu100m.Equal(*recorder.recorded[0].Update.AllocatedPod.Spec.Containers[0].Resources.Requests.Cpu()))
 }
