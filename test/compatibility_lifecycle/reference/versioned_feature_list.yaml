@@ -580,6 +580,12 @@
     lockToDefault: true
     preRelease: GA
     version: "1.37"
+- name: DRAExtendedResourceCapacity
+  versionedSpecs:
+  - default: false
+    lockToDefault: false
+    preRelease: Alpha
+    version: "1.38"
 - name: DRAFractionalCapacityRange
   versionedSpecs:
   - default: false
@@ -969,6 +975,10 @@
     lockToDefault: false
     preRelease: Alpha
     version: "1.37"
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "1.38"
 - name: InterPodAffinityHostnameFastPath
   versionedSpecs:
   - default: false

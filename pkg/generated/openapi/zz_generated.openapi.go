@@ -25976,7 +25976,7 @@ func schema_k8sio_api_core_v1_NodePodPreemptionPolicy(ref common.ReferenceCallba
 							},
 						},
 						SchemaProps: spec.SchemaProps{
-							Description: "disableResizePreemption lists the owners (e.g., autoscalers, operators, administrators) that have requested to disable scheduler and Kubelet preemption for in-place pod resize on this node. If this list is non-empty, resize-induced preemption is disabled on this node. This is an alpha field and requires enabling the InPlacePodVerticalScalingSchedulerPreemption feature gate.",
+							Description: "disableResizePreemption lists the owners (e.g., autoscalers, operators, administrators) that have requested to disable scheduler and Kubelet preemption for in-place pod resize on this node. If this list is non-empty, resize-induced preemption is disabled on this node. This is a beta field and requires the InPlacePodVerticalScalingSchedulerPreemption feature gate to be enabled (enabled by default).",
 							Type:        []string{"array"},
 							Items: &spec.SchemaOrArray{
 								Schema: &spec.Schema{
@@ -26310,7 +26310,7 @@ func schema_k8sio_api_core_v1_NodeSpec(ref common.ReferenceCallback) common.Open
 					},
 					"podPreemptionPolicy": {
 						SchemaProps: spec.SchemaProps{
-							Description: "podPreemptionPolicy controls the node-level preemption behaviors for pods on this node. This is an alpha field and requires enabling the InPlacePodVerticalScalingSchedulerPreemption feature gate.",
+							Description: "podPreemptionPolicy controls the node-level preemption behaviors for pods on this node. This is a beta field and requires the InPlacePodVerticalScalingSchedulerPreemption feature gate to be enabled (enabled by default).",
 							Ref:         ref(corev1.NodePodPreemptionPolicy{}.OpenAPIModelName()),
 						},
 					},
@@ -49129,11 +49129,17 @@ func schema_k8sio_api_resource_v1_DeviceClassSpec(ref common.ReferenceCallback) 
 							Format:      "",
 						},
 					},
+					"extendedResourceCapacityRequests": {
+						SchemaProps: spec.SchemaProps{
+							Description: "extendedResourceCapacityRequests defines the fixed capacity amounts that the scheduler requests on every ResourceClaim it synthesizes to satisfy the extended resource of this class.\n\nThe value is copied, unmodified, onto the capacity of each device request synthesized for this class, so it has the same semantics as DeviceRequest.capacity: it applies to each device allocation. A pod requesting more than one device through the extended resource gets that capacity once per device, not once per pod.\n\nThe devices selected by this class must advertise the referenced capacities. Otherwise the extended resource requests cannot be satisfied, the same way as with a selector that matches no devices.\n\nThis is an alpha field and requires enabling the DRAExtendedResourceCapacity feature gate, which depends on DRAConsumableCapacity.",
+							Ref:         ref(resourcev1.CapacityRequirements{}.OpenAPIModelName()),
+						},
+					},
 				},
 			},
 		},
 		Dependencies: []string{
-			resourcev1.DeviceClassConfiguration{}.OpenAPIModelName(), resourcev1.DeviceSelector{}.OpenAPIModelName()},
+			resourcev1.CapacityRequirements{}.OpenAPIModelName(), resourcev1.DeviceClassConfiguration{}.OpenAPIModelName(), resourcev1.DeviceSelector{}.OpenAPIModelName()},
 	}
 }
 
@@ -52571,11 +52577,17 @@ func schema_k8sio_api_resource_v1beta1_DeviceClassSpec(ref common.ReferenceCallb
 							Format:      "",
 						},
 					},
+					"extendedResourceCapacityRequests": {
+						SchemaProps: spec.SchemaProps{
+							Description: "extendedResourceCapacityRequests defines the fixed capacity amounts that the scheduler requests on every ResourceClaim it synthesizes to satisfy the extended resource of this class.\n\nThe value is copied, unmodified, onto the capacity of each device request synthesized for this class, so it has the same semantics as DeviceRequest.capacity: it applies to each device allocation. A pod requesting more than one device through the extended resource gets that capacity once per device, not once per pod.\n\nThe devices selected by this class must advertise the referenced capacities. Otherwise the extended resource requests cannot be satisfied, the same way as with a selector that matches no devices.\n\nThis is an alpha field and requires enabling the DRAExtendedResourceCapacity feature gate, which depends on DRAConsumableCapacity.",
+							Ref:         ref(resourcev1beta1.CapacityRequirements{}.OpenAPIModelName()),
+						},
+					},
 				},
 			},
 		},
 		Dependencies: []string{
-			resourcev1beta1.DeviceClassConfiguration{}.OpenAPIModelName(), resourcev1beta1.DeviceSelector{}.OpenAPIModelName()},
+			resourcev1beta1.CapacityRequirements{}.OpenAPIModelName(), resourcev1beta1.DeviceClassConfiguration{}.OpenAPIModelName(), resourcev1beta1.DeviceSelector{}.OpenAPIModelName()},
 	}
 }
 
@@ -55013,11 +55025,17 @@ func schema_k8sio_api_resource_v1beta2_DeviceClassSpec(ref common.ReferenceCallb
 							Format:      "",
 						},
 					},
+					"extendedResourceCapacityRequests": {
+						SchemaProps: spec.SchemaProps{
+							Description: "extendedResourceCapacityRequests defines the fixed capacity amounts that the scheduler requests on every ResourceClaim it synthesizes to satisfy the extended resource of this class.\n\nThe value is copied, unmodified, onto the capacity of each device request synthesized for this class, so it has the same semantics as DeviceRequest.capacity: it applies to each device allocation. A pod requesting more than one device through the extended resource gets that capacity once per device, not once per pod.\n\nThe devices selected by this class must advertise the referenced capacities. Otherwise the extended resource requests cannot be satisfied, the same way as with a selector that matches no devices.\n\nThis is an alpha field and requires enabling the DRAExtendedResourceCapacity feature gate, which depends on DRAConsumableCapacity.",
+							Ref:         ref(resourcev1beta2.CapacityRequirements{}.OpenAPIModelName()),
+						},
+					},
 				},
 			},
 		},
 		Dependencies: []string{
-			resourcev1beta2.DeviceClassConfiguration{}.OpenAPIModelName(), resourcev1beta2.DeviceSelector{}.OpenAPIModelName()},
+			resourcev1beta2.CapacityRequirements{}.OpenAPIModelName(), resourcev1beta2.DeviceClassConfiguration{}.OpenAPIModelName(), resourcev1beta2.DeviceSelector{}.OpenAPIModelName()},
 	}
 }
 
@@ -77364,7 +77382,7 @@ func schema_k8sio_kubelet_config_v1beta1_KubeletConfiguration(ref common.Referen
 					},
 					"imageMaximumGCAge": {
 						SchemaProps: spec.SchemaProps{
-							Description: "imageMaximumGCAge is the maximum age an image can be unused before it is garbage collected. The default of this field is \"0s\", which disables this field--meaning images won't be garbage collected based on being unused for too long. Default: \"0s\" (disabled)",
+							Description: "imageMaximumGCAge is the maximum age an image can be unused before it is garbage collected. The default of this field is \"0s\", which disables this field--meaning images won't be garbage collected based on being unused for too long. It also applies to the seccomp profiles of type OCI that the kubelet pulled (SecurityProfileOCI feature gate), which are removed once no pod has referenced them for this long. Default: \"0s\" (disabled)",
 							Ref:         ref(metav1.Duration{}.OpenAPIModelName()),
 						},
 					},

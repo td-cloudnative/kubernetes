@@ -4787,6 +4787,31 @@
   componentEndpoints:
   - component: kubelet
     endpoint: /metrics
+- name: security_profile_pull_duration_seconds
+  subsystem: kubelet
+  help: 'Duration in seconds to pull a security profile. The ''cached'' label is true
+    if the runtime served the profile from its storage; the ''result'' label is ''success''
+    or the failure reason: ''registry_unavailable'', ''signature_validation_failed'',
+    ''security_profile_invalid'', ''unauthenticated'' or ''other''.'
+  type: Histogram
+  stabilityLevel: ALPHA
+  labels:
+  - cached
+  - result
+  buckets:
+  - 0.001
+  - 0.004
+  - 0.016
+  - 0.064
+  - 0.256
+  - 1.024
+  - 4.096
+  - 16.384
+  - 65.536
+  - 262.144
+  componentEndpoints:
+  - component: kubelet
+    endpoint: /metrics
 - name: server_expiration_renew_errors
   subsystem: kubelet
   help: Counter of certificate renewal errors.
@@ -6790,6 +6815,7 @@
   type: Histogram
   stabilityLevel: ALPHA
   labels:
+  - operation
   - preemptor
   - result
   buckets:
@@ -6820,6 +6846,7 @@
   type: Histogram
   stabilityLevel: ALPHA
   labels:
+  - operation
   - preemptor
   - result
   buckets:
@@ -6880,6 +6907,7 @@
   type: Counter
   stabilityLevel: ALPHA
   labels:
+  - operation
   - result
   componentEndpoints:
   - component: kube-scheduler
@@ -6890,6 +6918,7 @@
   type: Counter
   stabilityLevel: ALPHA
   labels:
+  - operation
   - preemptor
   componentEndpoints:
   - component: kube-scheduler
@@ -6940,15 +6969,16 @@
   subsystem: scheduler
   help: Number of queued scheduling entities ('pod', 'podgroup', or 'compositepodgroup';
     'pod' stands for individual pods that are not members of any podgroup) by the
-    queue type. 'active' means number of entities in activeQ; 'backoff' means number
-    of entities in backoffQ; 'unschedulable' means number of entities in unschedulableEntities
-    that the scheduler attempted to schedule and failed; 'gated' is the number of
-    unschedulable entities that the scheduler never attempted to schedule because
-    they are gated.
+    queue type and operation ('initial_placement' or 'pod_resize'). 'active' means
+    number of entities in activeQ; 'backoff' means number of entities in backoffQ;
+    'unschedulable' means number of entities in unschedulableEntities that the scheduler
+    attempted to schedule and failed; 'gated' is the number of unschedulable entities
+    that the scheduler never attempted to schedule because they are gated.
   type: Gauge
   stabilityLevel: ALPHA
   labels:
   - entity
+  - operation
   - queue
   componentEndpoints:
   - component: kube-scheduler
@@ -6983,6 +7013,56 @@
   - 0.009852612533569338
   - 0.014778918800354007
   - 0.02216837820053101
+  componentEndpoints:
+  - component: kube-scheduler
+    endpoint: /metrics
+- name: resize_preemption_attempts_total
+  subsystem: scheduler
+  help: Total preemption attempts initiated by deferred resize pods in the cluster
+    till now
+  type: Counter
+  stabilityLevel: ALPHA
+  componentEndpoints:
+  - component: kube-scheduler
+    endpoint: /metrics
+- name: resize_preemption_victims
+  subsystem: scheduler
+  help: Number of selected preemption victims for preemption initiated by a deferred
+    resize pod
+  type: Histogram
+  stabilityLevel: ALPHA
+  buckets:
+  - 1
+  - 2
+  - 4
+  - 8
+  - 16
+  - 32
+  - 64
+  componentEndpoints:
+  - component: kube-scheduler
+    endpoint: /metrics
+- name: resize_scheduling_algorithm_duration_seconds
+  subsystem: scheduler
+  help: Resize scheduling algorithm latency in seconds
+  type: Histogram
+  stabilityLevel: ALPHA
+  buckets:
+  - 0.001
+  - 0.002
+  - 0.004
+  - 0.008
+  - 0.016
+  - 0.032
+  - 0.064
+  - 0.128
+  - 0.256
+  - 0.512
+  - 1.024
+  - 2.048
+  - 4.096
+  - 8.192
+  - 16.384
   componentEndpoints:
   - component: kube-scheduler
     endpoint: /metrics
