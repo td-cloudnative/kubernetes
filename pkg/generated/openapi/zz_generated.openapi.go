@@ -498,6 +498,7 @@ func GetOpenAPIDefinitions(ref common.ReferenceCallback) map[string]common.OpenA
 		corev1.Capabilities{}.OpenAPIModelName():                                                                        schema_k8sio_api_core_v1_Capabilities(ref),
 		corev1.CephFSPersistentVolumeSource{}.OpenAPIModelName():                                                        schema_k8sio_api_core_v1_CephFSPersistentVolumeSource(ref),
 		corev1.CephFSVolumeSource{}.OpenAPIModelName():                                                                  schema_k8sio_api_core_v1_CephFSVolumeSource(ref),
+		corev1.CgroupOptions{}.OpenAPIModelName():                                                                       schema_k8sio_api_core_v1_CgroupOptions(ref),
 		corev1.CinderPersistentVolumeSource{}.OpenAPIModelName():                                                        schema_k8sio_api_core_v1_CinderPersistentVolumeSource(ref),
 		corev1.CinderVolumeSource{}.OpenAPIModelName():                                                                  schema_k8sio_api_core_v1_CinderVolumeSource(ref),
 		corev1.ClientIPConfig{}.OpenAPIModelName():                                                                      schema_k8sio_api_core_v1_ClientIPConfig(ref),
@@ -13815,7 +13816,7 @@ func schema_k8sio_api_authorization_v1alpha1_AuthorizationConditionsRequest(ref 
 				Properties: map[string]spec.Schema{
 					"decision": {
 						SchemaProps: spec.SchemaProps{
-							Description: "decision contains the conditional decision the authorizer authored at authorization time.",
+							Description: "decision contains the conditional decision the authorizer authored at authorization time. The API server may refine the decision before sending it, by evaluating some of the conditions in-process, e.g. removing conditions that evaluated to false.",
 							Default:     map[string]interface{}{},
 							Ref:         ref(authorizationv1.ConditionsAwareDecision{}.OpenAPIModelName()),
 						},
@@ -20598,6 +20599,27 @@ func schema_k8sio_api_core_v1_CephFSVolumeSource(ref common.ReferenceCallback) c
 		},
 		Dependencies: []string{
 			corev1.LocalObjectReference{}.OpenAPIModelName()},
+	}
+}
+
+func schema_k8sio_api_core_v1_CgroupOptions(ref common.ReferenceCallback) common.OpenAPIDefinition {
+	return common.OpenAPIDefinition{
+		Schema: spec.Schema{
+			SchemaProps: spec.SchemaProps{
+				Description: "CgroupOptions defines options for cgroup filesystem access.",
+				Type:        []string{"object"},
+				Properties: map[string]spec.Schema{
+					"mountMode": {
+						SchemaProps: spec.SchemaProps{
+							Description: "mountMode controls how the cgroup filesystem is mounted in the container. Valid values are \"ReadOnly\" and \"ReadWrite\". If not specified, the container runtime's default mount mode is used. The kubelet refuses to create a container with an unrecognized value. \"ReadOnly\" cannot be set when the container's privileged field is true. \"ReadWrite\" cannot be set when spec.hostNetwork is true and spec.hostUsers is false.\n\nPossible enum values:\n - `\"ReadOnly\"` mounts the cgroup filesystem read-only.\n - `\"ReadWrite\"` mounts the cgroup filesystem read-write.",
+							Type:        []string{"string"},
+							Format:      "",
+							Enum:        []interface{}{"ReadOnly", "ReadWrite"},
+						},
+					},
+				},
+			},
+		},
 	}
 }
 
@@ -29414,7 +29436,7 @@ func schema_k8sio_api_core_v1_PodSpec(ref common.ReferenceCallback) common.OpenA
 					},
 					"os": {
 						SchemaProps: spec.SchemaProps{
-							Description: "os specifies the OS of the containers in the pod. Some pod and container fields are restricted if this is set.\n\nIf the OS field is set to linux, the following fields must be unset: -securityContext.windowsOptions\n\nIf the OS field is set to windows, following fields must be unset: - spec.hostPID - spec.hostIPC - spec.hostUsers - spec.resources - spec.securityContext.appArmorProfile - spec.securityContext.seLinuxOptions - spec.securityContext.seccompProfile - spec.securityContext.fsGroup - spec.securityContext.fsGroupChangePolicy - spec.securityContext.sysctls - spec.shareProcessNamespace - spec.securityContext.runAsUser - spec.securityContext.runAsGroup - spec.securityContext.supplementalGroups - spec.securityContext.supplementalGroupsPolicy - spec.containers[*].securityContext.appArmorProfile - spec.containers[*].securityContext.seLinuxOptions - spec.containers[*].securityContext.seccompProfile - spec.containers[*].securityContext.capabilities - spec.containers[*].securityContext.readOnlyRootFilesystem - spec.containers[*].securityContext.privileged - spec.containers[*].securityContext.allowPrivilegeEscalation - spec.containers[*].securityContext.procMount - spec.containers[*].securityContext.runAsUser - spec.containers[*].securityContext.runAsGroup",
+							Description: "os specifies the OS of the containers in the pod. Some pod and container fields are restricted if this is set.\n\nIf the OS field is set to linux, the following fields must be unset: -securityContext.windowsOptions\n\nIf the OS field is set to windows, following fields must be unset: - spec.hostPID - spec.hostIPC - spec.hostUsers - spec.resources - spec.securityContext.appArmorProfile - spec.securityContext.seLinuxOptions - spec.securityContext.seccompProfile - spec.securityContext.fsGroup - spec.securityContext.fsGroupChangePolicy - spec.securityContext.sysctls - spec.shareProcessNamespace - spec.securityContext.runAsUser - spec.securityContext.runAsGroup - spec.securityContext.supplementalGroups - spec.securityContext.supplementalGroupsPolicy - spec.containers[*].securityContext.appArmorProfile - spec.containers[*].securityContext.seLinuxOptions - spec.containers[*].securityContext.seccompProfile - spec.containers[*].securityContext.capabilities - spec.containers[*].securityContext.readOnlyRootFilesystem - spec.containers[*].securityContext.privileged - spec.containers[*].securityContext.allowPrivilegeEscalation - spec.containers[*].securityContext.procMount - spec.containers[*].securityContext.runAsUser - spec.containers[*].securityContext.runAsGroup - spec.containers[*].securityContext.cgroupOptions",
 							Ref:         ref(corev1.PodOS{}.OpenAPIModelName()),
 						},
 					},
@@ -32059,11 +32081,17 @@ func schema_k8sio_api_core_v1_SecurityContext(ref common.ReferenceCallback) comm
 							Ref:         ref(corev1.AppArmorProfile{}.OpenAPIModelName()),
 						},
 					},
+					"cgroupOptions": {
+						SchemaProps: spec.SchemaProps{
+							Description: "cgroupOptions holds the cgroup options for this container. If mountMode is specified, the scheduler only places the pod on a node whose status.declaredFeatures includes CgroupOptions. (Alpha) This field requires the CgroupOptions feature gate to be enabled. This field cannot be set for ephemeral containers or when spec.os.name is windows.",
+							Ref:         ref(corev1.CgroupOptions{}.OpenAPIModelName()),
+						},
+					},
 				},
 			},
 		},
 		Dependencies: []string{
-			corev1.AppArmorProfile{}.OpenAPIModelName(), corev1.Capabilities{}.OpenAPIModelName(), corev1.SELinuxOptions{}.OpenAPIModelName(), corev1.SeccompProfile{}.OpenAPIModelName(), corev1.WindowsSecurityContextOptions{}.OpenAPIModelName()},
+			corev1.AppArmorProfile{}.OpenAPIModelName(), corev1.Capabilities{}.OpenAPIModelName(), corev1.CgroupOptions{}.OpenAPIModelName(), corev1.SELinuxOptions{}.OpenAPIModelName(), corev1.SeccompProfile{}.OpenAPIModelName(), corev1.WindowsSecurityContextOptions{}.OpenAPIModelName()},
 	}
 }
 
@@ -71248,6 +71276,12 @@ func schema_k8sio_controller_manager_config_v1alpha1_GenericControllerManagerCon
 							Ref:         ref(componentbaseconfigv1alpha1.LeaderElectionConfiguration{}.OpenAPIModelName()),
 						},
 					},
+					"LeaderElectionRecoveryDeadline": {
+						SchemaProps: spec.SchemaProps{
+							Description: "LeaderElectionRecoveryDeadline limits how long a leader keeps trying to renew its lease after LeaderElection.RenewDeadline has expired without a successful renewal, before it gives up and exits. The deadline starts when the renew deadline expires. The zero value, which is the default, means no limit. Any other value must be at least one second. Requires the LeaderElectionRecovery feature gate.",
+							Ref:         ref(metav1.Duration{}.OpenAPIModelName()),
+						},
+					},
 					"Controllers": {
 						SchemaProps: spec.SchemaProps{
 							Description: "Controllers is the list of controllers to enable or disable '*' means \"all enabled by default controllers\" 'foo' means \"enable 'foo'\" '-foo' means \"disable 'foo'\" first item for a particular name wins",
@@ -71285,7 +71319,7 @@ func schema_k8sio_controller_manager_config_v1alpha1_GenericControllerManagerCon
 						},
 					},
 				},
-				Required: []string{"Port", "Address", "MinResyncPeriod", "ClientConnection", "ControllerStartInterval", "LeaderElection", "Controllers", "Debugging", "LeaderMigrationEnabled", "LeaderMigration"},
+				Required: []string{"Port", "Address", "MinResyncPeriod", "ClientConnection", "ControllerStartInterval", "LeaderElection", "LeaderElectionRecoveryDeadline", "Controllers", "Debugging", "LeaderMigrationEnabled", "LeaderMigration"},
 			},
 		},
 		Dependencies: []string{

@@ -1102,6 +1102,43 @@ func TestAllocator(t *testing.T,
 
 	testcases := map[string]AllocatorTestCase{
 		"empty": {},
+		"compatibility-groups-admin-access-does-not-restrict-normal-request": {
+			features: Features{PartitionableDevices: true, CompatibilityGroups: true, AdminAccess: true},
+			claimsToAllocate: objects(claim(claim0).withRequests(
+				deviceRequest(req0, classA, 1).withAdminAccess(),
+				deviceRequest(req1, classA, 1),
+			)),
+			classes: objects(class(classA, driverA)),
+			slices: unwrapResourceSlices(
+				sliceWithDevices(slice1, node1, resourcePool(pool1, 2), driverA,
+					device(device1).withDeviceCounterConsumption(
+						deviceCounterConsumptionWithGroups(counterSet1, map[string]resource.Quantity{counter0: two}, "mig"),
+					),
+					device(device2).withDeviceCounterConsumption(
+						deviceCounterConsumptionWithGroups(counterSet1, map[string]resource.Quantity{counter0: two}, "vgpu"),
+					),
+				),
+				sliceWithCounterSets(slice2, node1, resourcePool(pool1, 2), driverA,
+					counterSet(counterSet1, map[string]resource.Quantity{counter0: four}),
+				),
+			),
+			node: node(node1, region1),
+			// A claim does not get the same device twice, so the regular request uses device2.
+			expectResults: []any{matchAllocationResult(
+				localNodeSelector(node1),
+				deviceAllocationResult(req0, driverA, pool1, device1, true),
+				deviceAllocationResult(req1, driverA, pool1, device2, false),
+			)},
+			expectWithFeatures: func(expectResults []any, expectError types.GomegaMatcher, expectErrorIs error, features Features) ([]any, types.GomegaMatcher, error) {
+				if !features.AdminAccess {
+					return nil, g.MatchError(g.ContainSubstring("admin access is requested, but the feature is disabled")), nil
+				}
+				if !features.PartitionableDevices || !features.CompatibilityGroups {
+					return nil, nil, nil
+				}
+				return expectResults, expectError, expectErrorIs
+			},
+		},
 		// Two requests in one claim, both landing on the same counter set with the
 		// same compatibility group: they can be co-allocated.
 		"compatibility-groups-compatible": {
@@ -2367,9 +2404,165 @@ func TestAllocator(t *testing.T,
 				sliceWithDevices(slice1, node1, pool1, driverA, device(device1)),
 			),
 			node: node(node1, region1),
-			// Suspicious: the result depends on the order of the claims. Admin
-			// access should not block a regular request for the same device.
+			expectResults: []any{
+				matchAllocationResult(
+					localNodeSelector(node1),
+					deviceAllocationResult(req0, driverA, pool1, device1, true),
+				),
+				matchAllocationResult(
+					localNodeSelector(node1),
+					deviceAllocationResult(req0, driverA, pool1, device1, false),
+				),
+			},
+			expectErrorWithoutFeatures: g.MatchError(g.ContainSubstring("admin access is requested, but the feature is disabled")),
+		},
+		"admin-access-before-regular-request-same-claim-single-device": {
+			features: Features{
+				AdminAccess: true,
+			},
+			claimsToAllocate: objects(
+				claim(claim0).withRequests(
+					deviceRequest(req0, classA, 1).withAdminAccess(),
+					allDeviceRequest(req1, classA),
+				),
+			),
+			classes: objects(class(classA, driverA)),
+			slices: unwrapResourceSlices(
+				sliceWithDevices(slice1, node1, pool1, driverA, device(device1)),
+			),
+			node: node(node1, region1),
+			// A claim must not get the same exclusive device twice.
 			expectResults:              nil,
+			expectErrorWithoutFeatures: g.MatchError(g.ContainSubstring("admin access is requested, but the feature is disabled")),
+		},
+		"admin-access-after-regular-request-same-claim-single-device": {
+			features: Features{
+				AdminAccess: true,
+			},
+			claimsToAllocate: objects(
+				claim(claim0).withRequests(
+					deviceRequest(req0, classA, 1),
+					allDeviceRequest(req1, classA).withAdminAccess(),
+				),
+			),
+			classes: objects(class(classA, driverA)),
+			slices: unwrapResourceSlices(
+				sliceWithDevices(slice1, node1, pool1, driverA, device(device1)),
+			),
+			node: node(node1, region1),
+			// A claim must not get the same exclusive device twice.
+			expectResults:              nil,
+			expectErrorWithoutFeatures: g.MatchError(g.ContainSubstring("admin access is requested, but the feature is disabled")),
+		},
+		"admin-access-before-regular-request-same-claim-two-devices": {
+			features: Features{
+				AdminAccess: true,
+			},
+			claimsToAllocate: objects(
+				claim(claim0).withRequests(
+					deviceRequest(req0, classA, 1).withAdminAccess(),
+					deviceRequest(req1, classA, 1),
+				),
+			),
+			classes: objects(class(classA, driverA)),
+			slices: unwrapResourceSlices(
+				sliceWithDevices(slice1, node1, pool1, driverA, device(device1), device(device2)),
+			),
+			node: node(node1, region1),
+			// A claim does not get the same device twice, so the second request moves on.
+			expectResults: []any{matchAllocationResult(
+				localNodeSelector(node1),
+				deviceAllocationResult(req0, driverA, pool1, device1, true),
+				deviceAllocationResult(req1, driverA, pool1, device2, false),
+			)},
+			expectErrorWithoutFeatures: g.MatchError(g.ContainSubstring("admin access is requested, but the feature is disabled")),
+		},
+		"admin-access-after-regular-request-same-claim-two-devices": {
+			features: Features{
+				AdminAccess: true,
+			},
+			claimsToAllocate: objects(
+				claim(claim0).withRequests(
+					deviceRequest(req0, classA, 1),
+					deviceRequest(req1, classA, 1).withAdminAccess(),
+				),
+			),
+			classes: objects(class(classA, driverA)),
+			slices: unwrapResourceSlices(
+				sliceWithDevices(slice1, node1, pool1, driverA, device(device1), device(device2)),
+			),
+			node: node(node1, region1),
+			expectResults: []any{matchAllocationResult(
+				localNodeSelector(node1),
+				deviceAllocationResult(req0, driverA, pool1, device1, false),
+				deviceAllocationResult(req1, driverA, pool1, device2, true),
+			)},
+			expectErrorWithoutFeatures: g.MatchError(g.ContainSubstring("admin access is requested, but the feature is disabled")),
+		},
+		"admin-access-consumable-capacity-twice-in-same-claim": {
+			features: Features{
+				AdminAccess:        true,
+				ConsumableCapacity: true,
+			},
+			claimsToAllocate: objects(
+				claim(claim0).withRequests(
+					deviceRequest(req0, classA, 1).withAdminAccess(),
+					deviceRequest(req1, classA, 1).withAdminAccess(),
+				),
+			),
+			classes: objects(class(classA, driverA)),
+			slices: unwrapResourceSlices(
+				sliceWithDevices(slice1, node1, pool1, driverA, device(device1).withAllowMultipleAllocations()),
+			),
+			node: node(node1, region1),
+			// Devices which allow multiple allocations are not marked, so admin access
+			// may get the same device for different requests of the same claim.
+			expectResults: []any{
+				matchAllocationResult(
+					localNodeSelector(node1),
+					deviceAllocationResult(req0, driverA, pool1, device1, true),
+					deviceAllocationResult(req1, driverA, pool1, device1, true),
+				),
+			},
+			expectWithFeatures: func(expectResults []any, expectError types.GomegaMatcher, expectErrorIs error, features Features) ([]any, types.GomegaMatcher, error) {
+				if !features.AdminAccess {
+					return nil, g.MatchError(g.ContainSubstring("admin access is requested, but the feature is disabled")), nil
+				}
+				if !features.ConsumableCapacity {
+					// Without the feature the device is exclusive.
+					return nil, nil, nil
+				}
+				return expectResults, expectError, expectErrorIs
+			},
+		},
+		"admin-access-backtrack-releases-device": {
+			features: Features{
+				AdminAccess: true,
+			},
+			claimsToAllocate: objects(
+				claim(claim0).withRequests(
+					deviceRequest(req0, classA, 1).withAdminAccess(),
+					// Only fits on device1 if req0 releases it when backtracking.
+					deviceRequest(req1, classA, 1).withAdminAccess().withSelectors(resourceapi.DeviceSelector{
+						CEL: &resourceapi.CELDeviceSelector{
+							Expression: fmt.Sprintf(`device.attributes["%s"].stringAttribute == "stringAttributeValue1"`, driverA),
+						},
+					}),
+				),
+			),
+			classes: objects(class(classA, driverA)),
+			slices: unwrapResourceSlices(
+				sliceWithDevices(slice1, node1, pool1, driverA,
+					device(device1).withAttribute("stringAttribute", "stringAttributeValue1"),
+					device(device2).withAttribute("stringAttribute", "stringAttributeValue2"),
+				),
+			),
+			node: node(node1, region1),
+			expectResults: []any{matchAllocationResult(
+				localNodeSelector(node1),
+				deviceAllocationResult(req0, driverA, pool1, device2, true),
+				deviceAllocationResult(req1, driverA, pool1, device1, true),
+			)},
 			expectErrorWithoutFeatures: g.MatchError(g.ContainSubstring("admin access is requested, but the feature is disabled")),
 		},
 		"all-devices-slice-without-devices-prioritized-list": {
@@ -7598,11 +7791,10 @@ func TestAllocator(t *testing.T,
 				),
 			),
 			node: node(node1, region1),
-			// Suspicious: should capacity really be consumed with admin access?
-			// Admin access does not bypass the capacity check and still records a share.
+			// Admin access does not consume capacity, so the result carries neither a share ID nor consumed capacity.
 			expectResults: []any{matchAllocationResult(
 				localNodeSelector(node1),
-				withAdminAccess(deviceRequestAllocationResult(req0, driverA, pool1, device1).withConsumedCapacity(&fixedShareID, map[resourceapi.QualifiedName]resource.Quantity{capacity0: one})),
+				deviceAllocationResult(req0, driverA, pool1, device1, true),
 			)},
 			expectWithFeatures: func(expectResults []any, expectError types.GomegaMatcher, expectErrorIs error, features Features) ([]any, types.GomegaMatcher, error) {
 				if !features.AdminAccess || !features.ConsumableCapacity {
@@ -7631,7 +7823,38 @@ func TestAllocator(t *testing.T,
 				return expectResults, expectError, expectErrorIs
 			},
 		},
-		"consumable-capacity-admin-access-capacity-request-exceeds-remaining-capacity": {
+		"consumable-capacity-admin-access-skips-request-policy": {
+			// Request of 1 does not match ValidValues (2, 4), but admin access
+			// skips the policy check and only requires the request to fit within total capacity.
+			features: Features{ConsumableCapacity: true, AdminAccess: true},
+			claimsToAllocate: objects(
+				claim(claim0).withRequests(deviceRequest(req0, classA, 1).withAdminAccess().withCapacityRequest(capacity0, one)),
+			),
+			classes: objects(classWithAllowMultipleAllocations(classA, driverA, true)),
+			slices: unwrapResourceSlices(
+				sliceWithDevices(slice1, node1, pool1, driverA,
+					device(device1).withAllowMultipleAllocations().withCapacityRequestPolicyValidValues(
+						two,
+						map[resourceapi.QualifiedName]resource.Quantity{capacity0: four},
+						[]resource.Quantity{four},
+					),
+				),
+			),
+			node: node(node1, region1),
+			expectResults: []any{matchAllocationResult(
+				localNodeSelector(node1),
+				deviceAllocationResult(req0, driverA, pool1, device1, true),
+			)},
+			expectWithFeatures: func(expectResults []any, expectError types.GomegaMatcher, expectErrorIs error, features Features) ([]any, types.GomegaMatcher, error) {
+				if !features.AdminAccess || !features.ConsumableCapacity {
+					return nil, g.MatchError(g.ContainSubstring("feature is disabled")), nil
+				}
+				return expectResults, expectError, expectErrorIs
+			},
+		},
+		"consumable-capacity-admin-access-capacity-request-ignores-remaining-capacity": {
+			// The device is fully consumed by an existing share, but admin access
+			// does not consume capacity and therefore is not limited by what remains.
 			features: Features{ConsumableCapacity: true, AdminAccess: true},
 			claimsToAllocate: objects(
 				claim(claim0).withRequests(deviceRequest(req0, classA, 1).withAdminAccess().withCapacityRequest(capacity0, one)),
@@ -7647,8 +7870,11 @@ func TestAllocator(t *testing.T,
 					device(device1).withCapacity(capacity0, two).withAllowMultipleAllocations(),
 				),
 			),
-			node:          node(node1, region1),
-			expectResults: nil,
+			node: node(node1, region1),
+			expectResults: []any{matchAllocationResult(
+				localNodeSelector(node1),
+				deviceAllocationResult(req0, driverA, pool1, device1, true),
+			)},
 			expectWithFeatures: func(expectResults []any, expectError types.GomegaMatcher, expectErrorIs error, features Features) ([]any, types.GomegaMatcher, error) {
 				if !features.AdminAccess || !features.ConsumableCapacity {
 					return nil, g.MatchError(g.ContainSubstring("feature is disabled")), nil
@@ -7657,6 +7883,8 @@ func TestAllocator(t *testing.T,
 			},
 		},
 		"consumable-capacity-admin-access-capacity-request-exceeds-remaining-capacity-below-total": {
+			// Capacity 3 with 2 consumed leaves 1, and the admin request of 2 exceeds that
+			// but fits the total. Admin access does not consume capacity, so it is not blocked.
 			features: Features{ConsumableCapacity: true, AdminAccess: true},
 			claimsToAllocate: objects(
 				claim(claim0).withRequests(deviceRequest(req0, classA, 1).withAdminAccess().withCapacityRequest(capacity0, two)),
@@ -7673,9 +7901,10 @@ func TestAllocator(t *testing.T,
 				),
 			),
 			node: node(node1, region1),
-			// Suspicious: the request is within the total capacity, but admin access
-			// is still blocked by the capacity consumed by the regular allocation.
-			expectResults: nil,
+			expectResults: []any{matchAllocationResult(
+				localNodeSelector(node1),
+				deviceAllocationResult(req0, driverA, pool1, device1, true),
+			)},
 			expectWithFeatures: func(expectResults []any, expectError types.GomegaMatcher, expectErrorIs error, features Features) ([]any, types.GomegaMatcher, error) {
 				if !features.AdminAccess || !features.ConsumableCapacity {
 					return nil, g.MatchError(g.ContainSubstring("feature is disabled")), nil
@@ -7683,7 +7912,7 @@ func TestAllocator(t *testing.T,
 				return expectResults, expectError, expectErrorIs
 			},
 		},
-		"consumable-capacity-admin-access-consumes-capacity-from-later-claim": {
+		"consumable-capacity-admin-access-does-not-consume-capacity-from-later-claim": {
 			features: Features{ConsumableCapacity: true, AdminAccess: true},
 			claimsToAllocate: objects(
 				claim(claim0).withRequests(deviceRequest(req0, classA, 1).withAdminAccess().withCapacityRequest(capacity0, two)),
@@ -7696,12 +7925,17 @@ func TestAllocator(t *testing.T,
 				),
 			),
 			node: node(node1, region1),
-			// The admin share is accounted like a regular share, so it leaves no capacity for the ordinary claim.
-			// Suspicious: this is not what the scheduler does. It does not record admin
-			// shares in the allocated state (ForEachAllocatedDevice skips them), so with
-			// the actual input of a later scheduling cycle the ordinary claim would get
-			// the capacity.
-			expectResults: nil,
+			// The admin access request does not consume capacity, so the ordinary claim can still use all of it.
+			expectResults: []any{
+				matchAllocationResult(
+					localNodeSelector(node1),
+					deviceAllocationResult(req0, driverA, pool1, device1, true),
+				),
+				matchAllocationResult(
+					localNodeSelector(node1),
+					deviceRequestAllocationResult(req0, driverA, pool1, device1).withConsumedCapacity(&fixedShareID, map[resourceapi.QualifiedName]resource.Quantity{capacity0: one}),
+				),
+			},
 			expectWithFeatures: func(expectResults []any, expectError types.GomegaMatcher, expectErrorIs error, features Features) ([]any, types.GomegaMatcher, error) {
 				if !features.AdminAccess || !features.ConsumableCapacity {
 					return nil, g.MatchError(g.ContainSubstring("feature is disabled")), nil
@@ -7745,7 +7979,7 @@ func TestAllocator(t *testing.T,
 			slices: unwrapResourceSlices(
 				sliceWithDevices(slice1, node1, resourcePool(pool1, 2), driverA,
 					device(device1).withCapacity(capacity0, two).withAllowMultipleAllocations().withDeviceCounterConsumption(
-						deviceCounterConsumption(counterSet1, map[string]resource.Quantity{counter0: two}), // More than what's available, cannot be allocated.
+						deviceCounterConsumption(counterSet1, map[string]resource.Quantity{counter0: two}),
 					),
 				),
 				sliceWithCounterSets(slice2, node1, resourcePool(pool1, 2), driverA,
@@ -7753,8 +7987,10 @@ func TestAllocator(t *testing.T,
 				),
 			),
 			node: node(node1, region1),
-			// Partitionable devices does not skip counter checks for completely new access to a device.
-			expectResults: nil,
+			expectResults: []any{matchAllocationResult(
+				localNodeSelector(node1),
+				deviceAllocationResult(req0, driverA, pool1, device1, true),
+			)},
 			expectWithFeatures: func(expectResults []any, expectError types.GomegaMatcher, expectErrorIs error, features Features) ([]any, types.GomegaMatcher, error) {
 				if !features.AdminAccess || !features.ConsumableCapacity {
 					return nil, g.MatchError(g.ContainSubstring("feature is disabled")), nil
@@ -7787,11 +8023,11 @@ func TestAllocator(t *testing.T,
 				),
 			),
 			node: node(node1, region1),
-			// Suspicious: should capacity really be consumed with admin access?
 			// The device's counters are already charged by the existing share.
+			// Admin access does not consume capacity, so the result carries no share.
 			expectResults: []any{matchAllocationResult(
 				localNodeSelector(node1),
-				withAdminAccess(deviceRequestAllocationResult(req0, driverA, pool1, device1).withConsumedCapacity(&fixedShareID, map[resourceapi.QualifiedName]resource.Quantity{capacity0: one})),
+				deviceAllocationResult(req0, driverA, pool1, device1, true),
 			)},
 			expectWithFeatures: func(expectResults []any, expectError types.GomegaMatcher, expectErrorIs error, features Features) ([]any, types.GomegaMatcher, error) {
 				if !features.AdminAccess || !features.ConsumableCapacity {
@@ -7802,6 +8038,70 @@ func TestAllocator(t *testing.T,
 				}
 				return expectResults, expectError, expectErrorIs
 			},
+		},
+		"consumable-capacity-admin-access-then-ordinary-claim-same-device-counters": {
+			// The admin claim reserves no counters and creates no capacity entry.
+			// The ordinary claim can still share the device and charges the counters
+			// (total 1, cost 1) once.
+			features: Features{ConsumableCapacity: true, AdminAccess: true, PartitionableDevices: true},
+			claimsToAllocate: objects(
+				claim(claim0).withRequests(deviceRequest(req0, classA, 1).withAdminAccess()),
+				claim(claim1).withRequests(deviceRequest(req0, classA, 1).withCapacityRequest(capacity0, one)),
+			),
+			classes: objects(classWithAllowMultipleAllocations(classA, driverA, true)),
+			slices: unwrapResourceSlices(
+				sliceWithDevices(slice1, node1, resourcePool(pool1, 2), driverA,
+					device(device1).withCapacity(capacity0, two).withAllowMultipleAllocations().withDeviceCounterConsumption(
+						deviceCounterConsumption(counterSet1, map[string]resource.Quantity{counter0: one}),
+					),
+				),
+				sliceWithCounterSets(slice2, node1, resourcePool(pool1, 2), driverA,
+					counterSet(counterSet1, map[string]resource.Quantity{counter0: one}),
+				),
+			),
+			node: node(node1, region1),
+			expectResults: []any{
+				matchAllocationResult(
+					localNodeSelector(node1),
+					deviceAllocationResult(req0, driverA, pool1, device1, true),
+				),
+				matchAllocationResult(
+					localNodeSelector(node1),
+					deviceRequestAllocationResult(req0, driverA, pool1, device1).withConsumedCapacity(&fixedShareID, map[resourceapi.QualifiedName]resource.Quantity{capacity0: one}),
+				),
+			},
+			expectWithFeatures: expectAdminAccessThenCapacityRequestWithCounters,
+		},
+		"consumable-capacity-admin-access-then-ordinary-claim-same-device-counters-all": {
+			// Same as above, with allocation mode All.
+			features: Features{ConsumableCapacity: true, AdminAccess: true, PartitionableDevices: true},
+			claimsToAllocate: objects(
+				claim(claim0).withRequests(allDeviceRequest(req0, classA).withAdminAccess()),
+				claim(claim1).withRequests(allDeviceRequest(req0, classA).withCapacityRequest(capacity0, one)),
+			),
+			classes: objects(classWithAllowMultipleAllocations(classA, driverA, true)),
+			slices: unwrapResourceSlices(
+				sliceWithDevices(slice1, node1, resourcePool(pool1, 2), driverA,
+					device(device1).withCapacity(capacity0, two).withAllowMultipleAllocations().withDeviceCounterConsumption(
+						deviceCounterConsumption(counterSet1, map[string]resource.Quantity{counter0: one}),
+					),
+				),
+				sliceWithCounterSets(slice2, node1, resourcePool(pool1, 2), driverA,
+					counterSet(counterSet1, map[string]resource.Quantity{counter0: one}),
+				),
+			),
+			node: node(node1, region1),
+			expectResults: []any{
+				matchAllocationResult(
+					localNodeSelector(node1),
+					deviceAllocationResult(req0, driverA, pool1, device1, true),
+				),
+				matchAllocationResult(
+					localNodeSelector(node1),
+					deviceRequestAllocationResult(req0, driverA, pool1, device1).withConsumedCapacity(&fixedShareID, map[resourceapi.QualifiedName]resource.Quantity{capacity0: one}),
+				),
+			},
+			expectWithFeatures: expectAdminAccessThenCapacityRequestWithCounters,
 		},
 		"consumable-capacity-with-partitionable-device-multiple-capacity-pools": {
 			// This test case combines integration of PrioritizedList, PartitionableDevices, and ConsumableCapacity features.
@@ -9630,7 +9930,7 @@ func TestAllocator(t *testing.T,
 				return expectResults, expectError, expectErrorIs
 			},
 		},
-		"partitionable-devices-admin-access-backtrack-releases-counters": {
+		"partitionable-devices-admin-access-does-not-reserve-counters-across-requests": {
 			features: Features{AdminAccess: true, PartitionableDevices: true},
 			claimsToAllocate: objects(
 				claim(claim0).withRequests(
@@ -9641,7 +9941,6 @@ func TestAllocator(t *testing.T,
 			classes: objects(class(classA, driverA)),
 			slices: unwrapResourceSlices(
 				sliceWithDevices(slice1, node1, resourcePool(pool1, 2), driverA,
-					// req0 takes the large device first, which leaves no counters for req1.
 					device(device1).withDeviceCounterConsumption(
 						deviceCounterConsumption(counterSet1, map[string]resource.Quantity{counter0: two}),
 					),
@@ -9657,10 +9956,11 @@ func TestAllocator(t *testing.T,
 				),
 			),
 			node: node(node1, region1),
+			// A claim does not get the same device twice, so the second request uses device2.
 			expectResults: []any{matchAllocationResult(
 				localNodeSelector(node1),
-				withAdminAccess(deviceAllocationResult(req0, driverA, pool1, device2, true)),
-				withAdminAccess(deviceAllocationResult(req1, driverA, pool1, device3, true)),
+				deviceAllocationResult(req0, driverA, pool1, device1, true),
+				deviceAllocationResult(req1, driverA, pool1, device2, true),
 			)},
 			expectWithFeatures: func(expectResults []any, expectError types.GomegaMatcher, expectErrorIs error, features Features) ([]any, types.GomegaMatcher, error) {
 				if !features.AdminAccess {
@@ -9714,14 +10014,14 @@ func TestAllocator(t *testing.T,
 				)},
 			expectErrorWithoutFeatures: g.MatchError(g.ContainSubstring("has capacity requests, but the DRAConsumableCapacity feature is disabled")),
 		},
-		"consumable-capacity-admin-access-backtrack-releases-capacity": {
+		"consumable-capacity-admin-access-does-not-reserve-capacity-across-requests": {
 			features: Features{ConsumableCapacity: true, AdminAccess: true},
 			claimsToAllocate: objects(
 				claim(claim0).withConstraints(resourceapi.DeviceConstraint{MatchAttribute: &stringAttribute}).withRequests(
 					deviceRequest(req0, classA, 1).withAdminAccess().withCapacityRequest(capacity0, one),
 					deviceRequest(req1, classA, 1).withAdminAccess().withCapacityRequest(capacity0, one),
 				),
-				// Only fits on device1 if the rolled back share of claim0 was released.
+				// Also lands on device1: nothing was ever reserved there.
 				claim(claim1).withRequests(
 					deviceRequest(req0, classA, 1).withAdminAccess().withCapacityRequest(capacity0, one).withSelectors(resourceapi.DeviceSelector{
 						CEL: &resourceapi.CELDeviceSelector{
@@ -9732,8 +10032,8 @@ func TestAllocator(t *testing.T,
 			classes: objects(classWithAllowMultipleAllocations(classA, driverA, true)),
 			slices: unwrapResourceSlices(
 				sliceWithDevices(slice1, node1, pool1, driverA,
-					// req0 fits on device1, but then req1 has nowhere to go that satisfies the
-					// constraint. The share on device1 must be released for device2 to take both.
+					// Unlike with regular requests, req0 does not reserve capacity on device1,
+					// so req1 fits there too and no backtracking is needed.
 					device(device1).
 						withAttribute("stringAttribute", "stringAttributeValue1").
 						withAllowMultipleAllocations().
@@ -9745,16 +10045,17 @@ func TestAllocator(t *testing.T,
 				),
 			),
 			node: node(node1, region1),
-			// Suspicious: should capacity really be consumed with admin access?
-			expectResults: []any{matchAllocationResult(
-				localNodeSelector(node1),
-				withAdminAccess(deviceRequestAllocationResult(req0, driverA, pool1, device2).withConsumedCapacity(&fixedShareID, map[resourceapi.QualifiedName]resource.Quantity{capacity0: one})),
-				withAdminAccess(deviceRequestAllocationResult(req1, driverA, pool1, device2).withConsumedCapacity(&fixedShareID, map[resourceapi.QualifiedName]resource.Quantity{capacity0: one})),
-			),
+			expectResults: []any{
 				matchAllocationResult(
 					localNodeSelector(node1),
-					withAdminAccess(deviceRequestAllocationResult(req0, driverA, pool1, device1).withConsumedCapacity(&fixedShareID, map[resourceapi.QualifiedName]resource.Quantity{capacity0: one})),
-				)},
+					deviceAllocationResult(req0, driverA, pool1, device1, true),
+					deviceAllocationResult(req1, driverA, pool1, device1, true),
+				),
+				matchAllocationResult(
+					localNodeSelector(node1),
+					deviceAllocationResult(req0, driverA, pool1, device1, true),
+				),
+			},
 			expectWithFeatures: func(expectResults []any, expectError types.GomegaMatcher, expectErrorIs error, features Features) ([]any, types.GomegaMatcher, error) {
 				if !features.AdminAccess || !features.ConsumableCapacity {
 					return nil, g.MatchError(g.ContainSubstring("feature is disabled")), nil
@@ -9765,7 +10066,10 @@ func TestAllocator(t *testing.T,
 		"partitionable-devices-admin-access-nothing-allocated": {
 			features: Features{AdminAccess: true, PartitionableDevices: true},
 			claimsToAllocate: objects(
-				claim(claim0).withRequests(deviceRequest(req0, classA, 1).withAdminAccess()),
+				claim(claim0).withRequests(
+					deviceRequest(req0, classA, 1).withAdminAccess(),
+					deviceRequest(req1, classA, 1),
+				),
 			),
 			classes: objects(class(classA, driverA)),
 			slices: unwrapResourceSlices(
@@ -9782,9 +10086,11 @@ func TestAllocator(t *testing.T,
 				),
 			),
 			node: node(node1, region1),
+			// A claim does not get the same device twice, so the regular request uses device2.
 			expectResults: []any{matchAllocationResult(
 				localNodeSelector(node1),
-				withAdminAccess(*deviceRequestAllocationResult(req0, driverA, pool1, device1).DeviceRequestAllocationResult),
+				deviceAllocationResult(req0, driverA, pool1, device1, true),
+				deviceAllocationResult(req1, driverA, pool1, device2, false),
 			)},
 			expectWithFeatures: func(expectResults []any, expectError types.GomegaMatcher, expectErrorIs error, features Features) ([]any, types.GomegaMatcher, error) {
 				if !features.AdminAccess {
@@ -9850,10 +10156,10 @@ func TestAllocator(t *testing.T,
 				),
 			),
 			node: node(node1, region1),
-			// Suspicious: device2 is allocated, so device1 is only unavailable because of
-			// counters, and admin access does not bypass that. The admin might want
-			// access to device2 in this case, but does not get that either.
-			expectResults: nil,
+			expectResults: []any{matchAllocationResult(
+				localNodeSelector(node1),
+				deviceAllocationResult(req0, driverA, pool1, device1, true),
+			)},
 			expectWithFeatures: func(expectResults []any, expectError types.GomegaMatcher, expectErrorIs error, features Features) ([]any, types.GomegaMatcher, error) {
 				if !features.AdminAccess {
 					return nil, g.MatchError(g.ContainSubstring("feature is disabled")), nil
@@ -10616,6 +10922,21 @@ func expectDistinctAttributeWithLists(expectResults []any, expectError types.Gom
 		return nil, g.MatchError(g.ContainSubstring("has distinctAttribute, but the DRAConsumableCapacity feature is disabled")), nil
 	case !features.ListTypeAttributes:
 		return nil, g.MatchError(g.ContainSubstring("unsupported attribute value")), nil
+	}
+	return expectResults, expectError, expectErrorIs
+}
+
+// expectAdminAccessThenCapacityRequestWithCounters covers test cases where an admin access claim
+// without capacity requests is followed by a claim with capacity requests, on a device which
+// consumes counters. Claims get validated in order, so a disabled AdminAccess is reported first.
+func expectAdminAccessThenCapacityRequestWithCounters(expectResults []any, expectError types.GomegaMatcher, expectErrorIs error, features Features) ([]any, types.GomegaMatcher, error) {
+	switch {
+	case !features.AdminAccess:
+		return nil, g.MatchError(g.ContainSubstring("admin access is requested, but the feature is disabled")), nil
+	case !features.ConsumableCapacity:
+		return nil, g.MatchError(g.ContainSubstring("has capacity requests, but the DRAConsumableCapacity feature is disabled")), nil
+	case !features.PartitionableDevices:
+		return nil, nil, nil
 	}
 	return expectResults, expectError, expectErrorIs
 }

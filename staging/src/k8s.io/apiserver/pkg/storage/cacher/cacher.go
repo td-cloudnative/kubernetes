@@ -83,9 +83,9 @@ const (
 	// with the watch cache.
 	watcherResyncPeriod = 100 * time.Millisecond
 
-	// maxResyncEvents bounds the number of watch cache history events scanned in
+	// defaultMaxResyncEvents bounds the number of watch cache history events scanned in
 	// a single resyncStalledWatchersLocked pass while holding locks.
-	maxResyncEvents = 1000
+	defaultMaxResyncEvents = 1000
 )
 
 // Config contains the configuration for a given Cache.
@@ -136,6 +136,10 @@ type Config struct {
 	// CompactorPollPeriod specifies how frequently compactor polls storage for compaction revision.
 	// Defaults to 15s when zero.
 	CompactorPollPeriod time.Duration
+
+	// MaxResyncEvents bounds the number of watch cache history events scanned in a single
+	// stalled-watcher resync pass. Defaults to 1000 when zero.
+	MaxResyncEvents int
 
 	// DisableConsistentGetFromCache disables serving consistent Get, Delete, and GuaranteedUpdate
 	// from cache, e.g. when a storage value transformer is configured.
@@ -354,6 +358,7 @@ type Cacher struct {
 	watchersBuffer []*cacheWatcher
 	// unsyncedWatchers is a map that need to be synchronized before sending events.
 	unsyncedWatchers watchersMap
+	maxResyncEvents  int
 	// blockedWatchers is a list of watchers whose buffer is currently full.
 	blockedWatchers []*cacheWatcher
 	// watchersToStop is a list of watchers that were supposed to be stopped
@@ -367,6 +372,7 @@ type Cacher struct {
 	expiredBookmarkWatchers       []*cacheWatcher
 	compactor                     *compactor
 	watcherMetrics                *metrics.WatcherMetricsObservers
+	resyncMetrics                 metrics.ResyncMetrics
 	disableConsistentGetFromCache bool
 }
 
@@ -401,6 +407,10 @@ func NewCacherFromConfig(config Config) (*Cacher, error) {
 
 	if config.Clock == nil {
 		config.Clock = clock.RealClock{}
+	}
+	maxResyncEvents := config.MaxResyncEvents
+	if maxResyncEvents <= 0 {
+		maxResyncEvents = defaultMaxResyncEvents
 	}
 	objType := reflect.TypeOf(obj)
 	resourcePrefix := config.ResourcePrefix
@@ -441,8 +451,10 @@ func NewCacherFromConfig(config Config) (*Cacher, error) {
 		clock:                         config.Clock,
 		timer:                         time.NewTimer(time.Duration(0)),
 		unsyncedWatchers:              make(watchersMap),
+		maxResyncEvents:               maxResyncEvents,
 		bookmarkWatchers:              newTimeBucketWatchers(config.Clock, defaultBookmarkFrequency),
 		watcherMetrics:                metrics.NewWatcherMetricsObservers(config.GroupResource),
+		resyncMetrics:                 metrics.NewResyncMetrics(config.GroupResource),
 		disableConsistentGetFromCache: config.DisableConsistentGetFromCache,
 	}
 
@@ -580,11 +592,11 @@ func (c *Cacher) resyncWatchers() {
 
 	for _, watcher := range c.unsyncedWatchers {
 		if watcher.stopped {
-			c.unsyncedWatchers.deleteWatcher(watcher)
+			c.deleteUnsyncedWatcherLocked(watcher)
 			continue
 		}
 		if !watcher.synced.IsNotified() {
-			c.unsyncedWatchers.deleteWatcher(watcher)
+			c.deleteUnsyncedWatcherLocked(watcher)
 			cacheInterval, err := c.initWatcherIntervalLocked(watcher)
 			if err != nil {
 				watcher.input <- watcherInput{err: err}
@@ -602,7 +614,7 @@ func (c *Cacher) resyncWatchers() {
 			continue
 		}
 		if err := c.watchCache.history.checkResourceVersionLocked(watcher.dispatchedResourceVersion); err != nil {
-			c.unsyncedWatchers.deleteWatcher(watcher)
+			c.deleteUnsyncedWatcherLocked(watcher)
 			metrics.TerminatedWatchersCounter.WithLabelValues(c.groupResource.Group, c.groupResource.Resource).Inc()
 			watcher.input <- watcherInput{err: err}
 			c.stopWatcherLocked(watcher, true)
@@ -628,7 +640,7 @@ func (c *Cacher) resyncWatchers() {
 func (c *Cacher) resyncStalledWatchersLocked(stalledWatchers *indexedWatchers, minResourceVersion uint64) {
 	processedEvents := 0
 	for rawEvent := range c.watchCache.history.eventsAfterLocked(minResourceVersion) {
-		if processedEvents >= maxResyncEvents {
+		if processedEvents >= c.maxResyncEvents {
 			for watcher := range stalledWatchers.allWatchers() {
 				watcher.dispatchedResourceVersion = max(watcher.dispatchedResourceVersion, rawEvent.ResourceVersion-1)
 			}
@@ -670,8 +682,20 @@ func (c *Cacher) resyncStalledWatchersLocked(stalledWatchers *indexedWatchers, m
 
 	for watcher := range stalledWatchers.allWatchers() {
 		watcher.dispatchedResourceVersion = max(watcher.dispatchedResourceVersion, c.watchCache.resourceVersion)
-		c.unsyncedWatchers.deleteWatcher(watcher)
+		c.deleteUnsyncedWatcherLocked(watcher)
 		c.watchers.addWatcher(watcher)
+	}
+}
+
+// deleteUnsyncedWatcherLocked removes the watcher from unsyncedWatchers, where it
+// is either stalled or still waiting for its first interval.
+func (c *Cacher) deleteUnsyncedWatcherLocked(watcher *cacheWatcher) {
+	if _, ok := c.unsyncedWatchers[watcher.id]; !ok {
+		return
+	}
+	c.unsyncedWatchers.deleteWatcher(watcher)
+	if watcher.synced.IsNotified() {
+		c.resyncMetrics.StalledWatchers.Dec()
 	}
 }
 
@@ -1273,6 +1297,7 @@ func (c *Cacher) dispatchEvent(event *watchCacheEvent) {
 		c.blockedWatchers = c.blockedWatchers[:0]
 		for _, watcher := range c.watchersBuffer {
 			if event.ResourceVersion <= watcher.dispatchedResourceVersion {
+				c.resyncMetrics.SkippedEvents.Inc()
 				continue
 			}
 			if !watcher.nonblockingAdd(event) {
@@ -1474,6 +1499,8 @@ func (c *Cacher) finishDispatching() {
 			}
 			c.watchers.deleteWatcher(watcher)
 			c.unsyncedWatchers.addWatcher(watcher)
+			c.resyncMetrics.Stalls.Inc()
+			c.resyncMetrics.StalledWatchers.Inc()
 		}
 	}
 	clear(c.blockedWatchers)
@@ -1495,9 +1522,10 @@ func (c *Cacher) terminateAllWatchers() {
 	c.watchers.terminateAll(c.groupResource, func(watcher *cacheWatcher) {
 		c.stopWatcherLocked(watcher, false)
 	})
-	c.unsyncedWatchers.terminateAll(func(watcher *cacheWatcher) {
+	for _, watcher := range c.unsyncedWatchers {
+		c.deleteUnsyncedWatcherLocked(watcher)
 		c.stopWatcherLocked(watcher, false)
-	})
+	}
 }
 
 // watcherToStop is a stop deferred to the end of a dispatch. It keeps its own
@@ -1564,7 +1592,7 @@ func forgetWatcher(c *Cacher, w *cacheWatcher) func(bool) {
 		// simultaneous Stop() and terminateAllWatchers(), but it is safe to call stopLocked()
 		// on a watcher multiple times.
 		c.watchers.deleteWatcher(w)
-		c.unsyncedWatchers.deleteWatcher(w)
+		c.deleteUnsyncedWatcherLocked(w)
 		c.stopWatcherLocked(w, drainWatcher)
 	}
 }

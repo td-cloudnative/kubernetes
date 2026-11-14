@@ -144,6 +144,13 @@ const (
 	// Adds support for using ML-DSA signed certificate signing request data in the CertificateSigningRequest spec.request field.
 	CertificateSigningRequestMLDSA featuregate.Feature = "CertificateSigningRequestMLDSA"
 
+	// owner: @Divya063 @chrishenzie
+	// kep: https://kep.k8s.io/5474
+	//
+	// Allows containers to set how the cgroup filesystem is mounted, including a
+	// writable mount on cgroup v2.
+	CgroupOptions featuregate.Feature = "CgroupOptions"
+
 	// owner: @HirazawaUi
 	//
 	// Enabling this feature gate will cause the pod's status to change due to a kubelet restart.
@@ -400,6 +407,12 @@ const (
 	//
 	// DisableNodeKubeProxyVersion disable the status.nodeInfo.kubeProxyVersion field of v1.Node
 	DisableNodeKubeProxyVersion featuregate.Feature = "DisableNodeKubeProxyVersion"
+
+	// owner: @tallclair
+	// kep: http://kep.k8s.io/5972
+	//
+	// Enables adding and removing main containers on running pods via the pods/dynamic subresource.
+	DynamicContainers featuregate.Feature = "DynamicContainers"
 
 	// owner: @natasha41575
 	// kep: https://kep.k8s.io/6395
@@ -1308,6 +1321,10 @@ var defaultVersionedKubernetesFeatureGates = map[featuregate.Feature]featuregate
 		{Version: version.MustParse("1.38"), Default: true, PreRelease: featuregate.Beta, MinCompatibilityVersion: version.MustParse("1.38")},
 	},
 
+	CgroupOptions: {
+		{Version: version.MustParse("1.38"), Default: false, PreRelease: featuregate.Alpha},
+	},
+
 	ChangeContainerStatusOnKubeletRestart: {
 		{Version: version.MustParse("1.0"), Default: true, PreRelease: featuregate.GA},
 		{Version: version.MustParse("1.35"), Default: false, PreRelease: featuregate.Deprecated},
@@ -1483,6 +1500,10 @@ var defaultVersionedKubernetesFeatureGates = map[featuregate.Feature]featuregate
 		{Version: version.MustParse("1.31"), Default: false, PreRelease: featuregate.Deprecated},
 		{Version: version.MustParse("1.33"), Default: true, PreRelease: featuregate.Deprecated},
 		{Version: version.MustParse("1.36"), Default: true, PreRelease: featuregate.Deprecated, LockToDefault: true}, // lock to default in 1.36 and remove in v1.39
+	},
+
+	DynamicContainers: {
+		{Version: version.MustParse("1.38"), Default: false, PreRelease: featuregate.Alpha},
 	},
 
 	DynamicNodeLocalEphemeralVolumes: {
@@ -2382,6 +2403,8 @@ var defaultKubernetesFeatureGateDependencies = map[featuregate.Feature][]feature
 
 	CertificateSigningRequestMLDSA: {},
 
+	CgroupOptions: {},
+
 	ChangeContainerStatusOnKubeletRestart: {},
 
 	ClearingNominatedNodeNameAfterBinding: {},
@@ -2451,6 +2474,8 @@ var defaultKubernetesFeatureGateDependencies = map[featuregate.Feature][]feature
 	DisableCPUQuotaWithExclusiveCPUs: {},
 
 	DisableNodeKubeProxyVersion: {},
+
+	DynamicContainers: {InPlacePodLevelResourcesVerticalScaling, NodeDeclaredFeatures},
 
 	DynamicNodeLocalEphemeralVolumes: {NodeDeclaredFeatures},
 
