@@ -1809,7 +1809,7 @@ function setup-easyrsa {
   # Note: This was heavily cribbed from make-ca-cert.sh
   (set -x
     cd "${KUBE_TEMP}"
-    curl -L -o easy-rsa.tar.gz --connect-timeout 20 --retry 6 --retry-delay 2 https://github.com/OpenVPN/easy-rsa/releases/download/v3.1.7/EasyRSA-3.1.7.tgz
+    curl -fL -o easy-rsa.tar.gz --connect-timeout 20 --retry 6 --retry-delay 2 https://github.com/OpenVPN/easy-rsa/releases/download/v3.1.7/EasyRSA-3.1.7.tgz
     mkdir -p easy-rsa && tar xzf easy-rsa.tar.gz -C easy-rsa --strip-components 1
     local -r files_to_copy=(easyrsa openssl-easyrsa.cnf  x509-types vars.example)
     mkdir easy-rsa/aggregator
@@ -2595,7 +2595,22 @@ function create-network() {
       network_mode="custom"
     fi
     echo "Creating new ${network_mode} network: ${NETWORK}"
-    gcloud compute networks create --project "${NETWORK_PROJECT}" "${NETWORK}" --subnet-mode="${network_mode}"
+    local attempt=0
+    while true; do
+      if gcloud compute networks create --project "${NETWORK_PROJECT}" "${NETWORK}" --subnet-mode="${network_mode}"; then
+        break
+      fi
+      if gcloud compute networks --project "${NETWORK_PROJECT}" describe "${NETWORK}" &>/dev/null; then
+        break
+      fi
+      if (( attempt > 4 )); then
+        echo -e "${color_red}Failed to create network ${NETWORK}${color_norm}" >&2
+        exit 2
+      fi
+      attempt=$((attempt + 1))
+      echo -e "${color_yellow}Attempt ${attempt} failed to create network ${NETWORK}. Retrying.${color_norm}" >&2
+      sleep $((attempt * 5))
+    done
   else
     PREEXISTING_NETWORK=true
     PREEXISTING_NETWORK_MODE="$(check-network-mode)"
