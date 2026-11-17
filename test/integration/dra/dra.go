@@ -145,9 +145,11 @@ func run(tCtx ktesting.TContext, whatRE string) {
 			features: map[featuregate.Feature]bool{},
 			f: func(tCtx ktesting.TContext) {
 				runSubTest(tCtx, "Pod", testPod)
+				runSubTest(tCtx, "ListTypeAttributes", testListTypeAttributes)
 				runSubTest(tCtx, "CompatibilityGroups", func(tCtx ktesting.TContext) { testCompatibilityGroups(tCtx, false) })
+				runSubTest(tCtx, "OptionalNodeOperations", func(tCtx ktesting.TContext) { testOptionalNodeOperations(tCtx, true) })
 				runSubTest(tCtx, "PublishResourceSlices", func(tCtx ktesting.TContext) {
-					testPublishResourceSlices(tCtx, true, features.DRADeviceCompatibilityGroups, features.DRAOptionalNodeOperations)
+					testPublishResourceSlices(tCtx, true, features.DRADeviceCompatibilityGroups)
 				})
 				runSubTest(tCtx, "EvictClusterWithV1Rule", func(tCtx ktesting.TContext) { testEvictCluster(tCtx, useV1Rule) })
 				runSubTest(tCtx, "EvictClusterWithSlices", func(tCtx ktesting.TContext) { testEvictCluster(tCtx, useNoRule) })
@@ -192,6 +194,7 @@ func run(tCtx ktesting.TContext, whatRE string) {
 				runSubTest(tCtx, "NoScheduleWithSlices", func(tCtx ktesting.TContext) { testNoScheduleRule(tCtx, useNoRule) })
 				runSubTest(tCtx, "PartitionableDevices", func(tCtx ktesting.TContext) { testPartitionableDevices(tCtx, true) })
 				runSubTest(tCtx, "PrioritizedList", func(tCtx ktesting.TContext) { testPrioritizedList(tCtx, true) })
+				runSubTest(tCtx, "SharedConsumableCapacity", func(tCtx ktesting.TContext) { testSharedConsumableCapacity(tCtx, false) })
 				runSubTest(tCtx, "Pod", testPod)
 				runSubTest(tCtx, "PublishResourceSlices", func(tCtx ktesting.TContext) {
 					testPublishResourceSlices(tCtx, true, features.DRADeviceCompatibilityGroups, features.DRAOptionalNodeOperations)
@@ -265,7 +268,7 @@ func run(tCtx ktesting.TContext, whatRE string) {
 			},
 			f: func(tCtx ktesting.TContext) {
 				runSubTest(tCtx, "PublishResourceSlices", func(tCtx ktesting.TContext) {
-					testPublishResourceSlices(tCtx, false, features.DRAOptionalNodeOperations)
+					testPublishResourceSlices(tCtx, false)
 				})
 			},
 		},
@@ -290,6 +293,7 @@ func run(tCtx ktesting.TContext, whatRE string) {
 				features.DRAPartitionableDevices:      true,
 				features.DRAPrioritizedList:           true,
 				features.DRAResourceClaimDeviceStatus: true,
+				features.DRASharedConsumableCapacity:  true,
 				features.DRAExtendedResource:          true,
 				features.DRAExtendedResourceCapacity:  true,
 				features.DRANodeAllocatableResources:  true,
@@ -312,6 +316,8 @@ func run(tCtx ktesting.TContext, whatRE string) {
 				runSubTest(tCtx, "CompatibilityGroups", func(tCtx ktesting.TContext) { testCompatibilityGroups(tCtx, true) })
 				runSubTest(tCtx, "ListTypeAttributes", testListTypeAttributes)
 				runSubTest(tCtx, "PrioritizedList", func(tCtx ktesting.TContext) { testPrioritizedList(tCtx, true) })
+				runSubTest(tCtx, "SharedConsumableCapacity", func(tCtx ktesting.TContext) { testSharedConsumableCapacity(tCtx, true) })
+				runSubTest(tCtx, "SharedStaticCounterRelease", testSharedStaticCounterRelease)
 				runSubTest(tCtx, "PrioritizedListScoring", func(tCtx ktesting.TContext) { testPrioritizedListScoring(tCtx) })
 				runSubTest(tCtx, "PublishResourceSlices", func(tCtx ktesting.TContext) { testPublishResourceSlices(tCtx, true) })
 				runSubTest(tCtx, "ExplicitExtendedResource", func(tCtx ktesting.TContext) { testExtendedResource(tCtx, true, true) })

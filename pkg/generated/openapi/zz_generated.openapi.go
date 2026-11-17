@@ -247,6 +247,7 @@ func GetOpenAPIDefinitions(ref common.ReferenceCallback) map[string]common.OpenA
 		appsv1.Deployment{}.OpenAPIModelName():                                                                          schema_k8sio_api_apps_v1_Deployment(ref),
 		appsv1.DeploymentCondition{}.OpenAPIModelName():                                                                 schema_k8sio_api_apps_v1_DeploymentCondition(ref),
 		appsv1.DeploymentList{}.OpenAPIModelName():                                                                      schema_k8sio_api_apps_v1_DeploymentList(ref),
+		appsv1.DeploymentSchedulingConfiguration{}.OpenAPIModelName():                                                   schema_k8sio_api_apps_v1_DeploymentSchedulingConfiguration(ref),
 		appsv1.DeploymentSpec{}.OpenAPIModelName():                                                                      schema_k8sio_api_apps_v1_DeploymentSpec(ref),
 		appsv1.DeploymentStatus{}.OpenAPIModelName():                                                                    schema_k8sio_api_apps_v1_DeploymentStatus(ref),
 		appsv1.DeploymentStrategy{}.OpenAPIModelName():                                                                  schema_k8sio_api_apps_v1_DeploymentStrategy(ref),
@@ -272,6 +273,7 @@ func GetOpenAPIDefinitions(ref common.ReferenceCallback) map[string]common.OpenA
 		appsv1beta1.DeploymentCondition{}.OpenAPIModelName():                                                            schema_k8sio_api_apps_v1beta1_DeploymentCondition(ref),
 		appsv1beta1.DeploymentList{}.OpenAPIModelName():                                                                 schema_k8sio_api_apps_v1beta1_DeploymentList(ref),
 		appsv1beta1.DeploymentRollback{}.OpenAPIModelName():                                                             schema_k8sio_api_apps_v1beta1_DeploymentRollback(ref),
+		appsv1beta1.DeploymentSchedulingConfiguration{}.OpenAPIModelName():                                              schema_k8sio_api_apps_v1beta1_DeploymentSchedulingConfiguration(ref),
 		appsv1beta1.DeploymentSpec{}.OpenAPIModelName():                                                                 schema_k8sio_api_apps_v1beta1_DeploymentSpec(ref),
 		appsv1beta1.DeploymentStatus{}.OpenAPIModelName():                                                               schema_k8sio_api_apps_v1beta1_DeploymentStatus(ref),
 		appsv1beta1.DeploymentStrategy{}.OpenAPIModelName():                                                             schema_k8sio_api_apps_v1beta1_DeploymentStrategy(ref),
@@ -300,6 +302,7 @@ func GetOpenAPIDefinitions(ref common.ReferenceCallback) map[string]common.OpenA
 		v1beta2.Deployment{}.OpenAPIModelName():                                                                         schema_k8sio_api_apps_v1beta2_Deployment(ref),
 		v1beta2.DeploymentCondition{}.OpenAPIModelName():                                                                schema_k8sio_api_apps_v1beta2_DeploymentCondition(ref),
 		v1beta2.DeploymentList{}.OpenAPIModelName():                                                                     schema_k8sio_api_apps_v1beta2_DeploymentList(ref),
+		v1beta2.DeploymentSchedulingConfiguration{}.OpenAPIModelName():                                                  schema_k8sio_api_apps_v1beta2_DeploymentSchedulingConfiguration(ref),
 		v1beta2.DeploymentSpec{}.OpenAPIModelName():                                                                     schema_k8sio_api_apps_v1beta2_DeploymentSpec(ref),
 		v1beta2.DeploymentStatus{}.OpenAPIModelName():                                                                   schema_k8sio_api_apps_v1beta2_DeploymentStatus(ref),
 		v1beta2.DeploymentStrategy{}.OpenAPIModelName():                                                                 schema_k8sio_api_apps_v1beta2_DeploymentStrategy(ref),
@@ -765,6 +768,7 @@ func GetOpenAPIDefinitions(ref common.ReferenceCallback) map[string]common.OpenA
 		extensionsv1beta1.DeploymentCondition{}.OpenAPIModelName():                                                      schema_k8sio_api_extensions_v1beta1_DeploymentCondition(ref),
 		extensionsv1beta1.DeploymentList{}.OpenAPIModelName():                                                           schema_k8sio_api_extensions_v1beta1_DeploymentList(ref),
 		extensionsv1beta1.DeploymentRollback{}.OpenAPIModelName():                                                       schema_k8sio_api_extensions_v1beta1_DeploymentRollback(ref),
+		extensionsv1beta1.DeploymentSchedulingConfiguration{}.OpenAPIModelName():                                        schema_k8sio_api_extensions_v1beta1_DeploymentSchedulingConfiguration(ref),
 		extensionsv1beta1.DeploymentSpec{}.OpenAPIModelName():                                                           schema_k8sio_api_extensions_v1beta1_DeploymentSpec(ref),
 		extensionsv1beta1.DeploymentStatus{}.OpenAPIModelName():                                                         schema_k8sio_api_extensions_v1beta1_DeploymentStatus(ref),
 		extensionsv1beta1.DeploymentStrategy{}.OpenAPIModelName():                                                       schema_k8sio_api_extensions_v1beta1_DeploymentStrategy(ref),
@@ -1037,7 +1041,10 @@ func GetOpenAPIDefinitions(ref common.ReferenceCallback) map[string]common.OpenA
 		resourcev1.CapacityRequestPolicyRange{}.OpenAPIModelName():                                                      schema_k8sio_api_resource_v1_CapacityRequestPolicyRange(ref),
 		resourcev1.CapacityRequirements{}.OpenAPIModelName():                                                            schema_k8sio_api_resource_v1_CapacityRequirements(ref),
 		resourcev1.Counter{}.OpenAPIModelName():                                                                         schema_k8sio_api_resource_v1_Counter(ref),
+		resourcev1.CounterRequirement{}.OpenAPIModelName():                                                              schema_k8sio_api_resource_v1_CounterRequirement(ref),
 		resourcev1.CounterSet{}.OpenAPIModelName():                                                                      schema_k8sio_api_resource_v1_CounterSet(ref),
+		resourcev1.CounterSetConsumption{}.OpenAPIModelName():                                                           schema_k8sio_api_resource_v1_CounterSetConsumption(ref),
+		resourcev1.CounterValueFrom{}.OpenAPIModelName():                                                                schema_k8sio_api_resource_v1_CounterValueFrom(ref),
 		resourcev1.Device{}.OpenAPIModelName():                                                                          schema_k8sio_api_resource_v1_Device(ref),
 		resourcev1.DeviceAllocationConfiguration{}.OpenAPIModelName():                                                   schema_k8sio_api_resource_v1_DeviceAllocationConfiguration(ref),
 		resourcev1.DeviceAllocationResult{}.OpenAPIModelName():                                                          schema_k8sio_api_resource_v1_DeviceAllocationResult(ref),
@@ -1065,6 +1072,7 @@ func GetOpenAPIDefinitions(ref common.ReferenceCallback) map[string]common.OpenA
 		resourcev1.DeviceTaintSelector{}.OpenAPIModelName():                                                             schema_k8sio_api_resource_v1_DeviceTaintSelector(ref),
 		resourcev1.DeviceToleration{}.OpenAPIModelName():                                                                schema_k8sio_api_resource_v1_DeviceToleration(ref),
 		resourcev1.ExactDeviceRequest{}.OpenAPIModelName():                                                              schema_k8sio_api_resource_v1_ExactDeviceRequest(ref),
+		resourcev1.ExtendedResourceRequest{}.OpenAPIModelName():                                                         schema_k8sio_api_resource_v1_ExtendedResourceRequest(ref),
 		resourcev1.NetworkDeviceData{}.OpenAPIModelName():                                                               schema_k8sio_api_resource_v1_NetworkDeviceData(ref),
 		resourcev1.NodeAllocatableMapping{}.OpenAPIModelName():                                                          schema_k8sio_api_resource_v1_NodeAllocatableMapping(ref),
 		resourcev1.NodeAllocatableOverhead{}.OpenAPIModelName():                                                         schema_k8sio_api_resource_v1_NodeAllocatableOverhead(ref),
@@ -1106,7 +1114,10 @@ func GetOpenAPIDefinitions(ref common.ReferenceCallback) map[string]common.OpenA
 		resourcev1beta1.CapacityRequestPolicyRange{}.OpenAPIModelName():                                                 schema_k8sio_api_resource_v1beta1_CapacityRequestPolicyRange(ref),
 		resourcev1beta1.CapacityRequirements{}.OpenAPIModelName():                                                       schema_k8sio_api_resource_v1beta1_CapacityRequirements(ref),
 		resourcev1beta1.Counter{}.OpenAPIModelName():                                                                    schema_k8sio_api_resource_v1beta1_Counter(ref),
+		resourcev1beta1.CounterRequirement{}.OpenAPIModelName():                                                         schema_k8sio_api_resource_v1beta1_CounterRequirement(ref),
 		resourcev1beta1.CounterSet{}.OpenAPIModelName():                                                                 schema_k8sio_api_resource_v1beta1_CounterSet(ref),
+		resourcev1beta1.CounterSetConsumption{}.OpenAPIModelName():                                                      schema_k8sio_api_resource_v1beta1_CounterSetConsumption(ref),
+		resourcev1beta1.CounterValueFrom{}.OpenAPIModelName():                                                           schema_k8sio_api_resource_v1beta1_CounterValueFrom(ref),
 		resourcev1beta1.Device{}.OpenAPIModelName():                                                                     schema_k8sio_api_resource_v1beta1_Device(ref),
 		resourcev1beta1.DeviceAllocationConfiguration{}.OpenAPIModelName():                                              schema_k8sio_api_resource_v1beta1_DeviceAllocationConfiguration(ref),
 		resourcev1beta1.DeviceAllocationResult{}.OpenAPIModelName():                                                     schema_k8sio_api_resource_v1beta1_DeviceAllocationResult(ref),
@@ -1128,6 +1139,7 @@ func GetOpenAPIDefinitions(ref common.ReferenceCallback) map[string]common.OpenA
 		resourcev1beta1.DeviceSubRequest{}.OpenAPIModelName():                                                           schema_k8sio_api_resource_v1beta1_DeviceSubRequest(ref),
 		resourcev1beta1.DeviceTaint{}.OpenAPIModelName():                                                                schema_k8sio_api_resource_v1beta1_DeviceTaint(ref),
 		resourcev1beta1.DeviceToleration{}.OpenAPIModelName():                                                           schema_k8sio_api_resource_v1beta1_DeviceToleration(ref),
+		resourcev1beta1.ExtendedResourceRequest{}.OpenAPIModelName():                                                    schema_k8sio_api_resource_v1beta1_ExtendedResourceRequest(ref),
 		resourcev1beta1.NetworkDeviceData{}.OpenAPIModelName():                                                          schema_k8sio_api_resource_v1beta1_NetworkDeviceData(ref),
 		resourcev1beta1.NodeAllocatableMapping{}.OpenAPIModelName():                                                     schema_k8sio_api_resource_v1beta1_NodeAllocatableMapping(ref),
 		resourcev1beta1.NodeAllocatableOverhead{}.OpenAPIModelName():                                                    schema_k8sio_api_resource_v1beta1_NodeAllocatableOverhead(ref),
@@ -1152,7 +1164,10 @@ func GetOpenAPIDefinitions(ref common.ReferenceCallback) map[string]common.OpenA
 		resourcev1beta2.CapacityRequestPolicyRange{}.OpenAPIModelName():                                                 schema_k8sio_api_resource_v1beta2_CapacityRequestPolicyRange(ref),
 		resourcev1beta2.CapacityRequirements{}.OpenAPIModelName():                                                       schema_k8sio_api_resource_v1beta2_CapacityRequirements(ref),
 		resourcev1beta2.Counter{}.OpenAPIModelName():                                                                    schema_k8sio_api_resource_v1beta2_Counter(ref),
+		resourcev1beta2.CounterRequirement{}.OpenAPIModelName():                                                         schema_k8sio_api_resource_v1beta2_CounterRequirement(ref),
 		resourcev1beta2.CounterSet{}.OpenAPIModelName():                                                                 schema_k8sio_api_resource_v1beta2_CounterSet(ref),
+		resourcev1beta2.CounterSetConsumption{}.OpenAPIModelName():                                                      schema_k8sio_api_resource_v1beta2_CounterSetConsumption(ref),
+		resourcev1beta2.CounterValueFrom{}.OpenAPIModelName():                                                           schema_k8sio_api_resource_v1beta2_CounterValueFrom(ref),
 		resourcev1beta2.Device{}.OpenAPIModelName():                                                                     schema_k8sio_api_resource_v1beta2_Device(ref),
 		resourcev1beta2.DeviceAllocationConfiguration{}.OpenAPIModelName():                                              schema_k8sio_api_resource_v1beta2_DeviceAllocationConfiguration(ref),
 		resourcev1beta2.DeviceAllocationResult{}.OpenAPIModelName():                                                     schema_k8sio_api_resource_v1beta2_DeviceAllocationResult(ref),
@@ -1180,6 +1195,7 @@ func GetOpenAPIDefinitions(ref common.ReferenceCallback) map[string]common.OpenA
 		resourcev1beta2.DeviceTaintSelector{}.OpenAPIModelName():                                                        schema_k8sio_api_resource_v1beta2_DeviceTaintSelector(ref),
 		resourcev1beta2.DeviceToleration{}.OpenAPIModelName():                                                           schema_k8sio_api_resource_v1beta2_DeviceToleration(ref),
 		resourcev1beta2.ExactDeviceRequest{}.OpenAPIModelName():                                                         schema_k8sio_api_resource_v1beta2_ExactDeviceRequest(ref),
+		resourcev1beta2.ExtendedResourceRequest{}.OpenAPIModelName():                                                    schema_k8sio_api_resource_v1beta2_ExtendedResourceRequest(ref),
 		resourcev1beta2.NetworkDeviceData{}.OpenAPIModelName():                                                          schema_k8sio_api_resource_v1beta2_NetworkDeviceData(ref),
 		resourcev1beta2.NodeAllocatableMapping{}.OpenAPIModelName():                                                     schema_k8sio_api_resource_v1beta2_NodeAllocatableMapping(ref),
 		resourcev1beta2.NodeAllocatableOverhead{}.OpenAPIModelName():                                                    schema_k8sio_api_resource_v1beta2_NodeAllocatableOverhead(ref),
@@ -8086,6 +8102,62 @@ func schema_k8sio_api_apps_v1_DeploymentList(ref common.ReferenceCallback) commo
 	}
 }
 
+func schema_k8sio_api_apps_v1_DeploymentSchedulingConfiguration(ref common.ReferenceCallback) common.OpenAPIDefinition {
+	return common.OpenAPIDefinition{
+		Schema: spec.Schema{
+			SchemaProps: spec.SchemaProps{
+				Description: "DeploymentSchedulingConfiguration composes the reusable scheduling building blocks from scheduling.k8s.io for use on a Deployment.",
+				Type:        []string{"object"},
+				Properties: map[string]spec.Schema{
+					"schedulingPolicy": {
+						SchemaProps: spec.SchemaProps{
+							Description: "schedulingPolicy defines the scheduling policy for this Deployment. If spec.scheduling.schedulingPolicy is omitted, the Basic policy is used. Otherwise, exactly one of Basic or Gang must be set. For Gang, minCount may be omitted to derive it from replicas.",
+							Ref:         ref(schedulingv1.WorkloadPodGroupSchedulingPolicy{}.OpenAPIModelName()),
+						},
+					},
+					"schedulingConstraints": {
+						SchemaProps: spec.SchemaProps{
+							Description: "schedulingConstraints defines optional scheduling constraints (e.g. topology) for the Deployment's pods.",
+							Ref:         ref(schedulingv1.WorkloadPodGroupSchedulingConstraints{}.OpenAPIModelName()),
+						},
+					},
+					"disruptionMode": {
+						SchemaProps: spec.SchemaProps{
+							Description: "disruptionMode defines the mode in which the Deployment's pods can be disrupted. One of Single or All. If omitted, standard per-pod disruption behavior is used. The All mode requires a gang schedulingPolicy. disruptionMode affects scheduler preemption only. It does not affect eviction or PodDisruptionBudgets.",
+							Ref:         ref(schedulingv1.WorkloadPodGroupDisruptionMode{}.OpenAPIModelName()),
+						},
+					},
+					"resourceClaims": {
+						VendorExtensible: spec.VendorExtensible{
+							Extensions: spec.Extensions{
+								"x-kubernetes-list-map-keys": []interface{}{
+									"name",
+								},
+								"x-kubernetes-list-type":       "map",
+								"x-kubernetes-patch-merge-key": "name",
+								"x-kubernetes-patch-strategy":  "merge",
+							},
+						},
+						SchemaProps: spec.SchemaProps{
+							Description: "resourceClaims defines which ResourceClaims may be shared among Pods in the Deployment. Pods consume the devices allocated to a PodGroup's claim by defining a claim in its own Spec.ResourceClaims that matches the PodGroup's claim exactly. The claim must have the same name and refer to the same ResourceClaim or ResourceClaimTemplate. At most 4 claims may be set, matching the limit on the resulting PodGroup.",
+							Type:        []string{"array"},
+							Items: &spec.SchemaOrArray{
+								Schema: &spec.Schema{
+									SchemaProps: spec.SchemaProps{
+										Ref: ref(schedulingv1.WorkloadPodGroupResourceClaim{}.OpenAPIModelName()),
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+		Dependencies: []string{
+			schedulingv1.WorkloadPodGroupDisruptionMode{}.OpenAPIModelName(), schedulingv1.WorkloadPodGroupResourceClaim{}.OpenAPIModelName(), schedulingv1.WorkloadPodGroupSchedulingConstraints{}.OpenAPIModelName(), schedulingv1.WorkloadPodGroupSchedulingPolicy{}.OpenAPIModelName()},
+	}
+}
+
 func schema_k8sio_api_apps_v1_DeploymentSpec(ref common.ReferenceCallback) common.OpenAPIDefinition {
 	return common.OpenAPIDefinition{
 		Schema: spec.Schema{
@@ -8153,12 +8225,18 @@ func schema_k8sio_api_apps_v1_DeploymentSpec(ref common.ReferenceCallback) commo
 							Format:      "int32",
 						},
 					},
+					"scheduling": {
+						SchemaProps: spec.SchemaProps{
+							Description: "scheduling defines the Workload-aware Scheduling configuration for this Deployment. When set, it specifies the scheduling policy (basic or gang), topology constraints, disruption mode, and shared resource claims. When spec.scheduling is omitted, no Workload or PodGroup is created and the Deployment uses standard pod-by-pod scheduling. This field is gated by the WorkloadWithDeployment feature gate. Once set, this field is immutable except for schedulingPolicy.gang.minCount.\n\n- The scheduling field can only be set when the Deployment is created. - A gang schedulingPolicy requires strategy.type Recreate. - When schedulingPolicy.gang.minCount is set, replicas must be 0 or at least minCount. - template.spec.schedulingGroup must be unset.",
+							Ref:         ref(appsv1.DeploymentSchedulingConfiguration{}.OpenAPIModelName()),
+						},
+					},
 				},
 				Required: []string{"selector", "template"},
 			},
 		},
 		Dependencies: []string{
-			appsv1.DeploymentStrategy{}.OpenAPIModelName(), corev1.PodTemplateSpec{}.OpenAPIModelName(), metav1.LabelSelector{}.OpenAPIModelName()},
+			appsv1.DeploymentSchedulingConfiguration{}.OpenAPIModelName(), appsv1.DeploymentStrategy{}.OpenAPIModelName(), corev1.PodTemplateSpec{}.OpenAPIModelName(), metav1.LabelSelector{}.OpenAPIModelName()},
 	}
 }
 
@@ -9399,6 +9477,62 @@ func schema_k8sio_api_apps_v1beta1_DeploymentRollback(ref common.ReferenceCallba
 	}
 }
 
+func schema_k8sio_api_apps_v1beta1_DeploymentSchedulingConfiguration(ref common.ReferenceCallback) common.OpenAPIDefinition {
+	return common.OpenAPIDefinition{
+		Schema: spec.Schema{
+			SchemaProps: spec.SchemaProps{
+				Description: "DeploymentSchedulingConfiguration composes the reusable scheduling building blocks from scheduling.k8s.io for use on a Deployment.",
+				Type:        []string{"object"},
+				Properties: map[string]spec.Schema{
+					"schedulingPolicy": {
+						SchemaProps: spec.SchemaProps{
+							Description: "schedulingPolicy defines the scheduling policy for this Deployment. If spec.scheduling.schedulingPolicy is omitted, the Basic policy is used. Otherwise, exactly one of Basic or Gang must be set. For Gang, minCount may be omitted to derive it from replicas.",
+							Ref:         ref(schedulingv1.WorkloadPodGroupSchedulingPolicy{}.OpenAPIModelName()),
+						},
+					},
+					"schedulingConstraints": {
+						SchemaProps: spec.SchemaProps{
+							Description: "schedulingConstraints defines optional scheduling constraints (e.g. topology) for the Deployment's pods.",
+							Ref:         ref(schedulingv1.WorkloadPodGroupSchedulingConstraints{}.OpenAPIModelName()),
+						},
+					},
+					"disruptionMode": {
+						SchemaProps: spec.SchemaProps{
+							Description: "disruptionMode defines the mode in which the Deployment's pods can be disrupted. One of Single or All. If omitted, standard per-pod disruption behavior is used. The All mode requires a gang schedulingPolicy. disruptionMode affects scheduler preemption only. It does not affect eviction or PodDisruptionBudgets.",
+							Ref:         ref(schedulingv1.WorkloadPodGroupDisruptionMode{}.OpenAPIModelName()),
+						},
+					},
+					"resourceClaims": {
+						VendorExtensible: spec.VendorExtensible{
+							Extensions: spec.Extensions{
+								"x-kubernetes-list-map-keys": []interface{}{
+									"name",
+								},
+								"x-kubernetes-list-type":       "map",
+								"x-kubernetes-patch-merge-key": "name",
+								"x-kubernetes-patch-strategy":  "merge",
+							},
+						},
+						SchemaProps: spec.SchemaProps{
+							Description: "resourceClaims defines which ResourceClaims may be shared among Pods in the Deployment. Pods consume the devices allocated to a PodGroup's claim by defining a claim in its own Spec.ResourceClaims that matches the PodGroup's claim exactly. The claim must have the same name and refer to the same ResourceClaim or ResourceClaimTemplate. At most 4 claims may be set, matching the limit on the resulting PodGroup.",
+							Type:        []string{"array"},
+							Items: &spec.SchemaOrArray{
+								Schema: &spec.Schema{
+									SchemaProps: spec.SchemaProps{
+										Ref: ref(schedulingv1.WorkloadPodGroupResourceClaim{}.OpenAPIModelName()),
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+		Dependencies: []string{
+			schedulingv1.WorkloadPodGroupDisruptionMode{}.OpenAPIModelName(), schedulingv1.WorkloadPodGroupResourceClaim{}.OpenAPIModelName(), schedulingv1.WorkloadPodGroupSchedulingConstraints{}.OpenAPIModelName(), schedulingv1.WorkloadPodGroupSchedulingPolicy{}.OpenAPIModelName()},
+	}
+}
+
 func schema_k8sio_api_apps_v1beta1_DeploymentSpec(ref common.ReferenceCallback) common.OpenAPIDefinition {
 	return common.OpenAPIDefinition{
 		Schema: spec.Schema{
@@ -9472,12 +9606,18 @@ func schema_k8sio_api_apps_v1beta1_DeploymentSpec(ref common.ReferenceCallback) 
 							Format:      "int32",
 						},
 					},
+					"scheduling": {
+						SchemaProps: spec.SchemaProps{
+							Description: "scheduling defines the Workload-aware Scheduling configuration for this Deployment. When set, it specifies the scheduling policy (basic or gang), topology constraints, disruption mode, and shared resource claims. When spec.scheduling is omitted, no Workload or PodGroup is created and the Deployment uses standard pod-by-pod scheduling. This field is gated by the WorkloadWithDeployment feature gate. Once set, this field is immutable except for schedulingPolicy.gang.minCount.\n\n- The scheduling field can only be set when the Deployment is created. - A gang schedulingPolicy requires strategy.type Recreate. - When schedulingPolicy.gang.minCount is set, replicas must be 0 or at least minCount. - template.spec.schedulingGroup must be unset.",
+							Ref:         ref(appsv1beta1.DeploymentSchedulingConfiguration{}.OpenAPIModelName()),
+						},
+					},
 				},
 				Required: []string{"template"},
 			},
 		},
 		Dependencies: []string{
-			appsv1beta1.DeploymentStrategy{}.OpenAPIModelName(), appsv1beta1.RollbackConfig{}.OpenAPIModelName(), corev1.PodTemplateSpec{}.OpenAPIModelName(), metav1.LabelSelector{}.OpenAPIModelName()},
+			appsv1beta1.DeploymentSchedulingConfiguration{}.OpenAPIModelName(), appsv1beta1.DeploymentStrategy{}.OpenAPIModelName(), appsv1beta1.RollbackConfig{}.OpenAPIModelName(), corev1.PodTemplateSpec{}.OpenAPIModelName(), metav1.LabelSelector{}.OpenAPIModelName()},
 	}
 }
 
@@ -10819,6 +10959,62 @@ func schema_k8sio_api_apps_v1beta2_DeploymentList(ref common.ReferenceCallback) 
 	}
 }
 
+func schema_k8sio_api_apps_v1beta2_DeploymentSchedulingConfiguration(ref common.ReferenceCallback) common.OpenAPIDefinition {
+	return common.OpenAPIDefinition{
+		Schema: spec.Schema{
+			SchemaProps: spec.SchemaProps{
+				Description: "DeploymentSchedulingConfiguration composes the reusable scheduling building blocks from scheduling.k8s.io for use on a Deployment.",
+				Type:        []string{"object"},
+				Properties: map[string]spec.Schema{
+					"schedulingPolicy": {
+						SchemaProps: spec.SchemaProps{
+							Description: "schedulingPolicy defines the scheduling policy for this Deployment. If spec.scheduling.schedulingPolicy is omitted, the Basic policy is used. Otherwise, exactly one of Basic or Gang must be set. For Gang, minCount may be omitted to derive it from replicas.",
+							Ref:         ref(schedulingv1.WorkloadPodGroupSchedulingPolicy{}.OpenAPIModelName()),
+						},
+					},
+					"schedulingConstraints": {
+						SchemaProps: spec.SchemaProps{
+							Description: "schedulingConstraints defines optional scheduling constraints (e.g. topology) for the Deployment's pods.",
+							Ref:         ref(schedulingv1.WorkloadPodGroupSchedulingConstraints{}.OpenAPIModelName()),
+						},
+					},
+					"disruptionMode": {
+						SchemaProps: spec.SchemaProps{
+							Description: "disruptionMode defines the mode in which the Deployment's pods can be disrupted. One of Single or All. If omitted, standard per-pod disruption behavior is used. The All mode requires a gang schedulingPolicy. disruptionMode affects scheduler preemption only. It does not affect eviction or PodDisruptionBudgets.",
+							Ref:         ref(schedulingv1.WorkloadPodGroupDisruptionMode{}.OpenAPIModelName()),
+						},
+					},
+					"resourceClaims": {
+						VendorExtensible: spec.VendorExtensible{
+							Extensions: spec.Extensions{
+								"x-kubernetes-list-map-keys": []interface{}{
+									"name",
+								},
+								"x-kubernetes-list-type":       "map",
+								"x-kubernetes-patch-merge-key": "name",
+								"x-kubernetes-patch-strategy":  "merge",
+							},
+						},
+						SchemaProps: spec.SchemaProps{
+							Description: "resourceClaims defines which ResourceClaims may be shared among Pods in the Deployment. Pods consume the devices allocated to a PodGroup's claim by defining a claim in its own Spec.ResourceClaims that matches the PodGroup's claim exactly. The claim must have the same name and refer to the same ResourceClaim or ResourceClaimTemplate. At most 4 claims may be set, matching the limit on the resulting PodGroup.",
+							Type:        []string{"array"},
+							Items: &spec.SchemaOrArray{
+								Schema: &spec.Schema{
+									SchemaProps: spec.SchemaProps{
+										Ref: ref(schedulingv1.WorkloadPodGroupResourceClaim{}.OpenAPIModelName()),
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+		Dependencies: []string{
+			schedulingv1.WorkloadPodGroupDisruptionMode{}.OpenAPIModelName(), schedulingv1.WorkloadPodGroupResourceClaim{}.OpenAPIModelName(), schedulingv1.WorkloadPodGroupSchedulingConstraints{}.OpenAPIModelName(), schedulingv1.WorkloadPodGroupSchedulingPolicy{}.OpenAPIModelName()},
+	}
+}
+
 func schema_k8sio_api_apps_v1beta2_DeploymentSpec(ref common.ReferenceCallback) common.OpenAPIDefinition {
 	return common.OpenAPIDefinition{
 		Schema: spec.Schema{
@@ -10886,12 +11082,18 @@ func schema_k8sio_api_apps_v1beta2_DeploymentSpec(ref common.ReferenceCallback) 
 							Format:      "int32",
 						},
 					},
+					"scheduling": {
+						SchemaProps: spec.SchemaProps{
+							Description: "scheduling defines the Workload-aware Scheduling configuration for this Deployment. When set, it specifies the scheduling policy (basic or gang), topology constraints, disruption mode, and shared resource claims. When spec.scheduling is omitted, no Workload or PodGroup is created and the Deployment uses standard pod-by-pod scheduling. This field is gated by the WorkloadWithDeployment feature gate. Once set, this field is immutable except for schedulingPolicy.gang.minCount.\n\n- The scheduling field can only be set when the Deployment is created. - A gang schedulingPolicy requires strategy.type Recreate. - When schedulingPolicy.gang.minCount is set, replicas must be 0 or at least minCount. - template.spec.schedulingGroup must be unset.",
+							Ref:         ref(v1beta2.DeploymentSchedulingConfiguration{}.OpenAPIModelName()),
+						},
+					},
 				},
 				Required: []string{"selector", "template"},
 			},
 		},
 		Dependencies: []string{
-			v1beta2.DeploymentStrategy{}.OpenAPIModelName(), corev1.PodTemplateSpec{}.OpenAPIModelName(), metav1.LabelSelector{}.OpenAPIModelName()},
+			v1beta2.DeploymentSchedulingConfiguration{}.OpenAPIModelName(), v1beta2.DeploymentStrategy{}.OpenAPIModelName(), corev1.PodTemplateSpec{}.OpenAPIModelName(), metav1.LabelSelector{}.OpenAPIModelName()},
 	}
 }
 
@@ -29206,7 +29408,7 @@ func schema_k8sio_api_core_v1_PodSpec(ref common.ReferenceCallback) common.OpenA
 					},
 					"hostNetwork": {
 						SchemaProps: spec.SchemaProps{
-							Description: "hostNetwork indicates that the pod should use the host's network namespace. When using hostNetwork you should specify ports so the scheduler is aware. When `hostNetwork` is true, specified `hostPort` fields in port definitions must match `containerPort`, and unspecified `hostPort` fields in port definitions are defaulted to match `containerPort`. Default to false.",
+							Description: "hostNetwork indicates that the pod should use the host's network namespace. When using hostNetwork you should specify ports so the scheduler is aware. When `hostNetwork` is true, specified `hostPort` fields in port definitions must match `containerPort`, and unspecified `hostPort` fields in port definitions are defaulted to match `containerPort`. Default to false. When true, podNetwork may not be set: the pod has no network namespace of its own.",
 							Type:        []string{"boolean"},
 							Format:      "",
 						},
@@ -29533,6 +29735,14 @@ func schema_k8sio_api_core_v1_PodSpec(ref common.ReferenceCallback) common.OpenA
 									},
 								},
 							},
+						},
+					},
+					"podNetwork": {
+						SchemaProps: spec.SchemaProps{
+							Description: "podNetwork selects whether a non-hostNetwork pod is attached to the pod network. \"Default\" attaches the pod to the pod network. \"Isolated\" gives the pod an isolated network namespace with only the loopback interface configured, not attached to the pod network. This field must be unset if hostNetwork is true. For non-hostNetwork pods, this behaves as if it was set to \"Default\" if it is not set. If a pod is \"Isolated\", hostPort and network-based probes and lifecycle handlers are not allowed. This field is immutable on Pods.\n\nPossible enum values:\n - `\"Default\"` attaches the pod to the pod network (the network that Kubernetes connects every pod to unless the pod opts out). The container runtime performs its configured network plumbing and the pod is assigned pod IPs. This is the historical behavior (for non-hostNetwork pods).\n - `\"Isolated\"` does not attach the pod to the pod network. The pod gets an isolated network namespace with only the loopback interface configured. The pod's podIPs are left unset and the pod is never selected into Services.",
+							Type:        []string{"string"},
+							Format:      "",
+							Enum:        []interface{}{"Default", "Isolated"},
 						},
 					},
 				},
@@ -36081,6 +36291,62 @@ func schema_k8sio_api_extensions_v1beta1_DeploymentRollback(ref common.Reference
 	}
 }
 
+func schema_k8sio_api_extensions_v1beta1_DeploymentSchedulingConfiguration(ref common.ReferenceCallback) common.OpenAPIDefinition {
+	return common.OpenAPIDefinition{
+		Schema: spec.Schema{
+			SchemaProps: spec.SchemaProps{
+				Description: "DeploymentSchedulingConfiguration composes the reusable scheduling building blocks from scheduling.k8s.io for use on a Deployment.",
+				Type:        []string{"object"},
+				Properties: map[string]spec.Schema{
+					"schedulingPolicy": {
+						SchemaProps: spec.SchemaProps{
+							Description: "schedulingPolicy defines the scheduling policy for this Deployment. If spec.scheduling.schedulingPolicy is omitted, the Basic policy is used. Otherwise, exactly one of Basic or Gang must be set. For Gang, minCount may be omitted to derive it from replicas.",
+							Ref:         ref(schedulingv1.WorkloadPodGroupSchedulingPolicy{}.OpenAPIModelName()),
+						},
+					},
+					"schedulingConstraints": {
+						SchemaProps: spec.SchemaProps{
+							Description: "schedulingConstraints defines optional scheduling constraints (e.g. topology) for the Deployment's pods.",
+							Ref:         ref(schedulingv1.WorkloadPodGroupSchedulingConstraints{}.OpenAPIModelName()),
+						},
+					},
+					"disruptionMode": {
+						SchemaProps: spec.SchemaProps{
+							Description: "disruptionMode defines the mode in which the Deployment's pods can be disrupted. One of Single or All. If omitted, standard per-pod disruption behavior is used. The All mode requires a gang schedulingPolicy. disruptionMode affects scheduler preemption only. It does not affect eviction or PodDisruptionBudgets.",
+							Ref:         ref(schedulingv1.WorkloadPodGroupDisruptionMode{}.OpenAPIModelName()),
+						},
+					},
+					"resourceClaims": {
+						VendorExtensible: spec.VendorExtensible{
+							Extensions: spec.Extensions{
+								"x-kubernetes-list-map-keys": []interface{}{
+									"name",
+								},
+								"x-kubernetes-list-type":       "map",
+								"x-kubernetes-patch-merge-key": "name",
+								"x-kubernetes-patch-strategy":  "merge",
+							},
+						},
+						SchemaProps: spec.SchemaProps{
+							Description: "resourceClaims defines which ResourceClaims may be shared among Pods in the Deployment. Pods consume the devices allocated to a PodGroup's claim by defining a claim in its own Spec.ResourceClaims that matches the PodGroup's claim exactly. The claim must have the same name and refer to the same ResourceClaim or ResourceClaimTemplate. At most 4 claims may be set, matching the limit on the resulting PodGroup.",
+							Type:        []string{"array"},
+							Items: &spec.SchemaOrArray{
+								Schema: &spec.Schema{
+									SchemaProps: spec.SchemaProps{
+										Ref: ref(schedulingv1.WorkloadPodGroupResourceClaim{}.OpenAPIModelName()),
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+		Dependencies: []string{
+			schedulingv1.WorkloadPodGroupDisruptionMode{}.OpenAPIModelName(), schedulingv1.WorkloadPodGroupResourceClaim{}.OpenAPIModelName(), schedulingv1.WorkloadPodGroupSchedulingConstraints{}.OpenAPIModelName(), schedulingv1.WorkloadPodGroupSchedulingPolicy{}.OpenAPIModelName()},
+	}
+}
+
 func schema_k8sio_api_extensions_v1beta1_DeploymentSpec(ref common.ReferenceCallback) common.OpenAPIDefinition {
 	return common.OpenAPIDefinition{
 		Schema: spec.Schema{
@@ -36154,12 +36420,18 @@ func schema_k8sio_api_extensions_v1beta1_DeploymentSpec(ref common.ReferenceCall
 							Format:      "int32",
 						},
 					},
+					"scheduling": {
+						SchemaProps: spec.SchemaProps{
+							Description: "scheduling defines the Workload-aware Scheduling configuration for this Deployment. When set, it specifies the scheduling policy (basic or gang), topology constraints, disruption mode, and shared resource claims. When spec.scheduling is omitted, no Workload or PodGroup is created and the Deployment uses standard pod-by-pod scheduling. This field is gated by the WorkloadWithDeployment feature gate. Once set, this field is immutable except for schedulingPolicy.gang.minCount.\n\n- The scheduling field can only be set when the Deployment is created. - A gang schedulingPolicy requires strategy.type Recreate. - When schedulingPolicy.gang.minCount is set, replicas must be 0 or at least minCount. - template.spec.schedulingGroup must be unset.",
+							Ref:         ref(extensionsv1beta1.DeploymentSchedulingConfiguration{}.OpenAPIModelName()),
+						},
+					},
 				},
 				Required: []string{"template"},
 			},
 		},
 		Dependencies: []string{
-			corev1.PodTemplateSpec{}.OpenAPIModelName(), extensionsv1beta1.DeploymentStrategy{}.OpenAPIModelName(), extensionsv1beta1.RollbackConfig{}.OpenAPIModelName(), metav1.LabelSelector{}.OpenAPIModelName()},
+			corev1.PodTemplateSpec{}.OpenAPIModelName(), extensionsv1beta1.DeploymentSchedulingConfiguration{}.OpenAPIModelName(), extensionsv1beta1.DeploymentStrategy{}.OpenAPIModelName(), extensionsv1beta1.RollbackConfig{}.OpenAPIModelName(), metav1.LabelSelector{}.OpenAPIModelName()},
 	}
 }
 
@@ -48300,7 +48572,7 @@ func schema_k8sio_api_resource_v1_CapacityRequestPolicy(ref common.ReferenceCall
 	return common.OpenAPIDefinition{
 		Schema: spec.Schema{
 			SchemaProps: spec.SchemaProps{
-				Description: "CapacityRequestPolicy defines how requests consume device capacity.\n\nMust not set more than one ValidRequestValues.",
+				Description: "CapacityRequestPolicy defines how requests consume device capacity and how devices consume counters.\n\nIt is used by DeviceCapacity.RequestPolicy and Counter.ConsumptionPolicy. For counter consumption, capacity means the available counter value, and a request means the device's required counter amount. Both use the same default selection, rounding and range arithmetic, including the DRAFractionalCapacityRange feature gate and the rules described by CapacityRequestPolicyRange.\n\nMust not set more than one ValidRequestValues.",
 				Type:        []string{"object"},
 				Properties: map[string]spec.Schema{
 					"default": {
@@ -48384,7 +48656,7 @@ func schema_k8sio_api_resource_v1_CapacityRequirements(ref common.ReferenceCallb
 				Properties: map[string]spec.Schema{
 					"requests": {
 						SchemaProps: spec.SchemaProps{
-							Description: "requests represent individual device resource requests for distinct resources, all of which must be provided by the device.\n\nThis value is used as an additional filtering condition against the available capacity on the device. This is semantically equivalent to a CEL selector with `device.capacity[<domain>].<name>.compareTo(quantity(<request quantity>)) >= 0`. For example, device.capacity['test-driver.cdi.k8s.io'].counters.compareTo(quantity('2')) >= 0.\n\nThe domain prefix can be omitted, in which case it defaults to the driver of the device under evaluation. For example, \"bandwidth: 1Gi\" is equivalent to \"<driver>/bandwidth: 1Gi\" for a device published by driver \"<driver>\", regardless of which other, differently-domained \"bandwidth\" capacities that device might also have. To request one of those, the domain must be given explicitly, for example \"example.com/bandwidth\". Requesting the same driver capacity with and without the driver name as domain, for example \"bandwidth: 1Gi\" and \"<driver>/bandwidth: 2Gi\", is ambiguous and causes scheduling to fail with an error. For the sake of consistency there's no exception for such a conflict where the value is the same - that is still an error.\n\nWhen a requestPolicy is defined, the requested amount is adjusted upward to the nearest valid value based on the policy. If the requested amount cannot be adjusted to a valid value—because it exceeds what the requestPolicy allows— the device is considered ineligible for allocation.\n\nFor any capacity that is not explicitly requested: - If no requestPolicy is set, the default consumed capacity is equal to the full device capacity\n  (i.e., the whole device is claimed).\n- If a requestPolicy is set, the default consumed capacity is determined according to that policy.\n\nIf the device allows multiple allocation, the aggregated amount across all requests must not exceed the capacity value. The consumed capacity, which may be adjusted based on the requestPolicy if defined, is recorded in the resource claim's status.devices[*].consumedCapacity field.\n\nRequests may have at most 32 entries. The values must not be negative.",
+							Description: "requests represent individual device capacity requests for distinct resources. Each requested name must be defined as a device capacity and/or a shared capacity (referenced by a device through consumesCounters).\n\nFor a per-device capacity, this value is used as an additional filtering condition against the available capacity on the device. This is semantically equivalent to a CEL selector with `device.capacity[<domain>].<name>.compareTo(quantity(<request quantity>)) >= 0`. For example, device.capacity['test-driver.cdi.k8s.io'].counters.compareTo(quantity('2')) >= 0.\n\nWith DRASharedConsumableCapacity enabled, a requested capacity may be provided as a shared capacity instead of a per-device capacity. If it is defined as both, the request must be satisfied by both independently.\n\nThe domain prefix can be omitted, in which case it defaults to the driver of the device under evaluation. For example, \"bandwidth: 1Gi\" is equivalent to \"<driver>/bandwidth: 1Gi\" for a device published by driver \"<driver>\", regardless of which other, differently-domained \"bandwidth\" capacities that device might also have. To request one of those, the domain must be given explicitly, for example \"example.com/bandwidth\". Requesting the same driver capacity with and without the driver name as domain, for example \"bandwidth: 1Gi\" and \"<driver>/bandwidth: 2Gi\", is ambiguous and causes scheduling to fail with an error. For the sake of consistency there's no exception for such a conflict where the value is the same - that is still an error.\n\nWhen a requestPolicy is defined, the requested amount is adjusted upward to the nearest valid value based on the policy. If the requested amount cannot be adjusted to a valid value—because it exceeds what the requestPolicy allows— the device is considered ineligible for allocation.\n\nFor any capacity that is not explicitly requested: - If no requestPolicy is set, the default consumed capacity is equal to the full device capacity\n  (i.e., the whole device is claimed).\n- If a requestPolicy is set, the default consumed capacity is determined according to that policy.\n\nIf the device allows multiple allocation, the aggregated amount across all requests must not exceed the capacity value. The consumed capacity, which may be adjusted based on the requestPolicy if defined, is recorded in the resource claim's status.devices[*].consumedCapacity field.\n\nRequests may have at most 32 entries. The values must not be negative.",
 							Type:        []string{"object"},
 							AdditionalProperties: &spec.SchemaOrBool{
 								Allows: true,
@@ -48408,7 +48680,7 @@ func schema_k8sio_api_resource_v1_Counter(ref common.ReferenceCallback) common.O
 	return common.OpenAPIDefinition{
 		Schema: spec.Schema{
 			SchemaProps: spec.SchemaProps{
-				Description: "Counter describes a quantity associated with a device.",
+				Description: "Counter describes a quantity that is available in a counter set.",
 				Type:        []string{"object"},
 				Properties: map[string]spec.Schema{
 					"value": {
@@ -48417,12 +48689,45 @@ func schema_k8sio_api_resource_v1_Counter(ref common.ReferenceCallback) common.O
 							Ref:         ref(resource.Quantity{}.OpenAPIModelName()),
 						},
 					},
+					"consumptionPolicy": {
+						SchemaProps: spec.SchemaProps{
+							Description: "consumptionPolicy defines how devices consume this counter. The consumed amount is rounded up according to the policy and must satisfy its limits.\n\nIf unset, devices can consume any amount up to the available counter value. If and only if the required amount is unspecified, then the policy default is used (if set) or the full counter value (if not set).\n\nFixed consumption of already allocated devices is resolved using the current policy and counted even if it violates the policy's limits.",
+							Ref:         ref(resourcev1.CapacityRequestPolicy{}.OpenAPIModelName()),
+						},
+					},
 				},
 				Required: []string{"value"},
 			},
 		},
 		Dependencies: []string{
-			resource.Quantity{}.OpenAPIModelName()},
+			resourcev1.CapacityRequestPolicy{}.OpenAPIModelName(), resource.Quantity{}.OpenAPIModelName()},
+	}
+}
+
+func schema_k8sio_api_resource_v1_CounterRequirement(ref common.ReferenceCallback) common.OpenAPIDefinition {
+	return common.OpenAPIDefinition{
+		Schema: spec.Schema{
+			SchemaProps: spec.SchemaProps{
+				Description: "CounterRequirement describes how much of a counter a device consumes.",
+				Type:        []string{"object"},
+				Properties: map[string]spec.Schema{
+					"value": {
+						SchemaProps: spec.SchemaProps{
+							Description: "value defines the statically consumed amount.\n\nExactly one of value or valueFrom must be specified.",
+							Ref:         ref(resource.Quantity{}.OpenAPIModelName()),
+						},
+					},
+					"valueFrom": {
+						SchemaProps: spec.SchemaProps{
+							Description: "valueFrom looks up the requested capacity value in a ResourceClaim via the capacity name. That value is then consumed from the counter instead of using a static value defined by the driver.\n\nExactly one of value or valueFrom must be specified.",
+							Ref:         ref(resourcev1.CounterValueFrom{}.OpenAPIModelName()),
+						},
+					},
+				},
+			},
+		},
+		Dependencies: []string{
+			resourcev1.CounterValueFrom{}.OpenAPIModelName(), resource.Quantity{}.OpenAPIModelName()},
 	}
 }
 
@@ -48461,6 +48766,66 @@ func schema_k8sio_api_resource_v1_CounterSet(ref common.ReferenceCallback) commo
 		},
 		Dependencies: []string{
 			resourcev1.Counter{}.OpenAPIModelName()},
+	}
+}
+
+func schema_k8sio_api_resource_v1_CounterSetConsumption(ref common.ReferenceCallback) common.OpenAPIDefinition {
+	return common.OpenAPIDefinition{
+		Schema: spec.Schema{
+			SchemaProps: spec.SchemaProps{
+				Description: "CounterSetConsumption records one allocation's resolved valueFrom consumption from one counter set. The containing DeviceRequestAllocationResult identifies the allocated device and its pool.\n\nFor example, two allocations sharing a device may consume 2Gi and 3Gi from a \"memory\" counter. Each result records only its own amount; together they consume 5Gi. Releasing the first allocation leaves 3Gi charged. If the device also consumes one fixed \"slots\" counter, that charge is accounted for separately from current ResourceSlices. With unchanged slice definitions, the fixed charge remains until the last non-admin allocation is released.",
+				Type:        []string{"object"},
+				Properties: map[string]spec.Schema{
+					"counterSet": {
+						SchemaProps: spec.SchemaProps{
+							Description: "counterSet identifies a counter set in the pool named by the containing allocation result.",
+							Default:     "",
+							Type:        []string{"string"},
+							Format:      "",
+						},
+					},
+					"counters": {
+						SchemaProps: spec.SchemaProps{
+							Description: "counters records this allocation's resolved quantity for each counter in the set. The map contains at most 32 counters; each quantity must be non-negative.",
+							Type:        []string{"object"},
+							AdditionalProperties: &spec.SchemaOrBool{
+								Allows: true,
+								Schema: &spec.Schema{
+									SchemaProps: spec.SchemaProps{
+										Ref: ref(resource.Quantity{}.OpenAPIModelName()),
+									},
+								},
+							},
+						},
+					},
+				},
+				Required: []string{"counterSet", "counters"},
+			},
+		},
+		Dependencies: []string{
+			resource.Quantity{}.OpenAPIModelName()},
+	}
+}
+
+func schema_k8sio_api_resource_v1_CounterValueFrom(ref common.ReferenceCallback) common.OpenAPIDefinition {
+	return common.OpenAPIDefinition{
+		Schema: spec.Schema{
+			SchemaProps: spec.SchemaProps{
+				Description: "CounterValueFrom looks up the requested capacity value in a ResourceClaim via the capacity name.",
+				Type:        []string{"object"},
+				Properties: map[string]spec.Schema{
+					"capacityName": {
+						SchemaProps: spec.SchemaProps{
+							Description: "capacityName is the name of a capacity that can be requested in a ResourceClaim. The counter value then defines a capacity that is shared between devices, in contrast to the per-device capacity defined in the device's capacity map. Typically a capacity is either shared or per-device, but it is also valid to use the same capacity name in both places. Requests then need to be satisfied by both.\n\nIf this name has no domain prefix, the driver name from the ResourceSlice is used as the domain when matching against capacity requests.",
+							Default:     "",
+							Type:        []string{"string"},
+							Format:      "",
+						},
+					},
+				},
+				Required: []string{"capacityName"},
+			},
+		},
 	}
 }
 
@@ -48781,7 +49146,7 @@ func schema_k8sio_api_resource_v1_DeviceAttribute(ref common.ReferenceCallback) 
 							},
 						},
 						SchemaProps: spec.SchemaProps{
-							Description: "ints is a non-empty list of numbers.\n\nThis is an alpha field and requires enabling the DRAListTypeAttributes feature gate.",
+							Description: "ints is a non-empty list of numbers.\n\nThis is a beta field and requires enabling the DRAListTypeAttributes feature gate (enabled by default).",
 							Type:        []string{"array"},
 							Items: &spec.SchemaOrArray{
 								Schema: &spec.Schema{
@@ -48800,7 +49165,7 @@ func schema_k8sio_api_resource_v1_DeviceAttribute(ref common.ReferenceCallback) 
 							},
 						},
 						SchemaProps: spec.SchemaProps{
-							Description: "bools is a non-empty list of true/false values.",
+							Description: "bools is a non-empty list of true/false values.\n\nThis is a beta field and requires enabling the DRAListTypeAttributes feature gate (enabled by default).",
 							Type:        []string{"array"},
 							Items: &spec.SchemaOrArray{
 								Schema: &spec.Schema{
@@ -48819,7 +49184,7 @@ func schema_k8sio_api_resource_v1_DeviceAttribute(ref common.ReferenceCallback) 
 							},
 						},
 						SchemaProps: spec.SchemaProps{
-							Description: "strings is a non-empty list of strings. Each string must not be longer than 64 characters.\n\nThis is an alpha field and requires enabling the DRAListTypeAttributes feature gate.",
+							Description: "strings is a non-empty list of strings. Each string must not be longer than 64 characters.\n\nThis is a beta field and requires enabling the DRAListTypeAttributes feature gate (enabled by default).",
 							Type:        []string{"array"},
 							Items: &spec.SchemaOrArray{
 								Schema: &spec.Schema{
@@ -48838,7 +49203,7 @@ func schema_k8sio_api_resource_v1_DeviceAttribute(ref common.ReferenceCallback) 
 							},
 						},
 						SchemaProps: spec.SchemaProps{
-							Description: "versions is a non-empty list of semantic versions according to semver.org spec 2.0.0. Each version string must not be longer than 64 characters.\n\nThis is an alpha field and requires enabling the DRAListTypeAttributes feature gate.",
+							Description: "versions is a non-empty list of semantic versions according to semver.org spec 2.0.0. Each version string must not be longer than 64 characters.\n\nThis is a beta field and requires enabling the DRAListTypeAttributes feature gate (enabled by default).",
 							Type:        []string{"array"},
 							Items: &spec.SchemaOrArray{
 								Schema: &spec.Schema{
@@ -49157,17 +49522,17 @@ func schema_k8sio_api_resource_v1_DeviceClassSpec(ref common.ReferenceCallback) 
 							Format:      "",
 						},
 					},
-					"extendedResourceCapacityRequests": {
+					"extendedResourceRequest": {
 						SchemaProps: spec.SchemaProps{
-							Description: "extendedResourceCapacityRequests defines the fixed capacity amounts that the scheduler requests on every ResourceClaim it synthesizes to satisfy the extended resource of this class.\n\nThe value is copied, unmodified, onto the capacity of each device request synthesized for this class, so it has the same semantics as DeviceRequest.capacity: it applies to each device allocation. A pod requesting more than one device through the extended resource gets that capacity once per device, not once per pod.\n\nThe devices selected by this class must advertise the referenced capacities. Otherwise the extended resource requests cannot be satisfied, the same way as with a selector that matches no devices.\n\nThis is an alpha field and requires enabling the DRAExtendedResourceCapacity feature gate, which depends on DRAConsumableCapacity.",
-							Ref:         ref(resourcev1.CapacityRequirements{}.OpenAPIModelName()),
+							Description: "extendedResourceRequest defines how the scheduler populates the device request of each ResourceClaim it synthesizes to satisfy the extended resource of this class.\n\nThis is an alpha field and requires enabling the DRAExtendedResourceCapacity feature gate, which depends on DRAConsumableCapacity.",
+							Ref:         ref(resourcev1.ExtendedResourceRequest{}.OpenAPIModelName()),
 						},
 					},
 				},
 			},
 		},
 		Dependencies: []string{
-			resourcev1.CapacityRequirements{}.OpenAPIModelName(), resourcev1.DeviceClassConfiguration{}.OpenAPIModelName(), resourcev1.DeviceSelector{}.OpenAPIModelName()},
+			resourcev1.DeviceClassConfiguration{}.OpenAPIModelName(), resourcev1.DeviceSelector{}.OpenAPIModelName(), resourcev1.ExtendedResourceRequest{}.OpenAPIModelName()},
 	}
 }
 
@@ -49261,7 +49626,7 @@ func schema_k8sio_api_resource_v1_DeviceCounterConsumption(ref common.ReferenceC
 								Allows: true,
 								Schema: &spec.Schema{
 									SchemaProps: spec.SchemaProps{
-										Ref: ref(resourcev1.Counter{}.OpenAPIModelName()),
+										Ref: ref(resourcev1.CounterRequirement{}.OpenAPIModelName()),
 									},
 								},
 							},
@@ -49291,7 +49656,7 @@ func schema_k8sio_api_resource_v1_DeviceCounterConsumption(ref common.ReferenceC
 			},
 		},
 		Dependencies: []string{
-			resourcev1.Counter{}.OpenAPIModelName()},
+			resourcev1.CounterRequirement{}.OpenAPIModelName()},
 	}
 }
 
@@ -49516,12 +49881,33 @@ func schema_k8sio_api_resource_v1_DeviceRequestAllocationResult(ref common.Refer
 							},
 						},
 					},
+					"consumedCounters": {
+						VendorExtensible: spec.VendorExtensible{
+							Extensions: spec.Extensions{
+								"x-kubernetes-list-map-keys": []interface{}{
+									"counterSet",
+								},
+								"x-kubernetes-list-type": "map",
+							},
+						},
+						SchemaProps: spec.SchemaProps{
+							Description: "consumedCounters records resolved valueFrom consumption for the single device identified by this allocation result, grouped by counter set in that device's pool. Each result records only its own request-dependent amounts. The scheduler sums these amounts across non-admin allocation results, including multiple shares of the same device. Releasing one allocation releases its recorded amounts without changing those of other allocations.\n\nQuantities are resolved at allocation time from the matching claim capacity requests, including consumptionPolicy rounding. They may therefore be greater than the requested amounts. If the claim omits a mapped capacity request, consumption uses the shared counter's policy default, or its full value when no default is defined. All resolved valueFrom counters are included, even when their quantity is zero.\n\nThe recorded amounts and counter set references remain authoritative if ResourceSlice mappings, defaults, or policies change. A mapping change does not move an existing allocation's consumption to a different counter set. DRA drivers can use these amounts without access to ResourceSlices.\n\nFixed counter consumption is not recorded here. The scheduler determines fixed consumption from current ResourceSlices, including consumptionPolicy rounding, and counts it once per (driver, pool, device) with at least one non-admin allocation. If the device definition is missing, its fixed consumption is not counted. Current fixed consumption is added to the recorded request-dependent consumption; changing a counter from valueFrom to value does not replace the recorded amounts.\n\nCurrent counter values still define the total budget. Reducing a counter below its recorded consumption prevents further counter consumption; existing allocation results are not changed. Recorded amounts are still counted if the allocated device is no longer present in current ResourceSlices. Amounts that refer to a missing counter set or counter are ignored.\n\nResourceSlice updates do not resize or revoke existing allocations. Drivers must ensure that updates remain compatible with existing allocations, or arrange for affected allocations to be released first.\n\nThis field is populated only for non-admin allocations when DRASharedConsumableCapacity is enabled. An absent field means that no request-dependent consumption was recorded, including for allocations made before the feature was enabled. If this field is absent, the scheduler counts this allocation's request-dependent counter consumption as zero. It does not reconstruct that consumption from the device's current valueFrom mappings.\n\nThe list contains at most 2 counter sets (the maximum a device may consume in a ResourceSlice), keyed by counter set name. Its order has no correspondence to the order of counter sets or devices in ResourceSlices.",
+							Type:        []string{"array"},
+							Items: &spec.SchemaOrArray{
+								Schema: &spec.Schema{
+									SchemaProps: spec.SchemaProps{
+										Ref: ref(resourcev1.CounterSetConsumption{}.OpenAPIModelName()),
+									},
+								},
+							},
+						},
+					},
 				},
 				Required: []string{"request", "driver", "pool", "device"},
 			},
 		},
 		Dependencies: []string{
-			resourcev1.DeviceToleration{}.OpenAPIModelName(), resource.Quantity{}.OpenAPIModelName()},
+			resourcev1.CounterSetConsumption{}.OpenAPIModelName(), resourcev1.DeviceToleration{}.OpenAPIModelName(), resource.Quantity{}.OpenAPIModelName()},
 	}
 }
 
@@ -50062,6 +50448,27 @@ func schema_k8sio_api_resource_v1_ExactDeviceRequest(ref common.ReferenceCallbac
 		},
 		Dependencies: []string{
 			resourcev1.CapacityRequirements{}.OpenAPIModelName(), resourcev1.DeviceDerivedAttribute{}.OpenAPIModelName(), resourcev1.DeviceSelector{}.OpenAPIModelName(), resourcev1.DeviceToleration{}.OpenAPIModelName()},
+	}
+}
+
+func schema_k8sio_api_resource_v1_ExtendedResourceRequest(ref common.ReferenceCallback) common.OpenAPIDefinition {
+	return common.OpenAPIDefinition{
+		Schema: spec.Schema{
+			SchemaProps: spec.SchemaProps{
+				Description: "ExtendedResourceRequest defines fields which the scheduler copies onto the device request it synthesizes for an extended resource.",
+				Type:        []string{"object"},
+				Properties: map[string]spec.Schema{
+					"capacity": {
+						SchemaProps: spec.SchemaProps{
+							Description: "capacity defines the fixed capacity amounts that the scheduler requests on every ResourceClaim it synthesizes to satisfy the extended resource of this class.\n\nThe value is copied, unmodified, onto the capacity of each device request synthesized for this class, so it has the same semantics as DeviceRequest.capacity: it applies to each device allocation. A pod requesting more than one device through the extended resource gets that capacity once per device, not once per pod.\n\nThe devices selected by this class must advertise the referenced capacities. Otherwise the extended resource requests cannot be satisfied, the same way as with a selector that matches no devices.",
+							Ref:         ref(resourcev1.CapacityRequirements{}.OpenAPIModelName()),
+						},
+					},
+				},
+			},
+		},
+		Dependencies: []string{
+			resourcev1.CapacityRequirements{}.OpenAPIModelName()},
 	}
 }
 
@@ -51892,7 +52299,7 @@ func schema_k8sio_api_resource_v1beta1_CapacityRequestPolicy(ref common.Referenc
 	return common.OpenAPIDefinition{
 		Schema: spec.Schema{
 			SchemaProps: spec.SchemaProps{
-				Description: "CapacityRequestPolicy defines how requests consume device capacity.\n\nMust not set more than one ValidRequestValues.",
+				Description: "CapacityRequestPolicy defines how requests consume device capacity and how devices consume counters.\n\nIt is used by DeviceCapacity.RequestPolicy and Counter.ConsumptionPolicy. For counter consumption, capacity means the available counter value, and a request means the device's required counter amount. Both use the same default selection, rounding and range arithmetic, including the DRAFractionalCapacityRange feature gate and the rules described by CapacityRequestPolicyRange.\n\nMust not set more than one ValidRequestValues.",
 				Type:        []string{"object"},
 				Properties: map[string]spec.Schema{
 					"default": {
@@ -51976,7 +52383,7 @@ func schema_k8sio_api_resource_v1beta1_CapacityRequirements(ref common.Reference
 				Properties: map[string]spec.Schema{
 					"requests": {
 						SchemaProps: spec.SchemaProps{
-							Description: "requests represent individual device resource requests for distinct resources, all of which must be provided by the device.\n\nThis value is used as an additional filtering condition against the available capacity on the device. This is semantically equivalent to a CEL selector with `device.capacity[<domain>].<name>.compareTo(quantity(<request quantity>)) >= 0`. For example, device.capacity['test-driver.cdi.k8s.io'].counters.compareTo(quantity('2')) >= 0.\n\nThe domain prefix can be omitted, in which case it defaults to the driver of the device under evaluation. For example, \"bandwidth: 1Gi\" is equivalent to \"<driver>/bandwidth: 1Gi\" for a device published by driver \"<driver>\", regardless of which other, differently-domained \"bandwidth\" capacities that device might also have. To request one of those, the domain must be given explicitly, for example \"example.com/bandwidth\". Requesting the same driver capacity with and without the driver name as domain, for example \"bandwidth: 1Gi\" and \"<driver>/bandwidth: 2Gi\", is ambiguous and causes scheduling to fail with an error. For the sake of consistency there's no exception for such a conflict where the value is the same - that is still an error.\n\nWhen a requestPolicy is defined, the requested amount is adjusted upward to the nearest valid value based on the policy. If the requested amount cannot be adjusted to a valid value—because it exceeds what the requestPolicy allows— the device is considered ineligible for allocation.\n\nFor any capacity that is not explicitly requested: - If no requestPolicy is set, the default consumed capacity is equal to the full device capacity\n  (i.e., the whole device is claimed).\n- If a requestPolicy is set, the default consumed capacity is determined according to that policy.\n\nIf the device allows multiple allocation, the aggregated amount across all requests must not exceed the capacity value. The consumed capacity, which may be adjusted based on the requestPolicy if defined, is recorded in the resource claim's status.devices[*].consumedCapacity field.\n\nRequests may have at most 32 entries. The values must not be negative.",
+							Description: "requests represent individual device capacity requests for distinct resources. Each requested name must be defined as a device capacity and/or a shared capacity (referenced by a device through consumesCounters).\n\nFor a per-device capacity, this value is used as an additional filtering condition against the available capacity on the device. This is semantically equivalent to a CEL selector with `device.capacity[<domain>].<name>.compareTo(quantity(<request quantity>)) >= 0`. For example, device.capacity['test-driver.cdi.k8s.io'].counters.compareTo(quantity('2')) >= 0.\n\nWith DRASharedConsumableCapacity enabled, a requested capacity may be provided as a shared capacity instead of a per-device capacity. If it is defined as both, the request must be satisfied by both independently.\n\nThe domain prefix can be omitted, in which case it defaults to the driver of the device under evaluation. For example, \"bandwidth: 1Gi\" is equivalent to \"<driver>/bandwidth: 1Gi\" for a device published by driver \"<driver>\", regardless of which other, differently-domained \"bandwidth\" capacities that device might also have. To request one of those, the domain must be given explicitly, for example \"example.com/bandwidth\". Requesting the same driver capacity with and without the driver name as domain, for example \"bandwidth: 1Gi\" and \"<driver>/bandwidth: 2Gi\", is ambiguous and causes scheduling to fail with an error. For the sake of consistency there's no exception for such a conflict where the value is the same - that is still an error.\n\nWhen a requestPolicy is defined, the requested amount is adjusted upward to the nearest valid value based on the policy. If the requested amount cannot be adjusted to a valid value—because it exceeds what the requestPolicy allows— the device is considered ineligible for allocation.\n\nFor any capacity that is not explicitly requested: - If no requestPolicy is set, the default consumed capacity is equal to the full device capacity\n  (i.e., the whole device is claimed).\n- If a requestPolicy is set, the default consumed capacity is determined according to that policy.\n\nIf the device allows multiple allocation, the aggregated amount across all requests must not exceed the capacity value. The consumed capacity, which may be adjusted based on the requestPolicy if defined, is recorded in the resource claim's status.devices[*].consumedCapacity field.\n\nRequests may have at most 32 entries. The values must not be negative.",
 							Type:        []string{"object"},
 							AdditionalProperties: &spec.SchemaOrBool{
 								Allows: true,
@@ -52000,7 +52407,7 @@ func schema_k8sio_api_resource_v1beta1_Counter(ref common.ReferenceCallback) com
 	return common.OpenAPIDefinition{
 		Schema: spec.Schema{
 			SchemaProps: spec.SchemaProps{
-				Description: "Counter describes a quantity associated with a device.",
+				Description: "Counter describes a quantity that is available in a counter set.",
 				Type:        []string{"object"},
 				Properties: map[string]spec.Schema{
 					"value": {
@@ -52009,12 +52416,45 @@ func schema_k8sio_api_resource_v1beta1_Counter(ref common.ReferenceCallback) com
 							Ref:         ref(resource.Quantity{}.OpenAPIModelName()),
 						},
 					},
+					"consumptionPolicy": {
+						SchemaProps: spec.SchemaProps{
+							Description: "consumptionPolicy defines how devices consume this counter. The consumed amount is rounded up according to the policy and must satisfy its limits.\n\nIf unset, devices can consume any amount up to the available counter value. If and only if the required amount is unspecified, then the policy default is used (if set) or the full counter value (if not set).\n\nFixed consumption of already allocated devices is resolved using the current policy and counted even if it violates the policy's limits.",
+							Ref:         ref(resourcev1beta1.CapacityRequestPolicy{}.OpenAPIModelName()),
+						},
+					},
 				},
 				Required: []string{"value"},
 			},
 		},
 		Dependencies: []string{
-			resource.Quantity{}.OpenAPIModelName()},
+			resourcev1beta1.CapacityRequestPolicy{}.OpenAPIModelName(), resource.Quantity{}.OpenAPIModelName()},
+	}
+}
+
+func schema_k8sio_api_resource_v1beta1_CounterRequirement(ref common.ReferenceCallback) common.OpenAPIDefinition {
+	return common.OpenAPIDefinition{
+		Schema: spec.Schema{
+			SchemaProps: spec.SchemaProps{
+				Description: "CounterRequirement describes how much of a counter a device consumes.",
+				Type:        []string{"object"},
+				Properties: map[string]spec.Schema{
+					"value": {
+						SchemaProps: spec.SchemaProps{
+							Description: "value defines the statically consumed amount.\n\nExactly one of value or valueFrom must be specified.",
+							Ref:         ref(resource.Quantity{}.OpenAPIModelName()),
+						},
+					},
+					"valueFrom": {
+						SchemaProps: spec.SchemaProps{
+							Description: "valueFrom looks up the requested capacity value in a ResourceClaim via the capacity name. That value is then consumed from the counter instead of using a static value defined by the driver.\n\nExactly one of value or valueFrom must be specified.",
+							Ref:         ref(resourcev1beta1.CounterValueFrom{}.OpenAPIModelName()),
+						},
+					},
+				},
+			},
+		},
+		Dependencies: []string{
+			resourcev1beta1.CounterValueFrom{}.OpenAPIModelName(), resource.Quantity{}.OpenAPIModelName()},
 	}
 }
 
@@ -52053,6 +52493,66 @@ func schema_k8sio_api_resource_v1beta1_CounterSet(ref common.ReferenceCallback) 
 		},
 		Dependencies: []string{
 			resourcev1beta1.Counter{}.OpenAPIModelName()},
+	}
+}
+
+func schema_k8sio_api_resource_v1beta1_CounterSetConsumption(ref common.ReferenceCallback) common.OpenAPIDefinition {
+	return common.OpenAPIDefinition{
+		Schema: spec.Schema{
+			SchemaProps: spec.SchemaProps{
+				Description: "CounterSetConsumption records one allocation's resolved valueFrom consumption from one counter set. The containing DeviceRequestAllocationResult identifies the allocated device and its pool.\n\nFor example, two allocations sharing a device may consume 2Gi and 3Gi from a \"memory\" counter. Each result records only its own amount; together they consume 5Gi. Releasing the first allocation leaves 3Gi charged. If the device also consumes one fixed \"slots\" counter, that charge is accounted for separately from current ResourceSlices. With unchanged slice definitions, the fixed charge remains until the last non-admin allocation is released.",
+				Type:        []string{"object"},
+				Properties: map[string]spec.Schema{
+					"counterSet": {
+						SchemaProps: spec.SchemaProps{
+							Description: "counterSet identifies a counter set in the pool named by the containing allocation result.",
+							Default:     "",
+							Type:        []string{"string"},
+							Format:      "",
+						},
+					},
+					"counters": {
+						SchemaProps: spec.SchemaProps{
+							Description: "counters records this allocation's resolved quantity for each counter in the set. The map contains at most 32 counters; each quantity must be non-negative.",
+							Type:        []string{"object"},
+							AdditionalProperties: &spec.SchemaOrBool{
+								Allows: true,
+								Schema: &spec.Schema{
+									SchemaProps: spec.SchemaProps{
+										Ref: ref(resource.Quantity{}.OpenAPIModelName()),
+									},
+								},
+							},
+						},
+					},
+				},
+				Required: []string{"counterSet", "counters"},
+			},
+		},
+		Dependencies: []string{
+			resource.Quantity{}.OpenAPIModelName()},
+	}
+}
+
+func schema_k8sio_api_resource_v1beta1_CounterValueFrom(ref common.ReferenceCallback) common.OpenAPIDefinition {
+	return common.OpenAPIDefinition{
+		Schema: spec.Schema{
+			SchemaProps: spec.SchemaProps{
+				Description: "CounterValueFrom looks up the requested capacity value in a ResourceClaim via the capacity name.",
+				Type:        []string{"object"},
+				Properties: map[string]spec.Schema{
+					"capacityName": {
+						SchemaProps: spec.SchemaProps{
+							Description: "capacityName is the name of a capacity that can be requested in a ResourceClaim. The counter value then defines a capacity that is shared between devices, in contrast to the per-device capacity defined in the device's capacity map. Typically a capacity is either shared or per-device, but it is also valid to use the same capacity name in both places. Requests then need to be satisfied by both.\n\nIf this name has no domain prefix, the driver name from the ResourceSlice is used as the domain when matching against capacity requests.",
+							Default:     "",
+							Type:        []string{"string"},
+							Format:      "",
+						},
+					},
+				},
+				Required: []string{"capacityName"},
+			},
+		},
 	}
 }
 
@@ -52229,7 +52729,7 @@ func schema_k8sio_api_resource_v1beta1_DeviceAttribute(ref common.ReferenceCallb
 							},
 						},
 						SchemaProps: spec.SchemaProps{
-							Description: "ints is a non-empty list of numbers.\n\nThis is an alpha field and requires enabling the DRAListTypeAttributes feature gate.",
+							Description: "ints is a non-empty list of numbers.\n\nThis is a beta field and requires enabling the DRAListTypeAttributes feature gate (enabled by default).",
 							Type:        []string{"array"},
 							Items: &spec.SchemaOrArray{
 								Schema: &spec.Schema{
@@ -52248,7 +52748,7 @@ func schema_k8sio_api_resource_v1beta1_DeviceAttribute(ref common.ReferenceCallb
 							},
 						},
 						SchemaProps: spec.SchemaProps{
-							Description: "bools is a non-empty list of true/false values.",
+							Description: "bools is a non-empty list of true/false values.\n\nThis is a beta field and requires enabling the DRAListTypeAttributes feature gate (enabled by default).",
 							Type:        []string{"array"},
 							Items: &spec.SchemaOrArray{
 								Schema: &spec.Schema{
@@ -52267,7 +52767,7 @@ func schema_k8sio_api_resource_v1beta1_DeviceAttribute(ref common.ReferenceCallb
 							},
 						},
 						SchemaProps: spec.SchemaProps{
-							Description: "strings is a non-empty list of strings. Each string must not be longer than 64 characters.\n\nThis is an alpha field and requires enabling the DRAListTypeAttributes feature gate.",
+							Description: "strings is a non-empty list of strings. Each string must not be longer than 64 characters.\n\nThis is a beta field and requires enabling the DRAListTypeAttributes feature gate (enabled by default).",
 							Type:        []string{"array"},
 							Items: &spec.SchemaOrArray{
 								Schema: &spec.Schema{
@@ -52286,7 +52786,7 @@ func schema_k8sio_api_resource_v1beta1_DeviceAttribute(ref common.ReferenceCallb
 							},
 						},
 						SchemaProps: spec.SchemaProps{
-							Description: "versions is a non-empty list of semantic versions according to semver.org spec 2.0.0. Each version string must not be longer than 64 characters.\n\nThis is an alpha field and requires enabling the DRAListTypeAttributes feature gate.",
+							Description: "versions is a non-empty list of semantic versions according to semver.org spec 2.0.0. Each version string must not be longer than 64 characters.\n\nThis is a beta field and requires enabling the DRAListTypeAttributes feature gate (enabled by default).",
 							Type:        []string{"array"},
 							Items: &spec.SchemaOrArray{
 								Schema: &spec.Schema{
@@ -52605,17 +53105,17 @@ func schema_k8sio_api_resource_v1beta1_DeviceClassSpec(ref common.ReferenceCallb
 							Format:      "",
 						},
 					},
-					"extendedResourceCapacityRequests": {
+					"extendedResourceRequest": {
 						SchemaProps: spec.SchemaProps{
-							Description: "extendedResourceCapacityRequests defines the fixed capacity amounts that the scheduler requests on every ResourceClaim it synthesizes to satisfy the extended resource of this class.\n\nThe value is copied, unmodified, onto the capacity of each device request synthesized for this class, so it has the same semantics as DeviceRequest.capacity: it applies to each device allocation. A pod requesting more than one device through the extended resource gets that capacity once per device, not once per pod.\n\nThe devices selected by this class must advertise the referenced capacities. Otherwise the extended resource requests cannot be satisfied, the same way as with a selector that matches no devices.\n\nThis is an alpha field and requires enabling the DRAExtendedResourceCapacity feature gate, which depends on DRAConsumableCapacity.",
-							Ref:         ref(resourcev1beta1.CapacityRequirements{}.OpenAPIModelName()),
+							Description: "extendedResourceRequest defines how the scheduler populates the device request of each ResourceClaim it synthesizes to satisfy the extended resource of this class.\n\nThis is an alpha field and requires enabling the DRAExtendedResourceCapacity feature gate, which depends on DRAConsumableCapacity.",
+							Ref:         ref(resourcev1beta1.ExtendedResourceRequest{}.OpenAPIModelName()),
 						},
 					},
 				},
 			},
 		},
 		Dependencies: []string{
-			resourcev1beta1.CapacityRequirements{}.OpenAPIModelName(), resourcev1beta1.DeviceClassConfiguration{}.OpenAPIModelName(), resourcev1beta1.DeviceSelector{}.OpenAPIModelName()},
+			resourcev1beta1.DeviceClassConfiguration{}.OpenAPIModelName(), resourcev1beta1.DeviceSelector{}.OpenAPIModelName(), resourcev1beta1.ExtendedResourceRequest{}.OpenAPIModelName()},
 	}
 }
 
@@ -52709,7 +53209,7 @@ func schema_k8sio_api_resource_v1beta1_DeviceCounterConsumption(ref common.Refer
 								Allows: true,
 								Schema: &spec.Schema{
 									SchemaProps: spec.SchemaProps{
-										Ref: ref(resourcev1beta1.Counter{}.OpenAPIModelName()),
+										Ref: ref(resourcev1beta1.CounterRequirement{}.OpenAPIModelName()),
 									},
 								},
 							},
@@ -52739,7 +53239,7 @@ func schema_k8sio_api_resource_v1beta1_DeviceCounterConsumption(ref common.Refer
 			},
 		},
 		Dependencies: []string{
-			resourcev1beta1.Counter{}.OpenAPIModelName()},
+			resourcev1beta1.CounterRequirement{}.OpenAPIModelName()},
 	}
 }
 
@@ -53048,12 +53548,33 @@ func schema_k8sio_api_resource_v1beta1_DeviceRequestAllocationResult(ref common.
 							},
 						},
 					},
+					"consumedCounters": {
+						VendorExtensible: spec.VendorExtensible{
+							Extensions: spec.Extensions{
+								"x-kubernetes-list-map-keys": []interface{}{
+									"counterSet",
+								},
+								"x-kubernetes-list-type": "map",
+							},
+						},
+						SchemaProps: spec.SchemaProps{
+							Description: "consumedCounters records resolved valueFrom consumption for the single device identified by this allocation result, grouped by counter set in that device's pool. Each result records only its own request-dependent amounts. The scheduler sums these amounts across non-admin allocation results, including multiple shares of the same device. Releasing one allocation releases its recorded amounts without changing those of other allocations.\n\nQuantities are resolved at allocation time from the matching claim capacity requests, including consumptionPolicy rounding. They may therefore be greater than the requested amounts. If the claim omits a mapped capacity request, consumption uses the shared counter's policy default, or its full value when no default is defined. All resolved valueFrom counters are included, even when their quantity is zero.\n\nThe recorded amounts and counter set references remain authoritative if ResourceSlice mappings, defaults, or policies change. A mapping change does not move an existing allocation's consumption to a different counter set. DRA drivers can use these amounts without access to ResourceSlices.\n\nFixed counter consumption is not recorded here. The scheduler determines fixed consumption from current ResourceSlices, including consumptionPolicy rounding, and counts it once per (driver, pool, device) with at least one non-admin allocation. If the device definition is missing, its fixed consumption is not counted. Current fixed consumption is added to the recorded request-dependent consumption; changing a counter from valueFrom to value does not replace the recorded amounts.\n\nCurrent counter values still define the total budget. Reducing a counter below its recorded consumption prevents further counter consumption; existing allocation results are not changed. Recorded amounts are still counted if the allocated device is no longer present in current ResourceSlices. Amounts that refer to a missing counter set or counter are ignored.\n\nResourceSlice updates do not resize or revoke existing allocations. Drivers must ensure that updates remain compatible with existing allocations, or arrange for affected allocations to be released first.\n\nThis field is populated only for non-admin allocations when DRASharedConsumableCapacity is enabled. An absent field means that no request-dependent consumption was recorded, including for allocations made before the feature was enabled. If this field is absent, the scheduler counts this allocation's request-dependent counter consumption as zero. It does not reconstruct that consumption from the device's current valueFrom mappings.\n\nThe list contains at most 2 counter sets (the maximum a device may consume in a ResourceSlice), keyed by counter set name. Its order has no correspondence to the order of counter sets or devices in ResourceSlices.",
+							Type:        []string{"array"},
+							Items: &spec.SchemaOrArray{
+								Schema: &spec.Schema{
+									SchemaProps: spec.SchemaProps{
+										Ref: ref(resourcev1beta1.CounterSetConsumption{}.OpenAPIModelName()),
+									},
+								},
+							},
+						},
+					},
 				},
 				Required: []string{"request", "driver", "pool", "device"},
 			},
 		},
 		Dependencies: []string{
-			resourcev1beta1.DeviceToleration{}.OpenAPIModelName(), resource.Quantity{}.OpenAPIModelName()},
+			resourcev1beta1.CounterSetConsumption{}.OpenAPIModelName(), resourcev1beta1.DeviceToleration{}.OpenAPIModelName(), resource.Quantity{}.OpenAPIModelName()},
 	}
 }
 
@@ -53279,6 +53800,27 @@ func schema_k8sio_api_resource_v1beta1_DeviceToleration(ref common.ReferenceCall
 				},
 			},
 		},
+	}
+}
+
+func schema_k8sio_api_resource_v1beta1_ExtendedResourceRequest(ref common.ReferenceCallback) common.OpenAPIDefinition {
+	return common.OpenAPIDefinition{
+		Schema: spec.Schema{
+			SchemaProps: spec.SchemaProps{
+				Description: "ExtendedResourceRequest defines fields which the scheduler copies onto the device request it synthesizes for an extended resource.",
+				Type:        []string{"object"},
+				Properties: map[string]spec.Schema{
+					"capacity": {
+						SchemaProps: spec.SchemaProps{
+							Description: "capacity defines the fixed capacity amounts that the scheduler requests on every ResourceClaim it synthesizes to satisfy the extended resource of this class.\n\nThe value is copied, unmodified, onto the capacity of each device request synthesized for this class, so it has the same semantics as DeviceRequest.capacity: it applies to each device allocation. A pod requesting more than one device through the extended resource gets that capacity once per device, not once per pod.\n\nThe devices selected by this class must advertise the referenced capacities. Otherwise the extended resource requests cannot be satisfied, the same way as with a selector that matches no devices.",
+							Ref:         ref(resourcev1beta1.CapacityRequirements{}.OpenAPIModelName()),
+						},
+					},
+				},
+			},
+		},
+		Dependencies: []string{
+			resourcev1beta1.CapacityRequirements{}.OpenAPIModelName()},
 	}
 }
 
@@ -54196,7 +54738,7 @@ func schema_k8sio_api_resource_v1beta2_CapacityRequestPolicy(ref common.Referenc
 	return common.OpenAPIDefinition{
 		Schema: spec.Schema{
 			SchemaProps: spec.SchemaProps{
-				Description: "CapacityRequestPolicy defines how requests consume device capacity.\n\nMust not set more than one ValidRequestValues.",
+				Description: "CapacityRequestPolicy defines how requests consume device capacity and how devices consume counters.\n\nIt is used by DeviceCapacity.RequestPolicy and Counter.ConsumptionPolicy. For counter consumption, capacity means the available counter value, and a request means the device's required counter amount. Both use the same default selection, rounding and range arithmetic, including the DRAFractionalCapacityRange feature gate and the rules described by CapacityRequestPolicyRange.\n\nMust not set more than one ValidRequestValues.",
 				Type:        []string{"object"},
 				Properties: map[string]spec.Schema{
 					"default": {
@@ -54280,7 +54822,7 @@ func schema_k8sio_api_resource_v1beta2_CapacityRequirements(ref common.Reference
 				Properties: map[string]spec.Schema{
 					"requests": {
 						SchemaProps: spec.SchemaProps{
-							Description: "requests represent individual device resource requests for distinct resources, all of which must be provided by the device.\n\nThis value is used as an additional filtering condition against the available capacity on the device. This is semantically equivalent to a CEL selector with `device.capacity[<domain>].<name>.compareTo(quantity(<request quantity>)) >= 0`. For example, device.capacity['test-driver.cdi.k8s.io'].counters.compareTo(quantity('2')) >= 0.\n\nThe domain prefix can be omitted, in which case it defaults to the driver of the device under evaluation. For example, \"bandwidth: 1Gi\" is equivalent to \"<driver>/bandwidth: 1Gi\" for a device published by driver \"<driver>\", regardless of which other, differently-domained \"bandwidth\" capacities that device might also have. To request one of those, the domain must be given explicitly, for example \"example.com/bandwidth\". Requesting the same driver capacity with and without the driver name as domain, for example \"bandwidth: 1Gi\" and \"<driver>/bandwidth: 2Gi\", is ambiguous and causes scheduling to fail with an error. For the sake of consistency there's no exception for such a conflict where the value is the same - that is still an error.\n\nWhen a requestPolicy is defined, the requested amount is adjusted upward to the nearest valid value based on the policy. If the requested amount cannot be adjusted to a valid value—because it exceeds what the requestPolicy allows— the device is considered ineligible for allocation.\n\nFor any capacity that is not explicitly requested: - If no requestPolicy is set, the default consumed capacity is equal to the full device capacity\n  (i.e., the whole device is claimed).\n- If a requestPolicy is set, the default consumed capacity is determined according to that policy.\n\nIf the device allows multiple allocation, the aggregated amount across all requests must not exceed the capacity value. The consumed capacity, which may be adjusted based on the requestPolicy if defined, is recorded in the resource claim’s status.devices[*].consumedCapacity field.\n\nRequests may have at most 32 entries. The values must not be negative.",
+							Description: "requests represent individual device capacity requests for distinct resources. Each requested name must be defined as a device capacity and/or a shared capacity (referenced by a device through consumesCounters).\n\nFor a per-device capacity, this value is used as an additional filtering condition against the available capacity on the device. This is semantically equivalent to a CEL selector with `device.capacity[<domain>].<name>.compareTo(quantity(<request quantity>)) >= 0`. For example, device.capacity['test-driver.cdi.k8s.io'].counters.compareTo(quantity('2')) >= 0.\n\nWith DRASharedConsumableCapacity enabled, a requested capacity may be provided as a shared capacity instead of a per-device capacity. If it is defined as both, the request must be satisfied by both independently.\n\nThe domain prefix can be omitted, in which case it defaults to the driver of the device under evaluation. For example, \"bandwidth: 1Gi\" is equivalent to \"<driver>/bandwidth: 1Gi\" for a device published by driver \"<driver>\", regardless of which other, differently-domained \"bandwidth\" capacities that device might also have. To request one of those, the domain must be given explicitly, for example \"example.com/bandwidth\". Requesting the same driver capacity with and without the driver name as domain, for example \"bandwidth: 1Gi\" and \"<driver>/bandwidth: 2Gi\", is ambiguous and causes scheduling to fail with an error. For the sake of consistency there's no exception for such a conflict where the value is the same - that is still an error.\n\nWhen a requestPolicy is defined, the requested amount is adjusted upward to the nearest valid value based on the policy. If the requested amount cannot be adjusted to a valid value—because it exceeds what the requestPolicy allows— the device is considered ineligible for allocation.\n\nFor any capacity that is not explicitly requested: - If no requestPolicy is set, the default consumed capacity is equal to the full device capacity\n  (i.e., the whole device is claimed).\n- If a requestPolicy is set, the default consumed capacity is determined according to that policy.\n\nIf the device allows multiple allocation, the aggregated amount across all requests must not exceed the capacity value. The consumed capacity, which may be adjusted based on the requestPolicy if defined, is recorded in the resource claim’s status.devices[*].consumedCapacity field.\n\nRequests may have at most 32 entries. The values must not be negative.",
 							Type:        []string{"object"},
 							AdditionalProperties: &spec.SchemaOrBool{
 								Allows: true,
@@ -54304,7 +54846,7 @@ func schema_k8sio_api_resource_v1beta2_Counter(ref common.ReferenceCallback) com
 	return common.OpenAPIDefinition{
 		Schema: spec.Schema{
 			SchemaProps: spec.SchemaProps{
-				Description: "Counter describes a quantity associated with a device.",
+				Description: "Counter describes a quantity that is available in a counter set.",
 				Type:        []string{"object"},
 				Properties: map[string]spec.Schema{
 					"value": {
@@ -54313,12 +54855,45 @@ func schema_k8sio_api_resource_v1beta2_Counter(ref common.ReferenceCallback) com
 							Ref:         ref(resource.Quantity{}.OpenAPIModelName()),
 						},
 					},
+					"consumptionPolicy": {
+						SchemaProps: spec.SchemaProps{
+							Description: "consumptionPolicy defines how devices consume this counter. The consumed amount is rounded up according to the policy and must satisfy its limits.\n\nIf unset, devices can consume any amount up to the available counter value. If and only if the required amount is unspecified, then the policy default is used (if set) or the full counter value (if not set).\n\nFixed consumption of already allocated devices is resolved using the current policy and counted even if it violates the policy's limits.",
+							Ref:         ref(resourcev1beta2.CapacityRequestPolicy{}.OpenAPIModelName()),
+						},
+					},
 				},
 				Required: []string{"value"},
 			},
 		},
 		Dependencies: []string{
-			resource.Quantity{}.OpenAPIModelName()},
+			resourcev1beta2.CapacityRequestPolicy{}.OpenAPIModelName(), resource.Quantity{}.OpenAPIModelName()},
+	}
+}
+
+func schema_k8sio_api_resource_v1beta2_CounterRequirement(ref common.ReferenceCallback) common.OpenAPIDefinition {
+	return common.OpenAPIDefinition{
+		Schema: spec.Schema{
+			SchemaProps: spec.SchemaProps{
+				Description: "CounterRequirement describes how much of a counter a device consumes.",
+				Type:        []string{"object"},
+				Properties: map[string]spec.Schema{
+					"value": {
+						SchemaProps: spec.SchemaProps{
+							Description: "value defines the statically consumed amount.\n\nExactly one of value or valueFrom must be specified.",
+							Ref:         ref(resource.Quantity{}.OpenAPIModelName()),
+						},
+					},
+					"valueFrom": {
+						SchemaProps: spec.SchemaProps{
+							Description: "valueFrom looks up the requested capacity value in a ResourceClaim via the capacity name. That value is then consumed from the counter instead of using a static value defined by the driver.\n\nExactly one of value or valueFrom must be specified.",
+							Ref:         ref(resourcev1beta2.CounterValueFrom{}.OpenAPIModelName()),
+						},
+					},
+				},
+			},
+		},
+		Dependencies: []string{
+			resourcev1beta2.CounterValueFrom{}.OpenAPIModelName(), resource.Quantity{}.OpenAPIModelName()},
 	}
 }
 
@@ -54357,6 +54932,66 @@ func schema_k8sio_api_resource_v1beta2_CounterSet(ref common.ReferenceCallback) 
 		},
 		Dependencies: []string{
 			resourcev1beta2.Counter{}.OpenAPIModelName()},
+	}
+}
+
+func schema_k8sio_api_resource_v1beta2_CounterSetConsumption(ref common.ReferenceCallback) common.OpenAPIDefinition {
+	return common.OpenAPIDefinition{
+		Schema: spec.Schema{
+			SchemaProps: spec.SchemaProps{
+				Description: "CounterSetConsumption records one allocation's resolved valueFrom consumption from one counter set. The containing DeviceRequestAllocationResult identifies the allocated device and its pool.\n\nFor example, two allocations sharing a device may consume 2Gi and 3Gi from a \"memory\" counter. Each result records only its own amount; together they consume 5Gi. Releasing the first allocation leaves 3Gi charged. If the device also consumes one fixed \"slots\" counter, that charge is accounted for separately from current ResourceSlices. With unchanged slice definitions, the fixed charge remains until the last non-admin allocation is released.",
+				Type:        []string{"object"},
+				Properties: map[string]spec.Schema{
+					"counterSet": {
+						SchemaProps: spec.SchemaProps{
+							Description: "counterSet identifies a counter set in the pool named by the containing allocation result.",
+							Default:     "",
+							Type:        []string{"string"},
+							Format:      "",
+						},
+					},
+					"counters": {
+						SchemaProps: spec.SchemaProps{
+							Description: "counters records this allocation's resolved quantity for each counter in the set. The map contains at most 32 counters; each quantity must be non-negative.",
+							Type:        []string{"object"},
+							AdditionalProperties: &spec.SchemaOrBool{
+								Allows: true,
+								Schema: &spec.Schema{
+									SchemaProps: spec.SchemaProps{
+										Ref: ref(resource.Quantity{}.OpenAPIModelName()),
+									},
+								},
+							},
+						},
+					},
+				},
+				Required: []string{"counterSet", "counters"},
+			},
+		},
+		Dependencies: []string{
+			resource.Quantity{}.OpenAPIModelName()},
+	}
+}
+
+func schema_k8sio_api_resource_v1beta2_CounterValueFrom(ref common.ReferenceCallback) common.OpenAPIDefinition {
+	return common.OpenAPIDefinition{
+		Schema: spec.Schema{
+			SchemaProps: spec.SchemaProps{
+				Description: "CounterValueFrom looks up the requested capacity value in a ResourceClaim via the capacity name.",
+				Type:        []string{"object"},
+				Properties: map[string]spec.Schema{
+					"capacityName": {
+						SchemaProps: spec.SchemaProps{
+							Description: "capacityName is the name of a capacity that can be requested in a ResourceClaim. The counter value then defines a capacity that is shared between devices, in contrast to the per-device capacity defined in the device's capacity map. Typically a capacity is either shared or per-device, but it is also valid to use the same capacity name in both places. Requests then need to be satisfied by both.\n\nIf this name has no domain prefix, the driver name from the ResourceSlice is used as the domain when matching against capacity requests.",
+							Default:     "",
+							Type:        []string{"string"},
+							Format:      "",
+						},
+					},
+				},
+				Required: []string{"capacityName"},
+			},
+		},
 	}
 }
 
@@ -54677,7 +55312,7 @@ func schema_k8sio_api_resource_v1beta2_DeviceAttribute(ref common.ReferenceCallb
 							},
 						},
 						SchemaProps: spec.SchemaProps{
-							Description: "ints is a non-empty list of numbers.\n\nThis is an alpha field and requires enabling the DRAListTypeAttributes feature gate.",
+							Description: "ints is a non-empty list of numbers.\n\nThis is a beta field and requires enabling the DRAListTypeAttributes feature gate (enabled by default).",
 							Type:        []string{"array"},
 							Items: &spec.SchemaOrArray{
 								Schema: &spec.Schema{
@@ -54696,7 +55331,7 @@ func schema_k8sio_api_resource_v1beta2_DeviceAttribute(ref common.ReferenceCallb
 							},
 						},
 						SchemaProps: spec.SchemaProps{
-							Description: "bools is a non-empty list of true/false values.",
+							Description: "bools is a non-empty list of true/false values.\n\nThis is a beta field and requires enabling the DRAListTypeAttributes feature gate (enabled by default).",
 							Type:        []string{"array"},
 							Items: &spec.SchemaOrArray{
 								Schema: &spec.Schema{
@@ -54715,7 +55350,7 @@ func schema_k8sio_api_resource_v1beta2_DeviceAttribute(ref common.ReferenceCallb
 							},
 						},
 						SchemaProps: spec.SchemaProps{
-							Description: "strings is a non-empty list of strings. Each string must not be longer than 64 characters.\n\nThis is an alpha field and requires enabling the DRAListTypeAttributes feature gate.",
+							Description: "strings is a non-empty list of strings. Each string must not be longer than 64 characters.\n\nThis is a beta field and requires enabling the DRAListTypeAttributes feature gate (enabled by default).",
 							Type:        []string{"array"},
 							Items: &spec.SchemaOrArray{
 								Schema: &spec.Schema{
@@ -54734,7 +55369,7 @@ func schema_k8sio_api_resource_v1beta2_DeviceAttribute(ref common.ReferenceCallb
 							},
 						},
 						SchemaProps: spec.SchemaProps{
-							Description: "versions is a non-empty list of semantic versions according to semver.org spec 2.0.0. Each version string must not be longer than 64 characters.\n\nThis is an alpha field and requires enabling the DRAListTypeAttributes feature gate.",
+							Description: "versions is a non-empty list of semantic versions according to semver.org spec 2.0.0. Each version string must not be longer than 64 characters.\n\nThis is a beta field and requires enabling the DRAListTypeAttributes feature gate (enabled by default).",
 							Type:        []string{"array"},
 							Items: &spec.SchemaOrArray{
 								Schema: &spec.Schema{
@@ -55053,17 +55688,17 @@ func schema_k8sio_api_resource_v1beta2_DeviceClassSpec(ref common.ReferenceCallb
 							Format:      "",
 						},
 					},
-					"extendedResourceCapacityRequests": {
+					"extendedResourceRequest": {
 						SchemaProps: spec.SchemaProps{
-							Description: "extendedResourceCapacityRequests defines the fixed capacity amounts that the scheduler requests on every ResourceClaim it synthesizes to satisfy the extended resource of this class.\n\nThe value is copied, unmodified, onto the capacity of each device request synthesized for this class, so it has the same semantics as DeviceRequest.capacity: it applies to each device allocation. A pod requesting more than one device through the extended resource gets that capacity once per device, not once per pod.\n\nThe devices selected by this class must advertise the referenced capacities. Otherwise the extended resource requests cannot be satisfied, the same way as with a selector that matches no devices.\n\nThis is an alpha field and requires enabling the DRAExtendedResourceCapacity feature gate, which depends on DRAConsumableCapacity.",
-							Ref:         ref(resourcev1beta2.CapacityRequirements{}.OpenAPIModelName()),
+							Description: "extendedResourceRequest defines how the scheduler populates the device request of each ResourceClaim it synthesizes to satisfy the extended resource of this class.\n\nThis is an alpha field and requires enabling the DRAExtendedResourceCapacity feature gate, which depends on DRAConsumableCapacity.",
+							Ref:         ref(resourcev1beta2.ExtendedResourceRequest{}.OpenAPIModelName()),
 						},
 					},
 				},
 			},
 		},
 		Dependencies: []string{
-			resourcev1beta2.CapacityRequirements{}.OpenAPIModelName(), resourcev1beta2.DeviceClassConfiguration{}.OpenAPIModelName(), resourcev1beta2.DeviceSelector{}.OpenAPIModelName()},
+			resourcev1beta2.DeviceClassConfiguration{}.OpenAPIModelName(), resourcev1beta2.DeviceSelector{}.OpenAPIModelName(), resourcev1beta2.ExtendedResourceRequest{}.OpenAPIModelName()},
 	}
 }
 
@@ -55157,7 +55792,7 @@ func schema_k8sio_api_resource_v1beta2_DeviceCounterConsumption(ref common.Refer
 								Allows: true,
 								Schema: &spec.Schema{
 									SchemaProps: spec.SchemaProps{
-										Ref: ref(resourcev1beta2.Counter{}.OpenAPIModelName()),
+										Ref: ref(resourcev1beta2.CounterRequirement{}.OpenAPIModelName()),
 									},
 								},
 							},
@@ -55187,7 +55822,7 @@ func schema_k8sio_api_resource_v1beta2_DeviceCounterConsumption(ref common.Refer
 			},
 		},
 		Dependencies: []string{
-			resourcev1beta2.Counter{}.OpenAPIModelName()},
+			resourcev1beta2.CounterRequirement{}.OpenAPIModelName()},
 	}
 }
 
@@ -55412,12 +56047,33 @@ func schema_k8sio_api_resource_v1beta2_DeviceRequestAllocationResult(ref common.
 							},
 						},
 					},
+					"consumedCounters": {
+						VendorExtensible: spec.VendorExtensible{
+							Extensions: spec.Extensions{
+								"x-kubernetes-list-map-keys": []interface{}{
+									"counterSet",
+								},
+								"x-kubernetes-list-type": "map",
+							},
+						},
+						SchemaProps: spec.SchemaProps{
+							Description: "consumedCounters records resolved valueFrom consumption for the single device identified by this allocation result, grouped by counter set in that device's pool. Each result records only its own request-dependent amounts. The scheduler sums these amounts across non-admin allocation results, including multiple shares of the same device. Releasing one allocation releases its recorded amounts without changing those of other allocations.\n\nQuantities are resolved at allocation time from the matching claim capacity requests, including consumptionPolicy rounding. They may therefore be greater than the requested amounts. If the claim omits a mapped capacity request, consumption uses the shared counter's policy default, or its full value when no default is defined. All resolved valueFrom counters are included, even when their quantity is zero.\n\nThe recorded amounts and counter set references remain authoritative if ResourceSlice mappings, defaults, or policies change. A mapping change does not move an existing allocation's consumption to a different counter set. DRA drivers can use these amounts without access to ResourceSlices.\n\nFixed counter consumption is not recorded here. The scheduler determines fixed consumption from current ResourceSlices, including consumptionPolicy rounding, and counts it once per (driver, pool, device) with at least one non-admin allocation. If the device definition is missing, its fixed consumption is not counted. Current fixed consumption is added to the recorded request-dependent consumption; changing a counter from valueFrom to value does not replace the recorded amounts.\n\nCurrent counter values still define the total budget. Reducing a counter below its recorded consumption prevents further counter consumption; existing allocation results are not changed. Recorded amounts are still counted if the allocated device is no longer present in current ResourceSlices. Amounts that refer to a missing counter set or counter are ignored.\n\nResourceSlice updates do not resize or revoke existing allocations. Drivers must ensure that updates remain compatible with existing allocations, or arrange for affected allocations to be released first.\n\nThis field is populated only for non-admin allocations when DRASharedConsumableCapacity is enabled. An absent field means that no request-dependent consumption was recorded, including for allocations made before the feature was enabled. If this field is absent, the scheduler counts this allocation's request-dependent counter consumption as zero. It does not reconstruct that consumption from the device's current valueFrom mappings.\n\nThe list contains at most 2 counter sets (the maximum a device may consume in a ResourceSlice), keyed by counter set name. Its order has no correspondence to the order of counter sets or devices in ResourceSlices.",
+							Type:        []string{"array"},
+							Items: &spec.SchemaOrArray{
+								Schema: &spec.Schema{
+									SchemaProps: spec.SchemaProps{
+										Ref: ref(resourcev1beta2.CounterSetConsumption{}.OpenAPIModelName()),
+									},
+								},
+							},
+						},
+					},
 				},
 				Required: []string{"request", "driver", "pool", "device"},
 			},
 		},
 		Dependencies: []string{
-			resourcev1beta2.DeviceToleration{}.OpenAPIModelName(), resource.Quantity{}.OpenAPIModelName()},
+			resourcev1beta2.CounterSetConsumption{}.OpenAPIModelName(), resourcev1beta2.DeviceToleration{}.OpenAPIModelName(), resource.Quantity{}.OpenAPIModelName()},
 	}
 }
 
@@ -55958,6 +56614,27 @@ func schema_k8sio_api_resource_v1beta2_ExactDeviceRequest(ref common.ReferenceCa
 		},
 		Dependencies: []string{
 			resourcev1beta2.CapacityRequirements{}.OpenAPIModelName(), resourcev1beta2.DeviceDerivedAttribute{}.OpenAPIModelName(), resourcev1beta2.DeviceSelector{}.OpenAPIModelName(), resourcev1beta2.DeviceToleration{}.OpenAPIModelName()},
+	}
+}
+
+func schema_k8sio_api_resource_v1beta2_ExtendedResourceRequest(ref common.ReferenceCallback) common.OpenAPIDefinition {
+	return common.OpenAPIDefinition{
+		Schema: spec.Schema{
+			SchemaProps: spec.SchemaProps{
+				Description: "ExtendedResourceRequest defines fields which the scheduler copies onto the device request it synthesizes for an extended resource.",
+				Type:        []string{"object"},
+				Properties: map[string]spec.Schema{
+					"capacity": {
+						SchemaProps: spec.SchemaProps{
+							Description: "capacity defines the fixed capacity amounts that the scheduler requests on every ResourceClaim it synthesizes to satisfy the extended resource of this class.\n\nThe value is copied, unmodified, onto the capacity of each device request synthesized for this class, so it has the same semantics as DeviceRequest.capacity: it applies to each device allocation. A pod requesting more than one device through the extended resource gets that capacity once per device, not once per pod.\n\nThe devices selected by this class must advertise the referenced capacities. Otherwise the extended resource requests cannot be satisfied, the same way as with a selector that matches no devices.",
+							Ref:         ref(resourcev1beta2.CapacityRequirements{}.OpenAPIModelName()),
+						},
+					},
+				},
+			},
+		},
+		Dependencies: []string{
+			resourcev1beta2.CapacityRequirements{}.OpenAPIModelName()},
 	}
 }
 
@@ -57605,7 +58282,7 @@ func schema_k8sio_api_scheduling_v1alpha3_CompositePodGroupStatus(ref common.Ref
 							},
 						},
 						SchemaProps: spec.SchemaProps{
-							Description: "conditions represent the latest observations of the CompositePodGroup's state.\n\nKnown condition types: - \"CompositePodGroupInitiallyScheduled\": Indicates whether the overall scheduling requirement\n  for the subtree under this CompositePodGroup has been satisfied. Once this condition\n  transitions to True, it serves as a terminal state and will never revert to False,\n  even if pods are subsequently deleted and group constraints are no longer met.\n- \"DisruptionTarget\": Indicates whether the CompositePodGroup is about to be terminated\n  due to disruption such as preemption.\n\nKnown reasons for the CompositePodGroupInitiallyScheduled condition: - \"Scheduled\": All required child groups and pods under this CompositePodGroup have been successfully scheduled. - \"Unschedulable\": The CompositePodGroup's subtree could not be placed, for example due to unmet\n  minGroupCount, placement constraints, or insufficient capacity for its child groups.\n- \"SchedulerError\": The CompositePodGroup cannot be scheduled due to some internal error\n  that occurred during scheduling.\n- \"CompositePodGroupError\": The CompositePodGroup cannot be scheduled due to an invalid group layout\n  detected during runtime validation. The `message` field details the specific layout violation (such as\n  a detected cycle, exceeding the maximum depth of 4, or referencing multiple distinct Workloads).\n\nKnown reasons for the DisruptionTarget condition: - \"PreemptionByScheduler\": The CompositePodGroup was preempted by the scheduler to make room for\n  higher-priority CompositePodGroups, PodGroups or Pods.",
+							Description: "conditions represent the latest observations of the CompositePodGroup's state.\n\nKnown condition types: - \"CompositePodGroupInitiallyScheduled\": Indicates whether the overall scheduling requirement\n  for the subtree under this CompositePodGroup has been satisfied. Once this condition\n  transitions to True, it serves as a terminal state and will never revert to False,\n  even if pods are subsequently deleted and group constraints are no longer met.\n- \"DisruptionTarget\": Indicates whether the CompositePodGroup is about to be terminated\n  due to disruption such as preemption.\n\nKnown reasons for the CompositePodGroupInitiallyScheduled condition: - \"Scheduled\": All required child groups and pods under this CompositePodGroup have been successfully scheduled. - \"Unschedulable\": The CompositePodGroup's subtree could not be placed, for example due to unmet\n  minGroupCount, placement constraints, or insufficient capacity for its child groups.\n- \"SchedulerError\": The CompositePodGroup cannot be scheduled due to some internal error\n  that occurred during scheduling.\n- \"CompositePodGroupError\": The CompositePodGroup cannot be scheduled due to an invalid group layout\n  detected during runtime validation. The `message` field details the specific layout violation (such as\n  a detected cycle, exceeding the maximum depth of 5, or referencing multiple distinct Workloads).\n\nKnown reasons for the DisruptionTarget condition: - \"PreemptionByScheduler\": The CompositePodGroup was preempted by the scheduler to make room for\n  higher-priority CompositePodGroups, PodGroups or Pods.",
 							Type:        []string{"array"},
 							Items: &spec.SchemaOrArray{
 								Schema: &spec.Schema{
@@ -58909,7 +59586,7 @@ func schema_k8sio_api_scheduling_v1beta1_CompositePodGroupStatus(ref common.Refe
 							},
 						},
 						SchemaProps: spec.SchemaProps{
-							Description: "conditions represent the latest observations of the CompositePodGroup's state.\n\nKnown condition types: - \"CompositePodGroupInitiallyScheduled\": Indicates whether the overall scheduling requirement\n  for the subtree under this CompositePodGroup has been satisfied. Once this condition\n  transitions to True, it serves as a terminal state and will never revert to False,\n  even if pods are subsequently deleted and group constraints are no longer met.\n- \"DisruptionTarget\": Indicates whether the CompositePodGroup is about to be terminated\n  due to disruption such as preemption.\n\nKnown reasons for the CompositePodGroupInitiallyScheduled condition: - \"Scheduled\": All required child groups and pods under this CompositePodGroup have been successfully scheduled. - \"Unschedulable\": The CompositePodGroup's subtree could not be placed, for example due to unmet\n  minGroupCount, placement constraints, or insufficient capacity for its child groups.\n- \"SchedulerError\": The CompositePodGroup cannot be scheduled due to some internal error\n  that occurred during scheduling.\n- \"CompositePodGroupError\": The CompositePodGroup cannot be scheduled due to an invalid group layout\n  detected during runtime validation. The `message` field details the specific layout violation (such as\n  a detected cycle, exceeding the maximum depth of 4, or referencing multiple distinct Workloads).\n\nKnown reasons for the DisruptionTarget condition: - \"PreemptionByScheduler\": The CompositePodGroup was preempted by the scheduler to make room for\n  higher-priority CompositePodGroups, PodGroups or Pods.",
+							Description: "conditions represent the latest observations of the CompositePodGroup's state.\n\nKnown condition types: - \"CompositePodGroupInitiallyScheduled\": Indicates whether the overall scheduling requirement\n  for the subtree under this CompositePodGroup has been satisfied. Once this condition\n  transitions to True, it serves as a terminal state and will never revert to False,\n  even if pods are subsequently deleted and group constraints are no longer met.\n- \"DisruptionTarget\": Indicates whether the CompositePodGroup is about to be terminated\n  due to disruption such as preemption.\n\nKnown reasons for the CompositePodGroupInitiallyScheduled condition: - \"Scheduled\": All required child groups and pods under this CompositePodGroup have been successfully scheduled. - \"Unschedulable\": The CompositePodGroup's subtree could not be placed, for example due to unmet\n  minGroupCount, placement constraints, or insufficient capacity for its child groups.\n- \"SchedulerError\": The CompositePodGroup cannot be scheduled due to some internal error\n  that occurred during scheduling.\n- \"CompositePodGroupError\": The CompositePodGroup cannot be scheduled due to an invalid group layout\n  detected during runtime validation. The `message` field details the specific layout violation (such as\n  a detected cycle, exceeding the maximum depth of 5, or referencing multiple distinct Workloads).\n\nKnown reasons for the DisruptionTarget condition: - \"PreemptionByScheduler\": The CompositePodGroup was preempted by the scheduler to make room for\n  higher-priority CompositePodGroups, PodGroups or Pods.",
 							Type:        []string{"array"},
 							Items: &spec.SchemaOrArray{
 								Schema: &spec.Schema{

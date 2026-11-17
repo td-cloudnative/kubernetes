@@ -378,17 +378,27 @@ func (c *claimTracker) GatherAllocatedState() (s *structured.AllocatedState, err
 	// Start with a fresh set that matches the current known state of the
 	// world according to the informers.
 	enabledConsumableCapacity := utilfeature.DefaultFeatureGate.Enabled(features.DRAConsumableCapacity)
+	enabledSharedConsumableCapacity := utilfeature.DefaultFeatureGate.Enabled(features.DRASharedConsumableCapacity)
 
 	allocated, revision1 := c.allocatedDevices.get()
-	allocatedSharedDeviceIDs, revision2 := c.allocatedDevices.getSharedDeviceIDs()
+	allocatedShares, revision2 := c.allocatedDevices.getSharedDeviceIDs()
 	aggregatedCapacity, revision3, err := c.allocatedDevices.getCapacities()
 	if err != nil {
 		return nil, err
 	}
+	counterSnapshots, revision4 := c.allocatedDevices.getCounters()
+	if !enabledSharedConsumableCapacity {
+		counterSnapshots = nil
+	}
 
-	if revision1 != revision2 || revision2 != revision3 {
+	if revision1 != revision2 || revision2 != revision3 || revision3 != revision4 {
 		// Already not consistent. Try again.
 		return nil, errClaimTrackerConcurrentModification
+	}
+
+	allocatedSharedDeviceIDs := sets.New[structured.DeviceID]()
+	for id := range allocatedShares {
+		allocatedSharedDeviceIDs.Insert(id.GetDeviceID())
 	}
 
 	if !enabledConsumableCapacity {
@@ -410,6 +420,23 @@ func (c *claimTracker) GatherAllocatedState() (s *structured.AllocatedState, err
 		AggregatedCapacity:       aggregatedCapacity,
 	}
 
+	// A persisted allocation can remain in flight while PreBind waits for binding
+	// conditions. Its capacity is already included in the cached totals.
+	isCachedShare := func(result resourceapi.DeviceRequestAllocationResult) bool {
+		id := structured.MakeDeviceID(result.Driver, result.Pool, result.Device)
+		return result.ShareID != nil && allocatedShares.Has(structured.MakeSharedDeviceID(id, result.ShareID))
+	}
+
+	var inFlightIDs sets.Set[structured.SharedDeviceID]
+	var counterCallback func(structured.SharedDeviceID, []resourceapi.CounterSetConsumption)
+	if enabledSharedConsumableCapacity {
+		inFlightIDs = sets.New[structured.SharedDeviceID]()
+		counterCallback = func(id structured.SharedDeviceID, _ []resourceapi.CounterSetConsumption) {
+			// The shared helper adds in-flight snapshots; omit their cached versions.
+			inFlightIDs.Insert(id)
+		}
+	}
+
 	// Whatever is in flight also has to be checked.
 	var inFlightErr error
 	structured.AddToAllocatedState(state,
@@ -420,15 +447,34 @@ func (c *claimTracker) GatherAllocatedState() (s *structured.AllocatedState, err
 						return
 					}
 				}
-				if !yield(inFlight.claim.Status.Allocation) {
+				allocation := inFlight.claim.Status.Allocation
+				if enabledConsumableCapacity && allocation != nil && slices.ContainsFunc(allocation.Devices.Results, isCachedShare) {
+					filtered := *allocation
+					filtered.Devices.Results = slices.DeleteFunc(slices.Clone(allocation.Devices.Results), isCachedShare)
+					allocation = &filtered
+				}
+				foreachConsumedCounters(allocation, counterCallback)
+				if !yield(allocation) {
 					return
 				}
 			}
 		},
-		structured.Features{ConsumableCapacity: enabledConsumableCapacity},
+		structured.Features{
+			ConsumableCapacity:       enabledConsumableCapacity,
+			SharedConsumableCapacity: enabledSharedConsumableCapacity,
+		},
 	)
 	if inFlightErr != nil {
 		return nil, inFlightErr
+	}
+	for id, snapshot := range counterSnapshots {
+		if inFlightIDs.Has(id) {
+			continue
+		}
+		if state.ConsumedCounters == nil {
+			state.ConsumedCounters = make(schedulerapi.CounterConsumptionByDevice)
+		}
+		state.ConsumedCounters.Add(id.GetDeviceID(), snapshot)
 	}
 	if revision1 == c.allocatedDevices.getRevision() {
 		// Our current result is valid, nothing changed in the meantime.

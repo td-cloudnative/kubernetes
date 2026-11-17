@@ -1819,6 +1819,26 @@ var schemaYAML = typed.YAMLObject(`types:
       type:
         scalar: string
       default: ""
+- name: io.k8s.api.apps.v1.DeploymentSchedulingConfiguration
+  map:
+    fields:
+    - name: disruptionMode
+      type:
+        namedType: io.k8s.api.scheduling.v1.WorkloadPodGroupDisruptionMode
+    - name: resourceClaims
+      type:
+        list:
+          elementType:
+            namedType: io.k8s.api.scheduling.v1.WorkloadPodGroupResourceClaim
+          elementRelationship: associative
+          keys:
+          - name
+    - name: schedulingConstraints
+      type:
+        namedType: io.k8s.api.scheduling.v1.WorkloadPodGroupSchedulingConstraints
+    - name: schedulingPolicy
+      type:
+        namedType: io.k8s.api.scheduling.v1.WorkloadPodGroupSchedulingPolicy
 - name: io.k8s.api.apps.v1.DeploymentSpec
   map:
     fields:
@@ -1837,6 +1857,9 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: revisionHistoryLimit
       type:
         scalar: numeric
+    - name: scheduling
+      type:
+        namedType: io.k8s.api.apps.v1.DeploymentSchedulingConfiguration
     - name: selector
       type:
         namedType: io.k8s.apimachinery.pkg.apis.meta.v1.LabelSelector
@@ -2218,6 +2241,26 @@ var schemaYAML = typed.YAMLObject(`types:
       type:
         scalar: string
       default: ""
+- name: io.k8s.api.apps.v1beta1.DeploymentSchedulingConfiguration
+  map:
+    fields:
+    - name: disruptionMode
+      type:
+        namedType: io.k8s.api.scheduling.v1.WorkloadPodGroupDisruptionMode
+    - name: resourceClaims
+      type:
+        list:
+          elementType:
+            namedType: io.k8s.api.scheduling.v1.WorkloadPodGroupResourceClaim
+          elementRelationship: associative
+          keys:
+          - name
+    - name: schedulingConstraints
+      type:
+        namedType: io.k8s.api.scheduling.v1.WorkloadPodGroupSchedulingConstraints
+    - name: schedulingPolicy
+      type:
+        namedType: io.k8s.api.scheduling.v1.WorkloadPodGroupSchedulingPolicy
 - name: io.k8s.api.apps.v1beta1.DeploymentSpec
   map:
     fields:
@@ -2239,6 +2282,9 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: rollbackTo
       type:
         namedType: io.k8s.api.apps.v1beta1.RollbackConfig
+    - name: scheduling
+      type:
+        namedType: io.k8s.api.apps.v1beta1.DeploymentSchedulingConfiguration
     - name: selector
       type:
         namedType: io.k8s.apimachinery.pkg.apis.meta.v1.LabelSelector
@@ -2642,6 +2688,26 @@ var schemaYAML = typed.YAMLObject(`types:
       type:
         scalar: string
       default: ""
+- name: io.k8s.api.apps.v1beta2.DeploymentSchedulingConfiguration
+  map:
+    fields:
+    - name: disruptionMode
+      type:
+        namedType: io.k8s.api.scheduling.v1.WorkloadPodGroupDisruptionMode
+    - name: resourceClaims
+      type:
+        list:
+          elementType:
+            namedType: io.k8s.api.scheduling.v1.WorkloadPodGroupResourceClaim
+          elementRelationship: associative
+          keys:
+          - name
+    - name: schedulingConstraints
+      type:
+        namedType: io.k8s.api.scheduling.v1.WorkloadPodGroupSchedulingConstraints
+    - name: schedulingPolicy
+      type:
+        namedType: io.k8s.api.scheduling.v1.WorkloadPodGroupSchedulingPolicy
 - name: io.k8s.api.apps.v1beta2.DeploymentSpec
   map:
     fields:
@@ -2660,6 +2726,9 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: revisionHistoryLimit
       type:
         scalar: numeric
+    - name: scheduling
+      type:
+        namedType: io.k8s.api.apps.v1beta2.DeploymentSchedulingConfiguration
     - name: selector
       type:
         namedType: io.k8s.apimachinery.pkg.apis.meta.v1.LabelSelector
@@ -7293,6 +7362,9 @@ var schemaYAML = typed.YAMLObject(`types:
         map:
           elementType:
             namedType: io.k8s.apimachinery.pkg.api.resource.Quantity
+    - name: podNetwork
+      type:
+        scalar: string
     - name: preemptionPolicy
       type:
         scalar: string
@@ -9409,6 +9481,26 @@ var schemaYAML = typed.YAMLObject(`types:
       type:
         scalar: string
       default: ""
+- name: io.k8s.api.extensions.v1beta1.DeploymentSchedulingConfiguration
+  map:
+    fields:
+    - name: disruptionMode
+      type:
+        namedType: io.k8s.api.scheduling.v1.WorkloadPodGroupDisruptionMode
+    - name: resourceClaims
+      type:
+        list:
+          elementType:
+            namedType: io.k8s.api.scheduling.v1.WorkloadPodGroupResourceClaim
+          elementRelationship: associative
+          keys:
+          - name
+    - name: schedulingConstraints
+      type:
+        namedType: io.k8s.api.scheduling.v1.WorkloadPodGroupSchedulingConstraints
+    - name: schedulingPolicy
+      type:
+        namedType: io.k8s.api.scheduling.v1.WorkloadPodGroupSchedulingPolicy
 - name: io.k8s.api.extensions.v1beta1.DeploymentSpec
   map:
     fields:
@@ -9430,6 +9522,9 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: rollbackTo
       type:
         namedType: io.k8s.api.extensions.v1beta1.RollbackConfig
+    - name: scheduling
+      type:
+        namedType: io.k8s.api.extensions.v1beta1.DeploymentSchedulingConfiguration
     - name: selector
       type:
         namedType: io.k8s.apimachinery.pkg.apis.meta.v1.LabelSelector
@@ -12972,9 +13067,21 @@ var schemaYAML = typed.YAMLObject(`types:
 - name: io.k8s.api.resource.v1.Counter
   map:
     fields:
+    - name: consumptionPolicy
+      type:
+        namedType: io.k8s.api.resource.v1.CapacityRequestPolicy
     - name: value
       type:
         namedType: io.k8s.apimachinery.pkg.api.resource.Quantity
+- name: io.k8s.api.resource.v1.CounterRequirement
+  map:
+    fields:
+    - name: value
+      type:
+        namedType: io.k8s.apimachinery.pkg.api.resource.Quantity
+    - name: valueFrom
+      type:
+        namedType: io.k8s.api.resource.v1.CounterValueFrom
 - name: io.k8s.api.resource.v1.CounterSet
   map:
     fields:
@@ -12984,6 +13091,25 @@ var schemaYAML = typed.YAMLObject(`types:
           elementType:
             namedType: io.k8s.api.resource.v1.Counter
     - name: name
+      type:
+        scalar: string
+      default: ""
+- name: io.k8s.api.resource.v1.CounterSetConsumption
+  map:
+    fields:
+    - name: counterSet
+      type:
+        scalar: string
+      default: ""
+    - name: counters
+      type:
+        map:
+          elementType:
+            namedType: io.k8s.apimachinery.pkg.api.resource.Quantity
+- name: io.k8s.api.resource.v1.CounterValueFrom
+  map:
+    fields:
+    - name: capacityName
       type:
         scalar: string
       default: ""
@@ -13192,12 +13318,12 @@ var schemaYAML = typed.YAMLObject(`types:
           elementType:
             namedType: io.k8s.api.resource.v1.DeviceClassConfiguration
           elementRelationship: atomic
-    - name: extendedResourceCapacityRequests
-      type:
-        namedType: io.k8s.api.resource.v1.CapacityRequirements
     - name: extendedResourceName
       type:
         scalar: string
+    - name: extendedResourceRequest
+      type:
+        namedType: io.k8s.api.resource.v1.ExtendedResourceRequest
     - name: selectors
       type:
         list:
@@ -13236,7 +13362,7 @@ var schemaYAML = typed.YAMLObject(`types:
       type:
         map:
           elementType:
-            namedType: io.k8s.api.resource.v1.Counter
+            namedType: io.k8s.api.resource.v1.CounterRequirement
 - name: io.k8s.api.resource.v1.DeviceDerivedAttribute
   map:
     fields:
@@ -13287,6 +13413,14 @@ var schemaYAML = typed.YAMLObject(`types:
         map:
           elementType:
             namedType: io.k8s.apimachinery.pkg.api.resource.Quantity
+    - name: consumedCounters
+      type:
+        list:
+          elementType:
+            namedType: io.k8s.api.resource.v1.CounterSetConsumption
+          elementRelationship: associative
+          keys:
+          - counterSet
     - name: device
       type:
         scalar: string
@@ -13492,6 +13626,12 @@ var schemaYAML = typed.YAMLObject(`types:
           elementType:
             namedType: io.k8s.api.resource.v1.DeviceToleration
           elementRelationship: atomic
+- name: io.k8s.api.resource.v1.ExtendedResourceRequest
+  map:
+    fields:
+    - name: capacity
+      type:
+        namedType: io.k8s.api.resource.v1.CapacityRequirements
 - name: io.k8s.api.resource.v1.NetworkDeviceData
   map:
     fields:
@@ -14088,9 +14228,21 @@ var schemaYAML = typed.YAMLObject(`types:
 - name: io.k8s.api.resource.v1beta1.Counter
   map:
     fields:
+    - name: consumptionPolicy
+      type:
+        namedType: io.k8s.api.resource.v1beta1.CapacityRequestPolicy
     - name: value
       type:
         namedType: io.k8s.apimachinery.pkg.api.resource.Quantity
+- name: io.k8s.api.resource.v1beta1.CounterRequirement
+  map:
+    fields:
+    - name: value
+      type:
+        namedType: io.k8s.apimachinery.pkg.api.resource.Quantity
+    - name: valueFrom
+      type:
+        namedType: io.k8s.api.resource.v1beta1.CounterValueFrom
 - name: io.k8s.api.resource.v1beta1.CounterSet
   map:
     fields:
@@ -14100,6 +14252,25 @@ var schemaYAML = typed.YAMLObject(`types:
           elementType:
             namedType: io.k8s.api.resource.v1beta1.Counter
     - name: name
+      type:
+        scalar: string
+      default: ""
+- name: io.k8s.api.resource.v1beta1.CounterSetConsumption
+  map:
+    fields:
+    - name: counterSet
+      type:
+        scalar: string
+      default: ""
+    - name: counters
+      type:
+        map:
+          elementType:
+            namedType: io.k8s.apimachinery.pkg.api.resource.Quantity
+- name: io.k8s.api.resource.v1beta1.CounterValueFrom
+  map:
+    fields:
+    - name: capacityName
       type:
         scalar: string
       default: ""
@@ -14257,12 +14428,12 @@ var schemaYAML = typed.YAMLObject(`types:
           elementType:
             namedType: io.k8s.api.resource.v1beta1.DeviceClassConfiguration
           elementRelationship: atomic
-    - name: extendedResourceCapacityRequests
-      type:
-        namedType: io.k8s.api.resource.v1beta1.CapacityRequirements
     - name: extendedResourceName
       type:
         scalar: string
+    - name: extendedResourceRequest
+      type:
+        namedType: io.k8s.api.resource.v1beta1.ExtendedResourceRequest
     - name: selectors
       type:
         list:
@@ -14301,7 +14472,7 @@ var schemaYAML = typed.YAMLObject(`types:
       type:
         map:
           elementType:
-            namedType: io.k8s.api.resource.v1beta1.Counter
+            namedType: io.k8s.api.resource.v1beta1.CounterRequirement
 - name: io.k8s.api.resource.v1beta1.DeviceDerivedAttribute
   map:
     fields:
@@ -14383,6 +14554,14 @@ var schemaYAML = typed.YAMLObject(`types:
         map:
           elementType:
             namedType: io.k8s.apimachinery.pkg.api.resource.Quantity
+    - name: consumedCounters
+      type:
+        list:
+          elementType:
+            namedType: io.k8s.api.resource.v1beta1.CounterSetConsumption
+          elementRelationship: associative
+          keys:
+          - counterSet
     - name: device
       type:
         scalar: string
@@ -14494,6 +14673,12 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: value
       type:
         scalar: string
+- name: io.k8s.api.resource.v1beta1.ExtendedResourceRequest
+  map:
+    fields:
+    - name: capacity
+      type:
+        namedType: io.k8s.api.resource.v1beta1.CapacityRequirements
 - name: io.k8s.api.resource.v1beta1.NetworkDeviceData
   map:
     fields:
@@ -14814,9 +14999,21 @@ var schemaYAML = typed.YAMLObject(`types:
 - name: io.k8s.api.resource.v1beta2.Counter
   map:
     fields:
+    - name: consumptionPolicy
+      type:
+        namedType: io.k8s.api.resource.v1beta2.CapacityRequestPolicy
     - name: value
       type:
         namedType: io.k8s.apimachinery.pkg.api.resource.Quantity
+- name: io.k8s.api.resource.v1beta2.CounterRequirement
+  map:
+    fields:
+    - name: value
+      type:
+        namedType: io.k8s.apimachinery.pkg.api.resource.Quantity
+    - name: valueFrom
+      type:
+        namedType: io.k8s.api.resource.v1beta2.CounterValueFrom
 - name: io.k8s.api.resource.v1beta2.CounterSet
   map:
     fields:
@@ -14826,6 +15023,25 @@ var schemaYAML = typed.YAMLObject(`types:
           elementType:
             namedType: io.k8s.api.resource.v1beta2.Counter
     - name: name
+      type:
+        scalar: string
+      default: ""
+- name: io.k8s.api.resource.v1beta2.CounterSetConsumption
+  map:
+    fields:
+    - name: counterSet
+      type:
+        scalar: string
+      default: ""
+    - name: counters
+      type:
+        map:
+          elementType:
+            namedType: io.k8s.apimachinery.pkg.api.resource.Quantity
+- name: io.k8s.api.resource.v1beta2.CounterValueFrom
+  map:
+    fields:
+    - name: capacityName
       type:
         scalar: string
       default: ""
@@ -15034,12 +15250,12 @@ var schemaYAML = typed.YAMLObject(`types:
           elementType:
             namedType: io.k8s.api.resource.v1beta2.DeviceClassConfiguration
           elementRelationship: atomic
-    - name: extendedResourceCapacityRequests
-      type:
-        namedType: io.k8s.api.resource.v1beta2.CapacityRequirements
     - name: extendedResourceName
       type:
         scalar: string
+    - name: extendedResourceRequest
+      type:
+        namedType: io.k8s.api.resource.v1beta2.ExtendedResourceRequest
     - name: selectors
       type:
         list:
@@ -15078,7 +15294,7 @@ var schemaYAML = typed.YAMLObject(`types:
       type:
         map:
           elementType:
-            namedType: io.k8s.api.resource.v1beta2.Counter
+            namedType: io.k8s.api.resource.v1beta2.CounterRequirement
 - name: io.k8s.api.resource.v1beta2.DeviceDerivedAttribute
   map:
     fields:
@@ -15129,6 +15345,14 @@ var schemaYAML = typed.YAMLObject(`types:
         map:
           elementType:
             namedType: io.k8s.apimachinery.pkg.api.resource.Quantity
+    - name: consumedCounters
+      type:
+        list:
+          elementType:
+            namedType: io.k8s.api.resource.v1beta2.CounterSetConsumption
+          elementRelationship: associative
+          keys:
+          - counterSet
     - name: device
       type:
         scalar: string
@@ -15334,6 +15558,12 @@ var schemaYAML = typed.YAMLObject(`types:
           elementType:
             namedType: io.k8s.api.resource.v1beta2.DeviceToleration
           elementRelationship: atomic
+- name: io.k8s.api.resource.v1beta2.ExtendedResourceRequest
+  map:
+    fields:
+    - name: capacity
+      type:
+        namedType: io.k8s.api.resource.v1beta2.CapacityRequirements
 - name: io.k8s.api.resource.v1beta2.NetworkDeviceData
   map:
     fields:

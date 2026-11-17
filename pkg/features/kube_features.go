@@ -328,6 +328,14 @@ const (
 	// DRAResourcePoolStatus (the feature that consumes it).
 	DRAPartitionableDevicesType featuregate.Feature = "DRAPartitionableDevicesType"
 
+	// owner: @mortent, @troychiu
+	// kep: http://kep.k8s.io/5690
+	//
+	// Enables the scheduler to preempt lower priority pods that use DRA
+	// devices and to hold the freed capacity for the preemptor while the
+	// claims of the preempted pods are being deallocated.
+	DRAPreemption featuregate.Feature = "DRAPreemption"
+
 	// owner: @mortent
 	// kep: http://kep.k8s.io/4816
 	//
@@ -367,6 +375,13 @@ const (
 	// a certain time (10 seconds by default, configurable in the DynamicResources
 	// scheduler plugin configuration).
 	DRASchedulerFilterTimeout featuregate.Feature = "DRASchedulerFilterTimeout"
+
+	// owner: @SchSeba
+	// kep: http://kep.k8s.io/5941
+	//
+	// DRASharedConsumableCapacity: Enables support for request-driven consumption of shared counters
+	// across related devices during DRA allocation.
+	DRASharedConsumableCapacity featuregate.Feature = "DRASharedConsumableCapacity"
 
 	// owner: @nojnhuh
 	// kep: https://kep.k8s.io/5729
@@ -548,6 +563,12 @@ const (
 	//
 	// Enables adding the ImageVolume's digest to the pod's status.
 	ImageVolumeWithDigest featuregate.Feature = "ImageVolumeWithDigest"
+
+	// owner: @karthik-k-n
+	// kep: http://kep.k8s.io/3953
+	//
+	// Enables In Place Node resource resize along with In-Place Pod Vertical Scaling.
+	InPlaceNodeResourceResize featuregate.Feature = "InPlaceNodeResourceResize"
 
 	// owner: @ndixita
 	// kep: https://kep.k8s.io/5419
@@ -773,6 +794,13 @@ const (
 	// Allows kube-proxy to use netlink directly for nftables operations,
 	// rather than executing the nft command-line binary.
 	NFTablesNetlink featuregate.Feature = "NFTablesNetlink"
+
+	// owner: @aojea
+	// kep: https://kep.k8s.io/6313
+	//
+	// Enables the podNetwork field in the Pod spec, which allows pods to opt
+	// out of the pod network and run with a loopback-only network namespace.
+	NetworkIsolatedPods featuregate.Feature = "NetworkIsolatedPods"
 
 	// owner: @michaelasp
 	//
@@ -1236,6 +1264,15 @@ const (
 	// Enables support for graceful shutdown windows node.
 	WindowsGracefulNodeShutdown featuregate.Feature = "WindowsGracefulNodeShutdown"
 
+	// owner: @PannagaRao
+	// kep: https://kep.k8s.io/6276
+	// alpha: v1.38
+	//
+	// Enables the Deployment and ReplicaSet controllers to automatically create
+	// one Workload per Deployment and one PodGroup per ReplicaSet when
+	// spec.scheduling is set.
+	WorkloadWithDeployment featuregate.Feature = "WorkloadWithDeployment"
+
 	// owner: @helayoty @mm4tt @wojtek-t
 	// kep: https://kep.k8s.io/5547
 	//
@@ -1301,6 +1338,7 @@ var defaultVersionedKubernetesFeatureGates = map[featuregate.Feature]featuregate
 
 	CRIListStreaming: {
 		{Version: version.MustParse("1.36"), Default: false, PreRelease: featuregate.Alpha},
+		{Version: version.MustParse("1.38"), Default: true, PreRelease: featuregate.Beta},
 	},
 
 	CSIGlobalMountReconstruction: {
@@ -1429,6 +1467,7 @@ var defaultVersionedKubernetesFeatureGates = map[featuregate.Feature]featuregate
 
 	DRAListTypeAttributes: {
 		{Version: version.MustParse("1.36"), Default: false, PreRelease: featuregate.Alpha},
+		{Version: version.MustParse("1.38"), Default: true, PreRelease: featuregate.Beta},
 	},
 
 	DRANodeAllocatableResources: {
@@ -1437,6 +1476,7 @@ var defaultVersionedKubernetesFeatureGates = map[featuregate.Feature]featuregate
 
 	DRAOptionalNodeOperations: {
 		{Version: version.MustParse("1.37"), Default: false, PreRelease: featuregate.Alpha},
+		{Version: version.MustParse("1.38"), Default: true, PreRelease: featuregate.Beta},
 	},
 
 	DRAPartitionableDevices: {
@@ -1447,6 +1487,10 @@ var defaultVersionedKubernetesFeatureGates = map[featuregate.Feature]featuregate
 
 	DRAPartitionableDevicesType: {
 		{Version: version.MustParse("1.37"), Default: false, PreRelease: featuregate.Alpha},
+	},
+
+	DRAPreemption: {
+		{Version: version.MustParse("1.38"), Default: false, PreRelease: featuregate.Alpha},
 	},
 
 	DRAPrioritizedList: {
@@ -1475,6 +1519,10 @@ var defaultVersionedKubernetesFeatureGates = map[featuregate.Feature]featuregate
 		{Version: version.MustParse("1.34"), Default: true, PreRelease: featuregate.Beta},
 	},
 
+	DRASharedConsumableCapacity: {
+		{Version: version.MustParse("1.38"), Default: false, PreRelease: featuregate.Alpha},
+	},
+
 	DRAWorkloadResourceClaims: {
 		{Version: version.MustParse("1.36"), Default: false, PreRelease: featuregate.Alpha},
 		{Version: version.MustParse("1.37"), Default: false, PreRelease: featuregate.Beta},
@@ -1482,6 +1530,7 @@ var defaultVersionedKubernetesFeatureGates = map[featuregate.Feature]featuregate
 
 	DefaultPodSysctls: {
 		{Version: version.MustParse("1.37"), Default: false, PreRelease: featuregate.Alpha},
+		{Version: version.MustParse("1.38"), Default: true, PreRelease: featuregate.Beta},
 	},
 
 	DeploymentReplicaSetTerminatingReplicas: {
@@ -1540,6 +1589,7 @@ var defaultVersionedKubernetesFeatureGates = map[featuregate.Feature]featuregate
 
 	GRPCContainerProbeTLS: {
 		{Version: version.MustParse("1.37"), Default: false, PreRelease: featuregate.Alpha},
+		{Version: version.MustParse("1.38"), Default: true, PreRelease: featuregate.Beta},
 	},
 
 	GenericWorkload: {
@@ -1565,6 +1615,7 @@ var defaultVersionedKubernetesFeatureGates = map[featuregate.Feature]featuregate
 
 	H2CContainerProbe: {
 		{Version: version.MustParse("1.37"), Default: false, PreRelease: featuregate.Alpha},
+		{Version: version.MustParse("1.38"), Default: true, PreRelease: featuregate.Beta},
 	},
 
 	HPAConfigurableTolerance: {
@@ -1612,6 +1663,10 @@ var defaultVersionedKubernetesFeatureGates = map[featuregate.Feature]featuregate
 
 	ImageVolumeWithDigest: {
 		{Version: version.MustParse("1.35"), Default: false, PreRelease: featuregate.Alpha},
+	},
+
+	InPlaceNodeResourceResize: {
+		{Version: version.MustParse("1.38"), Default: false, PreRelease: featuregate.Alpha},
 	},
 
 	InPlacePodLevelResourcesVerticalScaling: {
@@ -1777,6 +1832,10 @@ var defaultVersionedKubernetesFeatureGates = map[featuregate.Feature]featuregate
 
 	NFTablesNetlink: {
 		{Version: version.MustParse("1.37"), Default: true, PreRelease: featuregate.Beta},
+	},
+
+	NetworkIsolatedPods: {
+		{Version: version.MustParse("1.38"), Default: false, PreRelease: featuregate.Alpha},
 	},
 
 	NodeControllerLeaseCircuitBreaker: {
@@ -2127,6 +2186,10 @@ var defaultVersionedKubernetesFeatureGates = map[featuregate.Feature]featuregate
 		{Version: version.MustParse("1.34"), Default: true, PreRelease: featuregate.Beta},
 	},
 
+	WorkloadWithDeployment: {
+		{Version: version.MustParse("1.38"), Default: false, PreRelease: featuregate.Alpha},
+	},
+
 	WorkloadWithJob: {
 		{Version: version.MustParse("1.36"), Default: false, PreRelease: featuregate.Alpha},
 	},
@@ -2335,6 +2398,7 @@ var defaultVersionedKubernetesFeatureGates = map[featuregate.Feature]featuregate
 		// switch this back to false because the json and proto streaming encoders appear to work better.
 		{Version: version.MustParse("1.33"), Default: false, PreRelease: featuregate.Beta},
 		{Version: version.MustParse("1.34"), Default: true, PreRelease: featuregate.Beta},
+		{Version: version.MustParse("1.38"), Default: true, PreRelease: featuregate.GA, LockToDefault: true},
 	},
 
 	genericfeatures.WatchListCompression: {
@@ -2455,6 +2519,8 @@ var defaultKubernetesFeatureGateDependencies = map[featuregate.Feature][]feature
 
 	DRAPartitionableDevicesType: {DRAPartitionableDevices, DRAResourcePoolStatus},
 
+	DRAPreemption: {},
+
 	DRAPrioritizedList: {},
 
 	DRAResourceClaimDeviceStatus: {},
@@ -2464,6 +2530,8 @@ var defaultKubernetesFeatureGateDependencies = map[featuregate.Feature][]feature
 	DRAResourcePoolStatus: {},
 
 	DRASchedulerFilterTimeout: {},
+
+	DRASharedConsumableCapacity: {DRAPartitionableDevices, DRAConsumableCapacity},
 
 	DRAWorkloadResourceClaims: {GenericWorkload},
 
@@ -2520,6 +2588,8 @@ var defaultKubernetesFeatureGateDependencies = map[featuregate.Feature][]feature
 	ImageVolume: {},
 
 	ImageVolumeWithDigest: {ImageVolume},
+
+	InPlaceNodeResourceResize: {},
 
 	InPlacePodLevelResourcesVerticalScaling: {PodLevelResources, NodeDeclaredFeatures},
 
@@ -2586,6 +2656,8 @@ var defaultKubernetesFeatureGateDependencies = map[featuregate.Feature][]feature
 	MutableSchedulingDirectivesForSuspendedJobs: {},
 
 	NFTablesNetlink: {},
+
+	NetworkIsolatedPods: {NodeDeclaredFeatures},
 
 	NodeControllerLeaseCircuitBreaker: {featuregate.Feature(clientfeatures.AtomicFIFO)},
 
@@ -2727,6 +2799,8 @@ var defaultKubernetesFeatureGateDependencies = map[featuregate.Feature][]feature
 	WindowsCPUAndMemoryAffinity: {},
 
 	WindowsGracefulNodeShutdown: {GracefulNodeShutdown},
+
+	WorkloadWithDeployment: {GenericWorkload},
 
 	WorkloadWithJob: {GenericWorkload},
 

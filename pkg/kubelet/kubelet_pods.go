@@ -22,7 +22,6 @@ import (
 	goerrors "errors"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -57,6 +56,7 @@ import (
 	v1qos "k8s.io/kubernetes/pkg/apis/core/v1/helper/qos"
 	"k8s.io/kubernetes/pkg/features"
 	"k8s.io/kubernetes/pkg/fieldpath"
+	"k8s.io/kubernetes/pkg/kubelet/allocation"
 	"k8s.io/kubernetes/pkg/kubelet/cm"
 	kubecontainer "k8s.io/kubernetes/pkg/kubelet/container"
 	"k8s.io/kubernetes/pkg/kubelet/envvars"
@@ -293,7 +293,7 @@ func (kl *Kubelet) makeBlockVolumes(logger klog.Logger, pod *v1.Pod, container *
 // - the Pod is on the pod network and PodIP has not yet been set (e.g., Pod sandbox is being created).
 // - the Pod is on Windows, and contains a hostProcess container.
 func shouldMountHostsFile(pod *v1.Pod, podIPs []string) bool {
-	shouldMount := len(podIPs) > 0 || pod.Spec.HostNetwork
+	shouldMount := len(podIPs) > 0 || pod.Spec.HostNetwork || kubecontainer.IsNetworkIsolatedPod(pod)
 	if runtime.GOOS == "windows" {
 		return shouldMount && !kubecontainer.HasWindowsHostProcessContainer(pod)
 	}
@@ -452,7 +452,12 @@ func makeMounts(logger klog.Logger, pod *v1.Pod, podDir string, container *v1.Co
 	}
 	if mountEtcHostsFile {
 		hostAliases := pod.Spec.HostAliases
-		hostsMount, err := makeHostsMount(podDir, podIPs, hostName, hostDomain, hostAliases, pod.Spec.HostNetwork)
+		hostsIPs := podIPs
+		if kubecontainer.IsNetworkIsolatedPod(pod) {
+			// No pod IPs will ever exist; the hostname resolves to loopback.
+			hostsIPs = []string{"127.0.0.1", "::1"}
+		}
+		hostsMount, err := makeHostsMount(podDir, hostsIPs, hostName, hostDomain, hostAliases, pod.Spec.HostNetwork)
 		if err != nil {
 			return nil, cleanupAction, err
 		}
@@ -1044,12 +1049,6 @@ func (kl *Kubelet) podFieldSelectorRuntimeValue(ctx context.Context, fs *v1.Obje
 	internalFieldPath, _, err := podshelper.ConvertDownwardAPIFieldLabel(fs.APIVersion, fs.FieldPath, "")
 	if err != nil {
 		return "", err
-	}
-
-	// make podIPs order match node IP family preference #97979
-	podIPs = kl.sortPodIPs(podIPs)
-	if len(podIPs) > 0 {
-		podIP = podIPs[0]
 	}
 
 	switch internalFieldPath {
@@ -2118,41 +2117,6 @@ func (kl *Kubelet) generateAPIPodStatus(ctx context.Context, pod *v1.Pod, podSta
 	return *s
 }
 
-// sortPodIPs return the PodIPs sorted and truncated by the cluster IP family preference.
-// The runtime pod status may have an arbitrary number of IPs, in an arbitrary order.
-// PodIPs are obtained by: func (m *kubeGenericRuntimeManager) determinePodSandboxIPs()
-// Pick out the first returned IP of the same IP family as the node IP
-// first, followed by the first IP of the opposite IP family (if any)
-// and use them for the Pod.Status.PodIPs and the Downward API environment variables
-func (kl *Kubelet) sortPodIPs(podIPs []string) []string {
-	ips := make([]string, 0, 2)
-	var validPrimaryIP, validSecondaryIP func(ip net.IP) bool
-	if len(kl.nodeIPs) == 0 || utilnet.IsIPv4(kl.nodeIPs[0]) {
-		validPrimaryIP = utilnet.IsIPv4
-		validSecondaryIP = utilnet.IsIPv6
-	} else {
-		validPrimaryIP = utilnet.IsIPv6
-		validSecondaryIP = utilnet.IsIPv4
-	}
-
-	// We parse and re-stringify the IPs in case the values from CRI use an irregular format.
-	for _, ipStr := range podIPs {
-		ip := utilnet.ParseIPSloppy(ipStr)
-		if validPrimaryIP(ip) {
-			ips = append(ips, ip.String())
-			break
-		}
-	}
-	for _, ipStr := range podIPs {
-		ip := utilnet.ParseIPSloppy(ipStr)
-		if validSecondaryIP(ip) {
-			ips = append(ips, ip.String())
-			break
-		}
-	}
-	return ips
-}
-
 // convertStatusToAPIStatus initialize an api PodStatus for the given pod from
 // the given internal pod status and the previous state of the pod from the API.
 // It is purely transformative and does not alter the kubelet state at all.
@@ -2160,13 +2124,7 @@ func (kl *Kubelet) convertStatusToAPIStatus(ctx context.Context, pod *v1.Pod, po
 	logger := klog.FromContext(ctx)
 	var apiPodStatus v1.PodStatus
 
-	// copy pod status IPs to avoid race conditions with PodStatus #102806
-	podIPs := make([]string, len(podStatus.IPs))
-	copy(podIPs, podStatus.IPs)
-
-	// make podIPs order match node IP family preference #97979
-	podIPs = kl.sortPodIPs(podIPs)
-	for _, ip := range podIPs {
+	for _, ip := range podStatus.IPs {
 		apiPodStatus.PodIPs = append(apiPodStatus.PodIPs, v1.PodIP{IP: ip})
 	}
 	if len(apiPodStatus.PodIPs) > 0 {
@@ -2293,7 +2251,10 @@ func getEffectiveAllocatedResources(allocatedPod *v1.Pod) *v1.ResourceRequiremen
 }
 
 func (kl *Kubelet) convertToAPIPodLevelResourcesStatus(logger klog.Logger, allocatedPod *v1.Pod, oldPodStatus v1.PodStatus) *v1.ResourceRequirements {
-	if allocatedPod.Status.Phase != v1.PodRunning {
+	// Pod-level cgroup values can only be read for running pods on platforms
+	// that support in-place pod-level resize (e.g. not on Windows, which uses
+	// job objects rather than cgroups).
+	if resizable, _, _ := allocation.IsInPlacePodLevelResourcesVerticalScalingAllowed(allocatedPod); !resizable || allocatedPod.Status.Phase != v1.PodRunning {
 		return getEffectiveAllocatedResources(allocatedPod)
 	}
 
@@ -2309,8 +2270,7 @@ func (kl *Kubelet) convertToAPIPodLevelResourcesStatus(logger klog.Logger, alloc
 	memoryLimit := cm.MemoryLimitsFromConfig(memoryConfig)
 	cpuConfig, err := pcm.GetPodCgroupConfig(allocatedPod, v1.ResourceCPU)
 	if err != nil {
-		logger.Error(err, "failed to read memory cgroup limits for the pod", "podName", allocatedPod.Name)
-
+		logger.Error(err, "failed to read cpu cgroup config for the pod", "podName", allocatedPod.Name)
 	}
 
 	cpuRequest := cm.CPURequestsFromConfig(cpuConfig)
@@ -2324,22 +2284,10 @@ func (kl *Kubelet) convertToAPIPodLevelResourcesStatus(logger klog.Logger, alloc
 		}
 	}
 
-	resources := allocatedPod.Spec.Resources.DeepCopy()
+	resources := getEffectiveAllocatedResources(allocatedPod)
 
 	if oldPodStatus.Resources == nil {
 		oldPodStatus.Resources = &v1.ResourceRequirements{}
-	}
-
-	if resources == nil {
-		resources = &v1.ResourceRequirements{}
-	}
-
-	if resources.Requests == nil {
-		resources.Requests = make(v1.ResourceList)
-	}
-
-	if resources.Limits == nil {
-		resources.Limits = make(v1.ResourceList)
 	}
 
 	if cpuRequest != nil {
@@ -2367,17 +2315,6 @@ func (kl *Kubelet) convertToAPIPodLevelResourcesStatus(logger klog.Logger, alloc
 		preserveOldResourcesValue(v1.ResourceCPU, oldPodStatus.Resources.Requests, resources.Requests)
 	}
 
-	if _, found := resources.Requests[v1.ResourceMemory]; !found {
-		opts := resourcehelper.PodResourcesOptions{
-			SkipPodLevelResources:                    !utilfeature.DefaultFeatureGate.Enabled(features.PodLevelResources),
-			UseDRANodeAllocatableResourceClaimStatus: utilfeature.DefaultFeatureGate.Enabled(features.DRANodeAllocatableResources),
-		}
-		aggregatedResources := resourcehelper.PodRequests(allocatedPod, opts)
-		if val, ok := aggregatedResources[v1.ResourceMemory]; ok {
-			resources.Requests[v1.ResourceMemory] = val
-		}
-	}
-
 	if cpuLimit != nil {
 		// If both the allocated & actual resources are at
 		// or below the minimum effective limit, preserve the
@@ -2387,7 +2324,6 @@ func (kl *Kubelet) convertToAPIPodLevelResourcesStatus(logger klog.Logger, alloc
 		}
 	} else {
 		preserveOldResourcesValue(v1.ResourceCPU, oldPodStatus.Resources.Limits, resources.Limits)
-
 	}
 
 	if memoryLimit != nil {

@@ -21,7 +21,6 @@ import (
 	"errors"
 	"fmt"
 	"math"
-	"net"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -34,6 +33,7 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 	v1 "k8s.io/api/core/v1"
 	apiequality "k8s.io/apimachinery/pkg/api/equality"
@@ -53,11 +53,13 @@ import (
 	runtimeapi "k8s.io/cri-api/pkg/apis/runtime/v1"
 	"k8s.io/cri-streaming/pkg/streaming/portforward"
 	"k8s.io/cri-streaming/pkg/streaming/remotecommand"
+	"k8s.io/klog/v2"
 	"k8s.io/ktesting"
 	podutil "k8s.io/kubernetes/pkg/api/v1/pod"
 	_ "k8s.io/kubernetes/pkg/apis/core/install"
 	"k8s.io/kubernetes/pkg/features"
 	"k8s.io/kubernetes/pkg/kubelet/cm"
+	cmtesting "k8s.io/kubernetes/pkg/kubelet/cm/testing"
 	kubecontainer "k8s.io/kubernetes/pkg/kubelet/container"
 	containertest "k8s.io/kubernetes/pkg/kubelet/container/testing"
 	"k8s.io/kubernetes/pkg/kubelet/metrics"
@@ -741,112 +743,6 @@ func TestMakeEnvironmentVariables(t *testing.T) {
 				{Name: "POD_NAMESPACE", Value: "downward-api"},
 				{Name: "POD_NODE_NAME", Value: "node-name"},
 				{Name: "POD_SERVICE_ACCOUNT_NAME", Value: "special"},
-				{Name: "POD_IP", Value: "1.2.3.4"},
-				{Name: "POD_IPS", Value: "1.2.3.4,fd00::6"},
-				{Name: "HOST_IP", Value: testKubeletHostIP},
-				{Name: "HOST_IPS", Value: testKubeletHostIP + "," + testKubeletHostIPv6},
-			},
-		},
-		{
-			name:               "downward api pod ips reverse order",
-			ns:                 "downward-api",
-			enableServiceLinks: &falseValue,
-			container: &v1.Container{
-				Env: []v1.EnvVar{
-					{
-						Name: "POD_IP",
-						ValueFrom: &v1.EnvVarSource{
-							FieldRef: &v1.ObjectFieldSelector{
-								APIVersion: "v1",
-								FieldPath:  "status.podIP",
-							},
-						},
-					},
-					{
-						Name: "POD_IPS",
-						ValueFrom: &v1.EnvVarSource{
-							FieldRef: &v1.ObjectFieldSelector{
-								APIVersion: "v1",
-								FieldPath:  "status.podIPs",
-							},
-						},
-					},
-					{
-						Name: "HOST_IP",
-						ValueFrom: &v1.EnvVarSource{
-							FieldRef: &v1.ObjectFieldSelector{
-								APIVersion: "v1",
-								FieldPath:  "status.hostIP",
-							},
-						},
-					},
-					{
-						Name: "HOST_IPS",
-						ValueFrom: &v1.EnvVarSource{
-							FieldRef: &v1.ObjectFieldSelector{
-								APIVersion: "v1",
-								FieldPath:  "status.hostIPs",
-							},
-						},
-					},
-				},
-			},
-			podIPs:    []string{"fd00::6", "1.2.3.4"},
-			nilLister: true,
-			expectedEnvs: []kubecontainer.EnvVar{
-				{Name: "POD_IP", Value: "1.2.3.4"},
-				{Name: "POD_IPS", Value: "1.2.3.4,fd00::6"},
-				{Name: "HOST_IP", Value: testKubeletHostIP},
-				{Name: "HOST_IPS", Value: testKubeletHostIP + "," + testKubeletHostIPv6},
-			},
-		},
-		{
-			name:               "downward api pod ips multiple ips",
-			ns:                 "downward-api",
-			enableServiceLinks: &falseValue,
-			container: &v1.Container{
-				Env: []v1.EnvVar{
-					{
-						Name: "POD_IP",
-						ValueFrom: &v1.EnvVarSource{
-							FieldRef: &v1.ObjectFieldSelector{
-								APIVersion: "v1",
-								FieldPath:  "status.podIP",
-							},
-						},
-					},
-					{
-						Name: "POD_IPS",
-						ValueFrom: &v1.EnvVarSource{
-							FieldRef: &v1.ObjectFieldSelector{
-								APIVersion: "v1",
-								FieldPath:  "status.podIPs",
-							},
-						},
-					},
-					{
-						Name: "HOST_IP",
-						ValueFrom: &v1.EnvVarSource{
-							FieldRef: &v1.ObjectFieldSelector{
-								APIVersion: "v1",
-								FieldPath:  "status.hostIP",
-							},
-						},
-					},
-					{
-						Name: "HOST_IPS",
-						ValueFrom: &v1.EnvVarSource{
-							FieldRef: &v1.ObjectFieldSelector{
-								APIVersion: "v1",
-								FieldPath:  "status.hostIPs",
-							},
-						},
-					},
-				},
-			},
-			podIPs:    []string{"1.2.3.4", "192.168.1.1.", "fd00::6"},
-			nilLister: true,
-			expectedEnvs: []kubecontainer.EnvVar{
 				{Name: "POD_IP", Value: "1.2.3.4"},
 				{Name: "POD_IPS", Value: "1.2.3.4,fd00::6"},
 				{Name: "HOST_IP", Value: testKubeletHostIP},
@@ -4794,6 +4690,313 @@ func TestConvertToAPIContainerStatusesVolumeMounts(t *testing.T) {
 	}
 }
 
+func TestConvertToAPIPodLevelResourcesStatusWithOverhead(t *testing.T) {
+	featuregatetesting.SetFeatureGatesDuringTest(t, utilfeature.DefaultFeatureGate, featuregatetesting.FeatureOverrides{
+		features.PodLevelResources:                       true,
+		features.InPlacePodLevelResourcesVerticalScaling: true,
+	})
+
+	testKubelet := newTestKubelet(t, false)
+	defer testKubelet.Cleanup()
+	kl := testKubelet.kubelet
+
+	mockPCM := cmtesting.NewMockPodContainerManager(t)
+	mockCM := cmtesting.NewMockContainerManager(t)
+	mockCM.EXPECT().NewPodContainerManager().Return(mockPCM).Maybe()
+	kl.containerManager = mockCM
+
+	mockPCM.EXPECT().GetPodCgroupConfig(mock.Anything, v1.ResourceMemory).Return(nil, errors.New("cgroup not found")).Maybe()
+	mockPCM.EXPECT().GetPodCgroupConfig(mock.Anything, v1.ResourceCPU).Return(nil, errors.New("cgroup not found")).Maybe()
+
+	cases := []struct {
+		name        string
+		pod         *v1.Pod
+		oldStatus   v1.PodStatus
+		expectedRes *v1.ResourceRequirements
+	}{
+		{
+			name: "running pod with overhead adds overhead to fallback requests and limits",
+			pod: &v1.Pod{
+				Status: v1.PodStatus{Phase: v1.PodRunning},
+				Spec: v1.PodSpec{
+					Overhead: v1.ResourceList{
+						v1.ResourceCPU:    resource.MustParse("500m"),
+						v1.ResourceMemory: resource.MustParse("200Mi"),
+					},
+					Resources: &v1.ResourceRequirements{
+						Requests: v1.ResourceList{
+							v1.ResourceCPU:    resource.MustParse("1"),
+							v1.ResourceMemory: resource.MustParse("1Gi"),
+						},
+						Limits: v1.ResourceList{
+							v1.ResourceCPU:    resource.MustParse("2"),
+							v1.ResourceMemory: resource.MustParse("2Gi"),
+						},
+					},
+				},
+			},
+			oldStatus: v1.PodStatus{Phase: v1.PodRunning},
+			expectedRes: &v1.ResourceRequirements{
+				Requests: v1.ResourceList{
+					v1.ResourceCPU:    resource.MustParse("1.5"),
+					v1.ResourceMemory: resource.MustParse("1224Mi"),
+				},
+				Limits: v1.ResourceList{
+					v1.ResourceCPU:    resource.MustParse("2.5"),
+					v1.ResourceMemory: resource.MustParse("2248Mi"),
+				},
+			},
+		},
+		{
+			name: "running pod preserves old status resources without double-adding overhead",
+			pod: &v1.Pod{
+				Status: v1.PodStatus{
+					Phase: v1.PodRunning,
+					Resources: &v1.ResourceRequirements{
+						Requests: v1.ResourceList{
+							v1.ResourceCPU:    resource.MustParse("1.5"),
+							v1.ResourceMemory: resource.MustParse("1224Mi"),
+						},
+						Limits: v1.ResourceList{
+							v1.ResourceCPU:    resource.MustParse("2.5"),
+							v1.ResourceMemory: resource.MustParse("2248Mi"),
+						},
+					},
+					AllocatedResources: v1.ResourceList{
+						v1.ResourceCPU:    resource.MustParse("1.5"),
+						v1.ResourceMemory: resource.MustParse("1224Mi"),
+					},
+				},
+				Spec: v1.PodSpec{
+					Overhead: v1.ResourceList{
+						v1.ResourceCPU:    resource.MustParse("500m"),
+						v1.ResourceMemory: resource.MustParse("200Mi"),
+					},
+					Resources: &v1.ResourceRequirements{
+						Requests: v1.ResourceList{
+							v1.ResourceCPU:    resource.MustParse("1"),
+							v1.ResourceMemory: resource.MustParse("1Gi"),
+						},
+						Limits: v1.ResourceList{
+							v1.ResourceCPU:    resource.MustParse("2"),
+							v1.ResourceMemory: resource.MustParse("2Gi"),
+						},
+					},
+				},
+			},
+			oldStatus: v1.PodStatus{
+				Phase: v1.PodRunning,
+				Resources: &v1.ResourceRequirements{
+					Requests: v1.ResourceList{
+						v1.ResourceCPU:    resource.MustParse("1.5"),
+						v1.ResourceMemory: resource.MustParse("1224Mi"),
+					},
+					Limits: v1.ResourceList{
+						v1.ResourceCPU:    resource.MustParse("2.5"),
+						v1.ResourceMemory: resource.MustParse("2248Mi"),
+					},
+				},
+			},
+			expectedRes: &v1.ResourceRequirements{
+				Requests: v1.ResourceList{
+					v1.ResourceCPU:    resource.MustParse("1.5"),
+					v1.ResourceMemory: resource.MustParse("1224Mi"),
+				},
+				Limits: v1.ResourceList{
+					v1.ResourceCPU:    resource.MustParse("2.5"),
+					v1.ResourceMemory: resource.MustParse("2248Mi"),
+				},
+			},
+		},
+		{
+			name: "running pod memory request upsize updates status to new spec value rather than preserving old status",
+			pod: &v1.Pod{
+				Status: v1.PodStatus{
+					Phase: v1.PodRunning,
+					Resources: &v1.ResourceRequirements{
+						Requests: v1.ResourceList{
+							v1.ResourceMemory: resource.MustParse("1224Mi"),
+						},
+					},
+					AllocatedResources: v1.ResourceList{
+						v1.ResourceMemory: resource.MustParse("1224Mi"),
+					},
+				},
+				Spec: v1.PodSpec{
+					Overhead: v1.ResourceList{
+						v1.ResourceMemory: resource.MustParse("200Mi"),
+					},
+					Resources: &v1.ResourceRequirements{
+						Requests: v1.ResourceList{
+							v1.ResourceMemory: resource.MustParse("2Gi"),
+						},
+					},
+				},
+			},
+			oldStatus: v1.PodStatus{
+				Phase: v1.PodRunning,
+				Resources: &v1.ResourceRequirements{
+					Requests: v1.ResourceList{
+						v1.ResourceMemory: resource.MustParse("1224Mi"),
+					},
+				},
+			},
+			expectedRes: &v1.ResourceRequirements{
+				Requests: v1.ResourceList{
+					v1.ResourceMemory: resource.MustParse("2248Mi"),
+				},
+				Limits: v1.ResourceList{},
+			},
+		},
+		{
+			name: "running pod memory request downsize updates status to new spec value rather than preserving old status",
+			pod: &v1.Pod{
+				Status: v1.PodStatus{
+					Phase: v1.PodRunning,
+					Resources: &v1.ResourceRequirements{
+						Requests: v1.ResourceList{
+							v1.ResourceMemory: resource.MustParse("2248Mi"),
+						},
+					},
+					AllocatedResources: v1.ResourceList{
+						v1.ResourceMemory: resource.MustParse("2248Mi"),
+					},
+				},
+				Spec: v1.PodSpec{
+					Overhead: v1.ResourceList{
+						v1.ResourceMemory: resource.MustParse("200Mi"),
+					},
+					Resources: &v1.ResourceRequirements{
+						Requests: v1.ResourceList{
+							v1.ResourceMemory: resource.MustParse("1Gi"),
+						},
+					},
+				},
+			},
+			oldStatus: v1.PodStatus{
+				Phase: v1.PodRunning,
+				Resources: &v1.ResourceRequirements{
+					Requests: v1.ResourceList{
+						v1.ResourceMemory: resource.MustParse("2248Mi"),
+					},
+				},
+			},
+			expectedRes: &v1.ResourceRequirements{
+				Requests: v1.ResourceList{
+					v1.ResourceMemory: resource.MustParse("1224Mi"),
+				},
+				Limits: v1.ResourceList{},
+			},
+		},
+		{
+			name: "running pod without memory request clears memory request from status",
+			pod: &v1.Pod{
+				Status: v1.PodStatus{
+					Phase: v1.PodRunning,
+					Resources: &v1.ResourceRequirements{
+						Requests: v1.ResourceList{
+							v1.ResourceMemory: resource.MustParse("1224Mi"),
+						},
+					},
+					AllocatedResources: v1.ResourceList{
+						v1.ResourceMemory: resource.MustParse("1224Mi"),
+					},
+				},
+				Spec: v1.PodSpec{
+					Containers: []v1.Container{
+						{Name: "c1"},
+					},
+				},
+			},
+			oldStatus: v1.PodStatus{
+				Phase: v1.PodRunning,
+				Resources: &v1.ResourceRequirements{
+					Requests: v1.ResourceList{
+						v1.ResourceMemory: resource.MustParse("1224Mi"),
+					},
+				},
+			},
+			expectedRes: &v1.ResourceRequirements{
+				Requests: v1.ResourceList{},
+				Limits:   v1.ResourceList{},
+			},
+		},
+		{
+			name: "running pod with container-level resources and overhead (spec.resources nil) adds overhead to fallback requests and limits",
+			pod: &v1.Pod{
+				Status: v1.PodStatus{Phase: v1.PodRunning},
+				Spec: v1.PodSpec{
+					Overhead: v1.ResourceList{
+						v1.ResourceCPU:    resource.MustParse("500m"),
+						v1.ResourceMemory: resource.MustParse("200Mi"),
+					},
+					Containers: []v1.Container{
+						{
+							Name: "c1",
+							Resources: v1.ResourceRequirements{
+								Requests: v1.ResourceList{
+									v1.ResourceCPU:    resource.MustParse("1"),
+									v1.ResourceMemory: resource.MustParse("1Gi"),
+								},
+								Limits: v1.ResourceList{
+									v1.ResourceCPU:    resource.MustParse("2"),
+									v1.ResourceMemory: resource.MustParse("2Gi"),
+								},
+							},
+						},
+					},
+				},
+			},
+			oldStatus: v1.PodStatus{Phase: v1.PodRunning},
+			expectedRes: &v1.ResourceRequirements{
+				Requests: v1.ResourceList{
+					v1.ResourceCPU:    resource.MustParse("1.5"),
+					v1.ResourceMemory: resource.MustParse("1224Mi"),
+				},
+				Limits: v1.ResourceList{
+					v1.ResourceCPU:    resource.MustParse("2.5"),
+					v1.ResourceMemory: resource.MustParse("2248Mi"),
+				},
+			},
+		},
+		{
+			name: "running pod with requests and overhead but no limits does not add overhead as a limit",
+			pod: &v1.Pod{
+				Status: v1.PodStatus{Phase: v1.PodRunning},
+				Spec: v1.PodSpec{
+					Overhead: v1.ResourceList{
+						v1.ResourceCPU:    resource.MustParse("500m"),
+						v1.ResourceMemory: resource.MustParse("200Mi"),
+					},
+					Resources: &v1.ResourceRequirements{
+						Requests: v1.ResourceList{
+							v1.ResourceCPU:    resource.MustParse("1"),
+							v1.ResourceMemory: resource.MustParse("1Gi"),
+						},
+					},
+				},
+			},
+			oldStatus: v1.PodStatus{Phase: v1.PodRunning},
+			expectedRes: &v1.ResourceRequirements{
+				Requests: v1.ResourceList{
+					v1.ResourceCPU:    resource.MustParse("1.5"),
+					v1.ResourceMemory: resource.MustParse("1224Mi"),
+				},
+				Limits: v1.ResourceList{},
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := kl.convertToAPIPodLevelResourcesStatus(klog.Background(), tc.pod, tc.oldStatus)
+			if !apiequality.Semantic.DeepEqual(tc.expectedRes, got) {
+				t.Errorf("Unexpected resources (-want,+got):\n%s", cmp.Diff(tc.expectedRes, got))
+			}
+		})
+	}
+}
+
 func Test_generateAPIPodStatus(t *testing.T) {
 	desiredState := v1.PodSpec{
 		NodeName: "machine",
@@ -6996,19 +7199,6 @@ func TestGenerateAPIPodStatusHostNetworkPodIPs(t *testing.T) {
 				{IP: "2001:db8::2"},
 			},
 		},
-		{
-			// by default the cluster prefers IPv4
-			name: "CRI dual-stack PodIPs override NodeAddresses prefer IPv4",
-			nodeAddresses: []v1.NodeAddress{
-				{Type: v1.NodeInternalIP, Address: "10.0.0.1"},
-				{Type: v1.NodeInternalIP, Address: "fd01::1234"},
-			},
-			criPodIPs: []string{"2001:db8::2", "192.168.0.1"},
-			podIPs: []v1.PodIP{
-				{IP: "192.168.0.1"},
-				{IP: "2001:db8::2"},
-			},
-		},
 	}
 
 	for _, tc := range testcases {
@@ -7176,103 +7366,37 @@ func TestGenerateAPIPodStatusPodIPs(t *testing.T) {
 	tCtx := ktesting.Init(t)
 	testcases := []struct {
 		name      string
-		nodeIP    string
 		criPodIPs []string
 		podIPs    []v1.PodIP
 	}{
 		{
 			name:      "Simple",
-			nodeIP:    "",
 			criPodIPs: []string{"10.0.0.1"},
 			podIPs: []v1.PodIP{
 				{IP: "10.0.0.1"},
 			},
 		},
 		{
-			name:      "Dual-stack",
-			nodeIP:    "",
-			criPodIPs: []string{"10.0.0.1", "fd01::1234"},
-			podIPs: []v1.PodIP{
-				{IP: "10.0.0.1"},
-				{IP: "fd01::1234"},
-			},
-		},
-		{
-			name:      "Dual-stack with explicit node IP",
-			nodeIP:    "192.168.1.1",
-			criPodIPs: []string{"10.0.0.1", "fd01::1234"},
-			podIPs: []v1.PodIP{
-				{IP: "10.0.0.1"},
-				{IP: "fd01::1234"},
-			},
-		},
-		{
-			name:      "Dual-stack with CRI returning wrong family first",
-			nodeIP:    "",
-			criPodIPs: []string{"fd01::1234", "10.0.0.1"},
-			podIPs: []v1.PodIP{
-				{IP: "10.0.0.1"},
-				{IP: "fd01::1234"},
-			},
-		},
-		{
-			name:      "Dual-stack with explicit node IP with CRI returning wrong family first",
-			nodeIP:    "192.168.1.1",
-			criPodIPs: []string{"fd01::1234", "10.0.0.1"},
-			podIPs: []v1.PodIP{
-				{IP: "10.0.0.1"},
-				{IP: "fd01::1234"},
-			},
-		},
-		{
-			name:      "Dual-stack with IPv6 node IP",
-			nodeIP:    "fd00::5678",
-			criPodIPs: []string{"10.0.0.1", "fd01::1234"},
-			podIPs: []v1.PodIP{
-				{IP: "fd01::1234"},
-				{IP: "10.0.0.1"},
-			},
-		},
-		{
-			name:      "Dual-stack with IPv6 node IP, other CRI order",
-			nodeIP:    "fd00::5678",
-			criPodIPs: []string{"fd01::1234", "10.0.0.1"},
-			podIPs: []v1.PodIP{
-				{IP: "fd01::1234"},
-				{IP: "10.0.0.1"},
-			},
-		},
-		{
-			name:      "No Pod IP matching Node IP",
-			nodeIP:    "fd00::5678",
-			criPodIPs: []string{"10.0.0.1"},
-			podIPs: []v1.PodIP{
-				{IP: "10.0.0.1"},
-			},
-		},
-		{
-			name:      "No Pod IP matching (unspecified) Node IP",
-			nodeIP:    "",
+			name:      "Simple IPv6",
 			criPodIPs: []string{"fd01::1234"},
 			podIPs: []v1.PodIP{
 				{IP: "fd01::1234"},
 			},
 		},
 		{
-			name:      "Multiple IPv4 IPs",
-			nodeIP:    "",
-			criPodIPs: []string{"10.0.0.1", "10.0.0.2", "10.0.0.3"},
-			podIPs: []v1.PodIP{
-				{IP: "10.0.0.1"},
-			},
-		},
-		{
-			name:      "Multiple Dual-Stack IPs",
-			nodeIP:    "",
-			criPodIPs: []string{"10.0.0.1", "10.0.0.2", "fd01::1234", "10.0.0.3", "fd01::5678"},
+			name:      "Dual-stack IPv4 primary",
+			criPodIPs: []string{"10.0.0.1", "fd01::1234"},
 			podIPs: []v1.PodIP{
 				{IP: "10.0.0.1"},
 				{IP: "fd01::1234"},
+			},
+		},
+		{
+			name:      "Dual-stack IPv6 primary",
+			criPodIPs: []string{"fd01::1234", "10.0.0.1"},
+			podIPs: []v1.PodIP{
+				{IP: "fd01::1234"},
+				{IP: "10.0.0.1"},
 			},
 		},
 	}
@@ -7282,9 +7406,6 @@ func TestGenerateAPIPodStatusPodIPs(t *testing.T) {
 			testKubelet := newTestKubelet(t, false /* controllerAttachDetachEnabled */)
 			defer testKubelet.Cleanup()
 			kl := testKubelet.kubelet
-			if tc.nodeIP != "" {
-				kl.nodeIPs = []net.IP{netutils.ParseIPSloppy(tc.nodeIP)}
-			}
 
 			pod := podWithUIDNameNs("12345", "test-pod", "test-namespace")
 
@@ -7301,104 +7422,6 @@ func TestGenerateAPIPodStatusPodIPs(t *testing.T) {
 			}
 			if status.PodIP != status.PodIPs[0].IP {
 				t.Fatalf("Expected PodIP %q to equal PodIPs[0].IP %q", status.PodIP, status.PodIPs[0].IP)
-			}
-		})
-	}
-}
-
-func TestSortPodIPs(t *testing.T) {
-	testcases := []struct {
-		name        string
-		nodeIP      string
-		podIPs      []string
-		expectedIPs []string
-	}{
-		{
-			name:        "Simple",
-			nodeIP:      "",
-			podIPs:      []string{"10.0.0.1"},
-			expectedIPs: []string{"10.0.0.1"},
-		},
-		{
-			name:        "Dual-stack",
-			nodeIP:      "",
-			podIPs:      []string{"10.0.0.1", "fd01::1234"},
-			expectedIPs: []string{"10.0.0.1", "fd01::1234"},
-		},
-		{
-			name:        "Dual-stack with explicit node IP",
-			nodeIP:      "192.168.1.1",
-			podIPs:      []string{"10.0.0.1", "fd01::1234"},
-			expectedIPs: []string{"10.0.0.1", "fd01::1234"},
-		},
-		{
-			name:        "Dual-stack with CRI returning wrong family first",
-			nodeIP:      "",
-			podIPs:      []string{"fd01::1234", "10.0.0.1"},
-			expectedIPs: []string{"10.0.0.1", "fd01::1234"},
-		},
-		{
-			name:        "Dual-stack with explicit node IP with CRI returning wrong family first",
-			nodeIP:      "192.168.1.1",
-			podIPs:      []string{"fd01::1234", "10.0.0.1"},
-			expectedIPs: []string{"10.0.0.1", "fd01::1234"},
-		},
-		{
-			name:        "Dual-stack with IPv6 node IP",
-			nodeIP:      "fd00::5678",
-			podIPs:      []string{"10.0.0.1", "fd01::1234"},
-			expectedIPs: []string{"fd01::1234", "10.0.0.1"},
-		},
-		{
-			name:        "Dual-stack with IPv6 node IP, other CRI order",
-			nodeIP:      "fd00::5678",
-			podIPs:      []string{"fd01::1234", "10.0.0.1"},
-			expectedIPs: []string{"fd01::1234", "10.0.0.1"},
-		},
-		{
-			name:        "No Pod IP matching Node IP",
-			nodeIP:      "fd00::5678",
-			podIPs:      []string{"10.0.0.1"},
-			expectedIPs: []string{"10.0.0.1"},
-		},
-		{
-			name:        "No Pod IP matching (unspecified) Node IP",
-			nodeIP:      "",
-			podIPs:      []string{"fd01::1234"},
-			expectedIPs: []string{"fd01::1234"},
-		},
-		{
-			name:        "Multiple IPv4 IPs",
-			nodeIP:      "",
-			podIPs:      []string{"10.0.0.1", "10.0.0.2", "10.0.0.3"},
-			expectedIPs: []string{"10.0.0.1"},
-		},
-		{
-			name:        "Multiple Dual-Stack IPs",
-			nodeIP:      "",
-			podIPs:      []string{"10.0.0.1", "10.0.0.2", "fd01::1234", "10.0.0.3", "fd01::5678"},
-			expectedIPs: []string{"10.0.0.1", "fd01::1234"},
-		},
-		{
-			name:        "Badly-formatted IPs from CRI",
-			nodeIP:      "",
-			podIPs:      []string{"010.000.000.001", "fd01:0:0:0:0:0:0:1234"},
-			expectedIPs: []string{"10.0.0.1", "fd01::1234"},
-		},
-	}
-
-	for _, tc := range testcases {
-		t.Run(tc.name, func(t *testing.T) {
-			testKubelet := newTestKubelet(t, false /* controllerAttachDetachEnabled */)
-			defer testKubelet.Cleanup()
-			kl := testKubelet.kubelet
-			if tc.nodeIP != "" {
-				kl.nodeIPs = []net.IP{netutils.ParseIPSloppy(tc.nodeIP)}
-			}
-
-			podIPs := kl.sortPodIPs(tc.podIPs)
-			if !reflect.DeepEqual(podIPs, tc.expectedIPs) {
-				t.Fatalf("Expected PodIPs %#v, got %#v", tc.expectedIPs, podIPs)
 			}
 		})
 	}

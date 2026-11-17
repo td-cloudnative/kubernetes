@@ -3469,6 +3469,16 @@
   componentEndpoints:
   - component: kubelet
     endpoint: /metrics
+- name: active_probes
+  subsystem: kubelet
+  help: Number of currently active HTTP probes by protocol.
+  type: Gauge
+  stabilityLevel: ALPHA
+  labels:
+  - protocol
+  componentEndpoints:
+  - component: kubelet
+    endpoint: /metrics/probes
 - name: admission_rejections_total
   subsystem: kubelet
   help: Cumulative number pod admission rejections by the Kubelet.
@@ -5013,6 +5023,20 @@
   help: The number of admission requests where resources have to be aligned.
   type: Counter
   stabilityLevel: ALPHA
+  componentEndpoints:
+  - component: kubelet
+    endpoint: /metrics
+- name: topology_manager_numa_score_selection_total
+  subsystem: kubelet
+  help: 'The number of NUMA node selections in which the numa-allocation-strategy
+    policy option changed the outcome, that is the selected hint differs from the
+    one the narrowest/closest tiebreak would have picked. Counted once per hint merge:
+    once per admitted container under the container scope, once per admitted pod under
+    the pod scope.'
+  type: Counter
+  stabilityLevel: ALPHA
+  labels:
+  - numa_allocation_strategy
   componentEndpoints:
   - component: kubelet
     endpoint: /metrics
