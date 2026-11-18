@@ -63,6 +63,7 @@ import (
 	"k8s.io/kubernetes/pkg/kubelet/images"
 	"k8s.io/kubernetes/pkg/kubelet/kuberuntime"
 	"k8s.io/kubernetes/pkg/kubelet/metrics"
+	kubepod "k8s.io/kubernetes/pkg/kubelet/pod"
 	"k8s.io/kubernetes/pkg/kubelet/status"
 	kubetypes "k8s.io/kubernetes/pkg/kubelet/types"
 	envutil "k8s.io/kubernetes/pkg/kubelet/util/env"
@@ -2024,7 +2025,16 @@ func (kl *Kubelet) generateAPIPodStatus(ctx context.Context, pod *v1.Pod, podSta
 		}
 	}
 
-	kl.probeManager.UpdatePodStatus(ctx, pod, s)
+	oldProbeStatus := &pod.Status
+	if !utilfeature.DefaultFeatureGate.Enabled(features.ChangeContainerStatusOnKubeletRestart) && kubetypes.IsStaticPod(pod) {
+		if mirrorPod, ok := kl.podManager.GetMirrorPodByPod(pod); ok && kubepod.IsMirrorPodOf(mirrorPod, pod) {
+			// Static pod manifests lack the API conditions and container IDs needed
+			// to preserve readiness after a kubelet restart. Only expose the mirror
+			// status to probes to avoid inheriting unrelated fields such as the phase.
+			oldProbeStatus = &mirrorPod.Status
+		}
+	}
+	kl.probeManager.UpdatePodStatus(ctx, pod, oldProbeStatus, s)
 
 	// update the allocated resources status
 	if utilfeature.DefaultFeatureGate.Enabled(features.ResourceHealthStatus) {
@@ -2195,8 +2205,8 @@ func (kl *Kubelet) convertStatusToAPIStatus(ctx context.Context, pod *v1.Pod, po
 	if utilfeature.DefaultFeatureGate.Enabled(features.InPlacePodLevelResourcesVerticalScaling) {
 		apiPodStatus.Resources = kl.convertToAPIPodLevelResourcesStatus(logger, pod, oldPodStatus)
 		opts := resourcehelper.PodResourcesOptions{
-			SkipPodLevelResources:                    !utilfeature.DefaultFeatureGate.Enabled(features.PodLevelResources),
-			UseDRANodeAllocatableResourceClaimStatus: utilfeature.DefaultFeatureGate.Enabled(features.DRANodeAllocatableResources),
+			SkipPodLevelResources:            !utilfeature.DefaultFeatureGate.Enabled(features.PodLevelResources),
+			UseExtraNodeAllocatableResources: utilfeature.DefaultFeatureGate.Enabled(features.DRANodeAllocatableResources),
 		}
 		apiPodStatus.AllocatedResources = resourcehelper.PodRequests(pod, opts)
 	}
@@ -2242,8 +2252,8 @@ func getEffectiveAllocatedResources(allocatedPod *v1.Pod) *v1.ResourceRequiremen
 		allocatedResources = &v1.ResourceRequirements{}
 	}
 	opts := resourcehelper.PodResourcesOptions{
-		SkipPodLevelResources:                    !utilfeature.DefaultFeatureGate.Enabled(features.PodLevelResources),
-		UseDRANodeAllocatableResourceClaimStatus: utilfeature.DefaultFeatureGate.Enabled(features.DRANodeAllocatableResources),
+		SkipPodLevelResources:            !utilfeature.DefaultFeatureGate.Enabled(features.PodLevelResources),
+		UseExtraNodeAllocatableResources: utilfeature.DefaultFeatureGate.Enabled(features.DRANodeAllocatableResources),
 	}
 	allocatedResources.Requests = resourcehelper.PodRequests(allocatedPod, opts)
 	allocatedResources.Limits = resourcehelper.PodLimits(allocatedPod, opts)

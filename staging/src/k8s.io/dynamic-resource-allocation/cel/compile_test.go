@@ -19,6 +19,7 @@ package cel
 import (
 	"context"
 	"fmt"
+	"math"
 	"strings"
 	"testing"
 	"time"
@@ -583,6 +584,17 @@ device.attributes["dra.example.com"]["version"].isGreaterThan(semver("0.0.1"))
 		driver:      "dra.example.com",
 		expectMatch: true,
 		expectCost:  18,
+	},
+	"split_driver_index_regexp": {
+		// At cost model version 0, the element of an indexed split() result is
+		// sized from the path hint of the operand rather than from the element
+		// size reported for the call result. The split() result has no path the
+		// sizeEstimator can resolve, so the estimate is unbounded and the
+		// selector is rejected as too complex, as it was in Kubernetes 1.37.
+		expression:  `device.driver.split(".")[0].matches("^[a-z]+$")`,
+		driver:      "dra.example.com",
+		expectMatch: true,
+		expectCost:  math.MaxUint64,
 	},
 	"check_capacity_domains": {
 		expression:  `device.capacity.exists_one(x, x == "dra.example.com")`,

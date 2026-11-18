@@ -370,6 +370,12 @@
     lockToDefault: false
     preRelease: Alpha
     version: "1.26"
+- name: CSIControllerGetNodeInfo
+  versionedSpecs:
+  - default: false
+    lockToDefault: false
+    preRelease: Alpha
+    version: "1.38"
 - name: CSIGlobalMountReconstruction
   versionedSpecs:
   - default: false
@@ -631,6 +637,15 @@
     lockToDefault: false
     preRelease: Alpha
     version: "1.36"
+  - default: false
+    lockToDefault: false
+    preRelease: Beta
+    version: "1.38"
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "1.38"
+    minCompatibilityVersion: "1.38"
 - name: DRAOptionalNodeOperations
   versionedSpecs:
   - default: false
@@ -2201,9 +2216,9 @@
     version: "1.37"
 - name: WatchCacheStallResume
   versionedSpecs:
-  - default: false
+  - default: true
     lockToDefault: false
-    preRelease: Alpha
+    preRelease: Beta
     version: "1.38"
 - name: WatchFromStorageWithoutPrevKV
   versionedSpecs:
@@ -2277,3 +2292,7 @@
     lockToDefault: false
     preRelease: Alpha
     version: "1.36"
+  - default: false
+    lockToDefault: false
+    preRelease: Beta
+    version: "1.38"

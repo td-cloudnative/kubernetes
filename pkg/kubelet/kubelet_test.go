@@ -100,6 +100,7 @@ import (
 	kubepod "k8s.io/kubernetes/pkg/kubelet/pod"
 	podtest "k8s.io/kubernetes/pkg/kubelet/pod/testing"
 	"k8s.io/kubernetes/pkg/kubelet/podcertificate"
+	"k8s.io/kubernetes/pkg/kubelet/prober"
 	proberesults "k8s.io/kubernetes/pkg/kubelet/prober/results"
 	probetest "k8s.io/kubernetes/pkg/kubelet/prober/testing"
 	"k8s.io/kubernetes/pkg/kubelet/secret"
@@ -127,6 +128,7 @@ import (
 	"k8s.io/kubernetes/pkg/volume/util/subpath"
 	"k8s.io/utils/clock"
 	testingclock "k8s.io/utils/clock/testing"
+	"k8s.io/utils/ptr"
 )
 
 func init() {
@@ -1234,6 +1236,132 @@ func TestHandleMemExceeded(t *testing.T) {
 	checkPodStatus(t, kl, fittingPod, v1.PodPending)
 }
 
+func TestSortPodsForAdmission(t *testing.T) {
+	baseTime := time.Date(2026, time.January, 1, 0, 0, 0, 0, time.UTC)
+	type testPod struct {
+		name      string
+		created   int // seconds after baseTime
+		allocated bool
+	}
+	testCases := []struct {
+		name          string
+		pods          []testPod
+		expectedOrder []string
+	}{
+		{
+			name: "only new pods are sorted by creation time",
+			pods: []testPod{
+				{name: "new-2", created: 2},
+				{name: "new-0", created: 0},
+				{name: "new-1", created: 1},
+			},
+			expectedOrder: []string{"new-0", "new-1", "new-2"},
+		},
+		{
+			name: "only allocated pods are sorted by creation time",
+			pods: []testPod{
+				{name: "allocated-1", created: 1, allocated: true},
+				{name: "allocated-0", created: 0, allocated: true},
+			},
+			expectedOrder: []string{"allocated-0", "allocated-1"},
+		},
+		{
+			name: "allocated pod goes before an older new pod",
+			pods: []testPod{
+				{name: "new-0", created: 0},
+				{name: "allocated-1", created: 1, allocated: true},
+			},
+			expectedOrder: []string{"allocated-1", "new-0"},
+		},
+		{
+			name: "allocated pods go first, each group by creation time",
+			pods: []testPod{
+				{name: "allocated-2", created: 2, allocated: true},
+				{name: "new-3", created: 3},
+				{name: "new-0", created: 0},
+				{name: "allocated-1", created: 1, allocated: true},
+			},
+			expectedOrder: []string{"allocated-1", "allocated-2", "new-0", "new-3"},
+		},
+		{
+			name: "pods with the same creation time are sorted by UID",
+			pods: []testPod{
+				{name: "new-b", created: 0},
+				{name: "new-a", created: 0},
+				{name: "allocated-b", created: 0, allocated: true},
+				{name: "allocated-a", created: 0, allocated: true},
+			},
+			expectedOrder: []string{"allocated-a", "allocated-b", "new-a", "new-b"},
+		},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			allocated := sets.New[types.UID]()
+			var pods []*v1.Pod
+			for _, p := range tc.pods {
+				pod := podWithUIDNameNs(types.UID(p.name), p.name, "foo")
+				pod.CreationTimestamp = metav1.NewTime(baseTime.Add(time.Duration(p.created) * time.Second))
+				if p.allocated {
+					allocated.Insert(pod.UID)
+				}
+				pods = append(pods, pod)
+			}
+
+			sortPodsForAdmission(pods, allocated.Has)
+
+			var order []string
+			for _, pod := range pods {
+				order = append(order, pod.Name)
+			}
+			assert.Equal(t, tc.expectedOrder, order)
+		})
+	}
+}
+
+// Tests that a pod with allocated resources (e.g. admitted before a kubelet restart)
+// is admitted before an older new pod, so the new pod cannot take its resources.
+func TestHandlePodAdditionsAdmitsAllocatedPodsFirst(t *testing.T) {
+	logger, tCtx := ktesting.NewTestContext(t)
+	testKubelet := newTestKubelet(t, false /* controllerAttachDetachEnabled */)
+	defer testKubelet.Cleanup()
+	kl := testKubelet.kubelet
+	nodes := []*v1.Node{
+		{ObjectMeta: metav1.ObjectMeta{Name: testKubeletHostname},
+			Status: v1.NodeStatus{Capacity: v1.ResourceList{}, Allocatable: v1.ResourceList{
+				v1.ResourceCPU:    *resource.NewMilliQuantity(10, resource.DecimalSI),
+				v1.ResourceMemory: *resource.NewQuantity(100, resource.BinarySI),
+				v1.ResourcePods:   *resource.NewQuantity(40, resource.DecimalSI),
+			}}},
+	}
+	kl.nodeLister = testNodeLister{nodes: nodes}
+
+	kl.dnsConfigurer = createDNSConfigurer()
+
+	spec := v1.PodSpec{NodeName: string(kl.nodeName),
+		Containers: []v1.Container{{Resources: v1.ResourceRequirements{
+			Requests: v1.ResourceList{
+				v1.ResourceMemory: resource.MustParse("90"),
+			},
+		}}},
+	}
+	newPod := podWithUIDNameNsSpec("123456789", "newpod", "foo", spec)
+	allocatedPod := podWithUIDNameNsSpec("987654321", "allocatedpod", "foo", spec)
+	// The new pod is older than the allocated one, e.g. it waited long to be scheduled.
+	newPod.CreationTimestamp = metav1.NewTime(time.Now())
+	allocatedPod.CreationTimestamp = metav1.NewTime(time.Now().Add(1 * time.Second))
+	require.NoError(t, kl.allocationManager.SetAllocatedPod(logger, allocatedPod))
+	kl.podWorkers.(*fakePodWorkers).running = map[types.UID]bool{
+		newPod.UID:       true,
+		allocatedPod.UID: true,
+	}
+
+	kl.HandlePodAdditions(tCtx, []*v1.Pod{newPod, allocatedPod})
+
+	// The new pod should be rejected, even though it is older and comes first in the input.
+	checkPodStatus(t, kl, newPod, v1.PodFailed)
+	checkPodStatus(t, kl, allocatedPod, v1.PodPending)
+}
+
 // Tests that we handle result of interface UpdatePluginResources correctly
 // by setting corresponding status in status map.
 func TestHandlePluginResources(t *testing.T) {
@@ -2125,6 +2253,180 @@ func TestGetPodsToSync(t *testing.T) {
 	sort.Sort(podsByUID(expected))
 	sort.Sort(podsByUID(podsToSync))
 	assert.Equal(t, expected, podsToSync)
+}
+
+func TestGenerateAPIPodStatusForStaticPodAfterKubeletRestart(t *testing.T) {
+	for _, featureEnabled := range []bool{false, true} {
+		t.Run(fmt.Sprintf("ChangeContainerStatusOnKubeletRestart=%t", featureEnabled), func(t *testing.T) {
+			featuregatetesting.SetFeatureGateDuringTest(t, utilfeature.DefaultFeatureGate, features.ChangeContainerStatusOnKubeletRestart, featureEnabled)
+			for _, sidecar := range []bool{false, true} {
+				for _, tc := range []struct {
+					name           string
+					ready          bool
+					replaced       bool
+					outdatedMirror bool
+					noMirror       bool
+					mirrorPhase    v1.PodPhase
+					probeResult    *proberesults.Result
+					expectedReady  bool
+				}{
+					{name: "ready container", ready: true, expectedReady: true},
+					{name: "unready container"},
+					{name: "replaced container", ready: true, replaced: true},
+					{name: "outdated mirror pod", ready: true, outdatedMirror: true},
+					{name: "no mirror pod", noMirror: true},
+					{name: "mirror terminal phase does not affect static pod", ready: true, mirrorPhase: v1.PodFailed, expectedReady: true},
+					{name: "successful probe overrides unready mirror", probeResult: ptr.To(proberesults.Success)},
+					{name: "failed probe overrides ready mirror", ready: true, expectedReady: true, probeResult: ptr.To(proberesults.Failure)},
+				} {
+					t.Run(fmt.Sprintf("sidecar=%t/%s", sidecar, tc.name), func(t *testing.T) {
+						tCtx := ktesting.Init(t)
+						testKubelet := newTestKubelet(t, false)
+						defer testKubelet.Cleanup()
+						kl := testKubelet.kubelet
+						kl.probeManager = prober.NewManager(kl.statusManager, kl.livenessManager, kl.readinessManager, kl.startupManager, nil, kl.recorder)
+
+						pod := podWithUIDNameNs("static-uid", "static-pod", "test")
+						pod.Annotations[kubetypes.ConfigSourceAnnotationKey] = kubetypes.FileSource
+						pod.Annotations[kubetypes.ConfigHashAnnotationKey] = "static-hash"
+						pod.Spec.RestartPolicy = v1.RestartPolicyAlways
+						container := v1.Container{
+							Name: "container", Image: "image",
+							// This test controls readiness results; workers must not execute a probe.
+							ReadinessProbe: &v1.Probe{
+								ProbeHandler:        v1.ProbeHandler{Exec: &v1.ExecAction{Command: []string{"/bin/true"}}},
+								InitialDelaySeconds: 3600,
+								PeriodSeconds:       1,
+							},
+						}
+						if sidecar {
+							container.RestartPolicy = ptr.To(v1.ContainerRestartPolicyAlways)
+							pod.Spec.InitContainers = []v1.Container{container}
+							pod.Spec.Containers = []v1.Container{{Name: "main", Image: "image"}}
+						} else {
+							pod.Spec.Containers = []v1.Container{container}
+						}
+						pod.Status.Phase = v1.PodPending
+						mirrorPod := pod.DeepCopy()
+						mirrorPod.UID = "mirror-uid"
+						mirrorPod.Annotations[kubetypes.ConfigSourceAnnotationKey] = kubetypes.ApiserverSource
+						mirrorPod.Annotations[kubetypes.ConfigMirrorAnnotationKey] = pod.Annotations[kubetypes.ConfigHashAnnotationKey]
+						if tc.outdatedMirror {
+							mirrorPod.Annotations[kubetypes.ConfigMirrorAnnotationKey] = "old-hash"
+						}
+						containerID := kubecontainer.BuildContainerID("test", "container-id")
+						startedAt := time.Now().Add(-time.Minute)
+						oldStatus := v1.ContainerStatus{
+							Name: container.Name, ContainerID: containerID.String(),
+							Started: new(true), Ready: tc.ready,
+							State: v1.ContainerState{Running: &v1.ContainerStateRunning{StartedAt: metav1.NewTime(startedAt)}},
+						}
+						if tc.replaced {
+							oldStatus.ContainerID = "test://old-container-id"
+						}
+						mirrorPod.Status = v1.PodStatus{
+							Phase:   v1.PodRunning,
+							Reason:  "MirrorOnlyReason",
+							Message: "mirror pod status must only be used for probes",
+							Conditions: []v1.PodCondition{
+								{Type: v1.PodReady, Status: v1.ConditionFalse},
+								{Type: "example.com/ExternalCondition", Status: v1.ConditionTrue},
+							},
+						}
+						if tc.mirrorPhase != "" {
+							mirrorPod.Status.Phase = tc.mirrorPhase
+						}
+						if tc.ready {
+							mirrorPod.Status.Conditions[0].Status = v1.ConditionTrue
+						}
+						if sidecar {
+							mirrorPod.Status.InitContainerStatuses = []v1.ContainerStatus{oldStatus}
+						} else {
+							mirrorPod.Status.ContainerStatuses = []v1.ContainerStatus{oldStatus}
+						}
+						kl.podManager.AddPod(pod)
+						if !tc.noMirror {
+							kl.podManager.AddPod(mirrorPod)
+						}
+						originalPod, originalMirror := pod.DeepCopy(), mirrorPod.DeepCopy()
+						runtimeStatus := &kubecontainer.PodStatus{
+							ID: pod.UID, Name: pod.Name, Namespace: pod.Namespace,
+							ContainerStatuses: []*kubecontainer.Status{{
+								ID: containerID, Name: container.Name,
+								State: kubecontainer.ContainerStateRunning, StartedAt: startedAt,
+							}},
+						}
+						if sidecar {
+							runtimeStatus.ContainerStatuses = append(runtimeStatus.ContainerStatuses, &kubecontainer.Status{
+								ID: kubecontainer.BuildContainerID("test", "main-id"), Name: "main",
+								State: kubecontainer.ContainerStateRunning, StartedAt: startedAt,
+							})
+						}
+
+						for sync := range 2 {
+							if sync == 1 {
+								// SyncPod caches the initial status before registering workers.
+								kl.probeManager.SyncPod(tCtx, pod)
+								t.Cleanup(func() {
+									// Wait for worker cleanup before the subtest's logger and feature gates expire.
+									kl.readinessManager.Set(containerID, proberesults.Unknown, pod)
+									kl.probeManager.RemovePod(pod)
+									require.NoError(t, wait.PollUntilContextTimeout(context.WithoutCancel(tCtx), 10*time.Millisecond, wait.ForeverTestTimeout, true, func(context.Context) (bool, error) {
+										_, found := kl.readinessManager.Get(containerID)
+										return !found, nil
+									}), "readiness worker did not remove its result after stopping")
+								})
+								if featureEnabled {
+									// Let the worker seed Failure before installing the controlled result.
+									require.NoError(t, wait.PollUntilContextTimeout(tCtx, 10*time.Millisecond, wait.ForeverTestTimeout, true, func(context.Context) (bool, error) {
+										_, found := kl.readinessManager.Get(containerID)
+										return found, nil
+									}), "readiness worker did not initialize its result")
+								}
+								if tc.probeResult != nil {
+									kl.readinessManager.Set(containerID, *tc.probeResult, pod)
+								}
+							}
+							expectedReady := tc.expectedReady
+							if featureEnabled {
+								// Without preservation, readiness defaults to true only before a worker exists.
+								expectedReady = sync == 0
+							}
+							if sync == 1 && tc.probeResult != nil {
+								expectedReady = *tc.probeResult == proberesults.Success
+							}
+							// Mirror probe history must not change the phase computed from
+							// the runtime and the status manager's cache.
+							if !tc.noMirror {
+								kl.podManager.RemovePod(mirrorPod)
+							}
+							withoutMirror := kl.generateAPIPodStatus(tCtx, pod, runtimeStatus, SyncPod)
+							if !tc.noMirror {
+								kl.podManager.AddPod(mirrorPod)
+							}
+							apiStatus := kl.generateAPIPodStatus(tCtx, pod, runtimeStatus, SyncPod)
+							assert.Equal(t, withoutMirror.Phase, apiStatus.Phase)
+							assert.Empty(t, apiStatus.Reason)
+							assert.Empty(t, apiStatus.Message)
+							for _, condition := range apiStatus.Conditions {
+								assert.NotEqual(t, v1.PodConditionType("example.com/ExternalCondition"), condition.Type)
+							}
+							statuses := apiStatus.ContainerStatuses
+							if sidecar {
+								statuses = apiStatus.InitContainerStatuses
+							}
+							require.Len(t, statuses, 1)
+							assert.Equal(t, expectedReady, statuses[0].Ready)
+							assert.Equal(t, containerID.String(), statuses[0].ContainerID)
+							kl.statusManager.SetPodStatus(tCtx.Logger(), pod, apiStatus)
+						}
+						assert.Equal(t, originalPod, pod, "the static pod from the config source must not be mutated")
+						assert.Equal(t, originalMirror, mirrorPod, "the mirror pod from the API source must not be mutated")
+					})
+				}
+			}
+		})
+	}
 }
 
 func TestGenerateAPIPodStatusWithSortedContainers(t *testing.T) {
@@ -6218,26 +6520,30 @@ func TestHandlePodReconcile_RetryPendingResizes(t *testing.T) {
 			name: "requests decreasing due to DRA claim mapping reduction",
 			oldPod: func() *v1.Pod {
 				p := makePodWithResources("updated-pod", v1.ResourceList{v1.ResourceCPU: lowCPU}, v1.ResourceList{v1.ResourceCPU: lowCPU})
-				p.Status.NodeAllocatableResourceClaimStatuses = []v1.NodeAllocatableResourceClaimStatus{
+				p.Status.ExtraNodeAllocatableResources = []v1.ExtraNodeAllocatableResource{
 					{
-						ResourceClaimName: "claim-1",
-						Containers:        []string{"c1"},
-						Mapping: []v1.NodeAllocatableMappedResources{
-							{Name: v1.ResourceCPU, Quantity: new(resource.MustParse("500m"))},
-						},
+						ContainerName: "",
+						Requests:      v1.ResourceList{v1.ResourceCPU: resource.MustParse("500m")},
+						Limits:        v1.ResourceList{v1.ResourceCPU: resource.MustParse("500m")},
+					},
+					{
+						ContainerName: "c1",
+						Limits:        v1.ResourceList{v1.ResourceCPU: resource.MustParse("500m")},
 					},
 				}
 				return p
 			}(),
 			newPod: func() *v1.Pod {
 				p := makePodWithResources("updated-pod", v1.ResourceList{v1.ResourceCPU: lowCPU}, v1.ResourceList{v1.ResourceCPU: lowCPU})
-				p.Status.NodeAllocatableResourceClaimStatuses = []v1.NodeAllocatableResourceClaimStatus{
+				p.Status.ExtraNodeAllocatableResources = []v1.ExtraNodeAllocatableResource{
 					{
-						ResourceClaimName: "claim-1",
-						Containers:        []string{"c1"},
-						Mapping: []v1.NodeAllocatableMappedResources{
-							{Name: v1.ResourceCPU, Quantity: new(resource.MustParse("100m"))},
-						},
+						ContainerName: "",
+						Requests:      v1.ResourceList{v1.ResourceCPU: resource.MustParse("100m")},
+						Limits:        v1.ResourceList{v1.ResourceCPU: resource.MustParse("100m")},
+					},
+					{
+						ContainerName: "c1",
+						Limits:        v1.ResourceList{v1.ResourceCPU: resource.MustParse("100m")},
 					},
 				}
 				return p

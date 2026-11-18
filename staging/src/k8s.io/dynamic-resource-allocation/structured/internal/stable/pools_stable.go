@@ -139,7 +139,7 @@ func GatherPools(ctx context.Context, slicesForNode []*draapi.ResourceSlice, nod
 			if err != nil {
 				return nil, err
 			}
-			if poolHasBindingConditions(*pool) {
+			if features.DeviceBindingAndStatus && poolHasBindingConditions(*pool) {
 				resultWithBindingConditions = append(resultWithBindingConditions, pool)
 				continue
 			}
@@ -190,7 +190,7 @@ func GatherPools(ctx context.Context, slicesForNode []*draapi.ResourceSlice, nod
 			return nil, err
 		}
 		// if pool has binding conditions, add the pool to the end of the result
-		if poolHasBindingConditions(*pool) {
+		if features.DeviceBindingAndStatus && poolHasBindingConditions(*pool) {
 			resultWithBindingConditions = append(resultWithBindingConditions, pool)
 			continue
 		}
@@ -370,6 +370,11 @@ func getAndValidateCounterSets(slices []*draapi.ResourceSlice) (map[draapi.Uniqu
 			if _, found := counterSets[counterSet.Name]; found {
 				return nil, fmt.Errorf("duplicate counter set name %s", counterSet.Name)
 			}
+			for counterName, counter := range counterSet.Counters {
+				if counter.Value.Sign() < 0 {
+					return nil, fmt.Errorf("counter %s in counter set %s has negative value %s", counterName, counterSet.Name, &counter.Value)
+				}
+			}
 			counterSets[counterSet.Name] = &counterSet
 		}
 	}
@@ -401,9 +406,12 @@ func validateDeviceCounterConsumption(counterSets map[draapi.UniqueString]*draap
 					return fmt.Errorf("counter set %s not found", deviceCounterConsumption.CounterSet)
 				}
 
-				for counterName := range deviceCounterConsumption.Counters {
+				for counterName, counter := range deviceCounterConsumption.Counters {
 					if _, found := counterSet.Counters[counterName]; !found {
 						return fmt.Errorf("counter %s not found in counter set %s", counterName, counterSet.Name)
+					}
+					if counter.Value != nil && counter.Value.Sign() < 0 {
+						return fmt.Errorf("consumed counter %s in counter set %s has negative value %s", counterName, deviceCounterConsumption.CounterSet, counter.Value)
 					}
 				}
 			}
