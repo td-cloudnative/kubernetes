@@ -282,6 +282,12 @@
     lockToDefault: false
     preRelease: Beta
     version: "1.35"
+- name: ContainerScopedProbes
+  versionedSpecs:
+  - default: false
+    lockToDefault: false
+    preRelease: Alpha
+    version: "1.38"
 - name: ContainerStopSignals
   versionedSpecs:
   - default: false
@@ -1601,6 +1607,12 @@
     lockToDefault: false
     preRelease: Beta
     version: "1.37"
+- name: PodLevelResourcesFixInitContainerLimits
+  versionedSpecs:
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "1.38"
 - name: PodLevelResourcesFixKubeletQOSClass
   versionedSpecs:
   - default: true

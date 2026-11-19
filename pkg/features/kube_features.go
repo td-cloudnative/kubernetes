@@ -199,6 +199,16 @@ const (
 	// Enable a single container to restart even if the pod has restart policy "Never".
 	ContainerRestartRules featuregate.Feature = "ContainerRestartRules"
 
+	// owner: @troychiu HirazawaUi
+	//
+	// Binds the probe lifecycle to the container lifecycle: probe workers are
+	// started when a container starts and stopped when it is killed or observed
+	// dead, and each worker is bound to a single container instance for its
+	// whole life. Replaces the status-manager polling in the probe worker and
+	// the wall-clock heuristics used to reconstruct probe state after a kubelet
+	// restart.
+	ContainerScopedProbes featuregate.Feature = "ContainerScopedProbes"
+
 	// owner: @sreeram-venkitesh
 	// kep: https://kep.k8s.io/4960
 	//
@@ -916,6 +926,12 @@ const (
 	// Enables PodLevelResourcesFixDefaulting.
 	PodLevelResourcesFixDefaulting featuregate.Feature = "PodLevelResourcesFixDefaulting"
 
+	// owner: @ndixita
+	// kep: https://kep.k8s.io/2837
+	//
+	// Validates that individual init container resource limits do not exceed pod-level resource limits.
+	PodLevelResourcesFixInitContainerLimits featuregate.Feature = "PodLevelResourcesFixInitContainerLimits"
+
 	// owner: @KevinTMtz
 	// key: https://kep.k8s.io/2837
 	//
@@ -1409,6 +1425,10 @@ var defaultVersionedKubernetesFeatureGates = map[featuregate.Feature]featuregate
 	ContainerRestartRules: {
 		{Version: version.MustParse("1.34"), Default: false, PreRelease: featuregate.Alpha},
 		{Version: version.MustParse("1.35"), Default: true, PreRelease: featuregate.Beta},
+	},
+
+	ContainerScopedProbes: {
+		{Version: version.MustParse("1.38"), Default: false, PreRelease: featuregate.Alpha},
 	},
 
 	ContainerStopSignals: {
@@ -1934,6 +1954,10 @@ var defaultVersionedKubernetesFeatureGates = map[featuregate.Feature]featuregate
 
 	PodLevelResourcesFixDefaulting: {
 		{Version: version.MustParse("1.37"), Default: true, PreRelease: featuregate.Beta},
+	},
+
+	PodLevelResourcesFixInitContainerLimits: {
+		{Version: version.MustParse("1.38"), Default: true, PreRelease: featuregate.Beta},
 	},
 
 	PodLevelResourcesFixKubeletQOSClass: {
@@ -2500,6 +2524,8 @@ var defaultKubernetesFeatureGateDependencies = map[featuregate.Feature][]feature
 
 	ContainerRestartRules: {},
 
+	ContainerScopedProbes: {},
+
 	ContainerStopSignals: {},
 
 	CoordinatedLeaderElection: {},
@@ -2709,6 +2735,8 @@ var defaultKubernetesFeatureGateDependencies = map[featuregate.Feature][]feature
 	PodLevelResources: {},
 
 	PodLevelResourcesFixDefaulting: {PodLevelResources},
+
+	PodLevelResourcesFixInitContainerLimits: {PodLevelResources},
 
 	PodLevelResourcesFixKubeletQOSClass: {PodLevelResources},
 

@@ -2702,6 +2702,36 @@ func TestPodInfoCalculateResources(t *testing.T) {
 			},
 		},
 		{
+			name:                     "pod-level memory requests and 1X container missing cpu request",
+			podLevelResourcesEnabled: true,
+			containers: []v1.Container{
+				{
+					Resources: v1.ResourceRequirements{
+						Requests: v1.ResourceList{
+							v1.ResourceCPU: cpu500m,
+						},
+					},
+				},
+				{
+					Resources: v1.ResourceRequirements{},
+				},
+			},
+			podResources: &v1.ResourceRequirements{
+				Requests: v1.ResourceList{
+					v1.ResourceMemory: mem1200M,
+				},
+			},
+			expectedResource: fwk.PodResource{
+				Resource: &Resource{
+					MilliCPU: cpu500m.MilliValue(),
+					Memory:   mem1200M.Value(),
+				},
+				// cpu falls back to containers, so the requestless one gets the default.
+				Non0CPU: cpu500m.MilliValue() + schedutil.DefaultMilliCPURequest,
+				Non0Mem: mem1200M.Value(),
+			},
+		},
+		{
 			name:                     "1X container unsupported resources and pod-level supported resources",
 			podLevelResourcesEnabled: true,
 			initContainers: []v1.Container{
@@ -3144,6 +3174,100 @@ func TestPodInfoCalculateResources(t *testing.T) {
 			}
 			res := podInfo.CalculateResource()
 			if diff := cmp.Diff(tc.expectedResource, res, nodeInfoCmpOpts...); diff != "" {
+				t.Errorf("Unexpected resource (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestCalculateResourceRuntimeClassOverheadCountedOnce(t *testing.T) {
+	featuregatetesting.SetFeatureGateDuringTest(t, utilfeature.DefaultFeatureGate, features.PodLevelResources, true)
+	featuregatetesting.SetFeatureGateDuringTest(t, utilfeature.DefaultFeatureGate, features.InPlacePodLevelResourcesVerticalScaling, true)
+
+	mem32Mi := resource.MustParse("32Mi")
+	mem64Mi := resource.MustParse("64Mi")
+	mem96Mi := resource.MustParse("96Mi")
+	overhead := v1.ResourceList{
+		v1.ResourceCPU:    resource.MustParse("250m"),
+		v1.ResourceMemory: mem64Mi,
+	}
+
+	for _, tc := range []struct {
+		name     string
+		pod      *v1.Pod
+		expected fwk.PodResource
+	}{
+		{
+			name: "container-level requests",
+			pod: &v1.Pod{
+				Spec: v1.PodSpec{
+					Overhead: overhead,
+					Containers: []v1.Container{{
+						Name: "c",
+						Resources: v1.ResourceRequirements{
+							Requests: v1.ResourceList{
+								v1.ResourceCPU:    resource.MustParse("10m"),
+								v1.ResourceMemory: mem32Mi,
+							},
+						},
+					}},
+				},
+				Status: v1.PodStatus{
+					AllocatedResources: v1.ResourceList{
+						v1.ResourceCPU:    resource.MustParse("260m"),
+						v1.ResourceMemory: mem96Mi,
+					},
+					Resources: &v1.ResourceRequirements{
+						Requests: v1.ResourceList{
+							v1.ResourceCPU:    resource.MustParse("260m"),
+							v1.ResourceMemory: mem96Mi,
+						},
+					},
+				},
+			},
+			expected: fwk.PodResource{
+				Resource: &Resource{MilliCPU: 260, Memory: mem96Mi.Value()},
+				Non0CPU:  260,
+				Non0Mem:  mem96Mi.Value(),
+			},
+		},
+		{
+			name: "pod-level requests",
+			pod: &v1.Pod{
+				Spec: v1.PodSpec{
+					Overhead: overhead,
+					Resources: &v1.ResourceRequirements{
+						Requests: v1.ResourceList{
+							v1.ResourceCPU:    resource.MustParse("100m"),
+							v1.ResourceMemory: mem32Mi,
+						},
+					},
+					Containers: []v1.Container{{Name: "c"}},
+				},
+				Status: v1.PodStatus{
+					AllocatedResources: v1.ResourceList{
+						v1.ResourceCPU:    resource.MustParse("350m"),
+						v1.ResourceMemory: mem96Mi,
+					},
+					Resources: &v1.ResourceRequirements{
+						Requests: v1.ResourceList{
+							v1.ResourceCPU:    resource.MustParse("350m"),
+							v1.ResourceMemory: mem96Mi,
+						},
+					},
+				},
+			},
+			expected: fwk.PodResource{
+				Resource: &Resource{MilliCPU: 350, Memory: mem96Mi.Value()},
+				Non0CPU:  350,
+				Non0Mem:  mem96Mi.Value(),
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			podInfo := PodInfo{Pod: tc.pod}
+			got := podInfo.CalculateResource()
+			if diff := cmp.Diff(tc.expected, got, nodeInfoCmpOpts...); diff != "" {
 				t.Errorf("Unexpected resource (-want,+got):\n%s", diff)
 			}
 		})

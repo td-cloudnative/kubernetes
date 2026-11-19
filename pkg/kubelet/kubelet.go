@@ -832,11 +832,14 @@ func NewMainKubelet(ctx context.Context,
 		}
 	}
 
-	actuatedState, err := state.NewStateCheckpoint(logger, rootDirectory, actuatedPodsStateFile, kuberuntime.KeepOnlyResourceValues)
+	actuatedState, err := state.NewActuatedStateCheckpoint(logger, rootDirectory, actuatedPodsStateFile, kuberuntime.KeepOnlyResourceValues)
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize actuated state checkpoint: %w", err)
 	}
 	klet.actuatedState = actuatedState
+
+	klet.runner = kubecontainer.NewCommandRunner(kubeDeps.RemoteRuntimeService)
+	klet.probeManager = newProbeManager(ctx, klet, kubeDeps)
 
 	runtime, postImageGCHooks, err := kuberuntime.NewKubeGenericRuntimeManager(
 		ctx,
@@ -844,6 +847,7 @@ func NewMainKubelet(ctx context.Context,
 		klet.livenessManager,
 		klet.readinessManager,
 		klet.startupManager,
+		klet.probeManager,
 		rootDirectory,
 		podLogsDirectory,
 		machineInfo,
@@ -888,7 +892,6 @@ func NewMainKubelet(ctx context.Context,
 	}
 	klet.containerRuntime = runtime
 	klet.streamingRuntime = runtime
-	klet.runner = kubecontainer.NewCommandRunner(kubeDeps.RemoteRuntimeService)
 	resizeAdmitHandler := allocation.NewPodResizesAdmitHandler(klet.containerManager, klet.containerManager, runtime, klet.allocationManager)
 
 	runtimeCache, err := kubecontainer.NewRuntimeCache(klet.containerRuntime, runtimeCacheRefreshPeriod)
@@ -1038,18 +1041,6 @@ func NewMainKubelet(ctx context.Context,
 				kubeDeps.TLSConfig.ClientCAs = clientCAs
 			}
 		}
-	}
-
-	if kubeDeps.ProbeManager != nil {
-		klet.probeManager = kubeDeps.ProbeManager
-	} else {
-		klet.probeManager = prober.NewManager(
-			klet.statusManager,
-			klet.livenessManager,
-			klet.readinessManager,
-			klet.startupManager,
-			klet.runner,
-			kubeDeps.Recorder)
 	}
 
 	var clusterTrustBundleManager clustertrustbundle.Manager = &clustertrustbundle.NoopManager{}
@@ -1283,6 +1274,31 @@ func NewMainKubelet(ctx context.Context,
 
 type serviceLister interface {
 	List(labels.Selector) ([]*v1.Service, error)
+}
+
+// newProbeManager selects the probe manager based on the ContainerScopedProbes gate.
+func newProbeManager(ctx context.Context, klet *Kubelet, kubeDeps *Dependencies) prober.Manager {
+	if kubeDeps.ProbeManager != nil {
+		return kubeDeps.ProbeManager
+	}
+
+	if utilfeature.DefaultFeatureGate.Enabled(features.ContainerScopedProbes) {
+		return prober.NewContainerBoundManager(
+			ctx,
+			klet.livenessManager,
+			klet.readinessManager,
+			klet.startupManager,
+			klet.runner,
+			kubeDeps.Recorder)
+	}
+
+	return prober.NewManager(
+		klet.statusManager,
+		klet.livenessManager,
+		klet.readinessManager,
+		klet.startupManager,
+		klet.runner,
+		kubeDeps.Recorder)
 }
 
 // Kubelet is the main kubelet implementation.
@@ -2149,13 +2165,16 @@ func (kl *Kubelet) Run(ctx context.Context, updates <-chan kubetypes.PodUpdate) 
 //   - Call the container runtime's SyncPod callback
 //   - Update the traffic shaping for the pod's ingress and egress limits
 //
+// allocatedGeneration is the generation of the allocation that pod was updated from, or 0 if
+// unknown.
+//
 // If any step of this workflow errors, the error is returned, and is repeated
 // on the next SyncPod call.
 //
 // This operation writes all events that are dispatched in order to provide
 // the most accurate information possible about an error situation to aid debugging.
 // Callers should not write an event if this operation returns an error.
-func (kl *Kubelet) SyncPod(ctx context.Context, updateType kubetypes.SyncPodType, pod, mirrorPod *v1.Pod, podStatus *kubecontainer.PodStatus) (isTerminal bool, postSync func(), err error) {
+func (kl *Kubelet) SyncPod(ctx context.Context, updateType kubetypes.SyncPodType, pod, mirrorPod *v1.Pod, podStatus *kubecontainer.PodStatus, allocatedGeneration int64) (isTerminal bool, postSync func(), err error) {
 	ctx, otelSpan := kl.tracer.Start(ctx, "syncPod", trace.WithAttributes(
 		semconv.K8SPodUIDKey.String(string(pod.UID)),
 		attribute.String("k8s.pod", klog.KObj(pod).String()),
@@ -2196,16 +2215,47 @@ func (kl *Kubelet) SyncPod(ctx context.Context, updateType kubetypes.SyncPodType
 	}
 
 	// Check whether a resize is in progress so we can set the PodResizeInProgressCondition accordingly.
+	// The allocation manager starts a resize when it allocates it. This sync actuates the allocation
+	// at allocatedGeneration, and the status manager ignores updates for a resize that a newer
+	// allocation has superseded since.
 	if kl.containerRuntime.IsPodResizeInProgress(pod, podStatus) {
-		kl.statusManager.SetPodResizeInProgressCondition(pod.UID, "", "", pod.Generation)
-	} else if generation, cleared := kl.statusManager.ClearPodResizeInProgressCondition(pod.UID); cleared {
+		if _, started := kl.statusManager.SetPodResizeInProgressCondition(pod.UID, "", "", allocatedGeneration); started {
+			msg := events.PodResizeStartedMsg(logger, pod, allocatedGeneration)
+			kl.recorder.WithLogger(logger).Eventf(pod, v1.EventTypeNormal, events.ResizeStarted, "%s", msg)
+		}
+	} else if _, cleared := kl.statusManager.ClearPodResizeInProgressCondition(pod.UID, allocatedGeneration); cleared {
 		// (Allocated == Actual) => clear the resize in-progress status.
-		msg := events.PodResizeCompletedMsg(logger, pod, generation)
+		// TODO(#144234): Track the actuated pod-level resources, so that a failure to resize the pod
+		// cgroup doesn't alternate between Error and Completed.
+		msg := events.PodResizeCompletedMsg(logger, pod, allocatedGeneration)
 		kl.recorder.WithLogger(logger).Eventf(pod, v1.EventTypeNormal, events.ResizeCompleted, "%s", msg)
 	}
-	// TODO(natasha41575): There is a race condition here, where the goroutine in the
-	// allocation manager may allocate a new resize and unconditionally set the
-	// PodResizeInProgressCondition before we set the status below.
+
+	if utilfeature.DefaultFeatureGate.Enabled(features.ContainerScopedProbes) {
+		if kubecontainer.IsHostNetworkPod(pod) && len(podStatus.IPs) == 0 {
+			if hostIPs, err := kl.getHostIPsAnyWay(ctx); err == nil {
+				for _, ip := range hostIPs {
+					podStatus.IPs = append(podStatus.IPs, ip.String())
+				}
+			}
+		}
+
+		probePod := pod
+		if kubetypes.IsStaticPod(pod) {
+			// Static pods carry no API status. Keep the static pod's identity for
+			// probe results and events, but recover state from its matching mirror.
+			podCopy := *pod
+			probePod = &podCopy
+			probePod.Status = v1.PodStatus{}
+			if mirrorPod != nil && kubepod.IsMirrorPodOf(mirrorPod, pod) {
+				probePod.Status = mirrorPod.Status
+			}
+			// Without matching status, adoption leaves startup unknown and readiness
+			// false until live probes establish the state of each container.
+		}
+		// Seed adopted containers before status generation to preserve Started and Ready.
+		kl.probeManager.SyncPod(ctx, probePod, podStatus)
+	}
 
 	// Generate final API pod status with pod and status manager status
 	apiPodStatus := kl.generateAPIPodStatus(ctx, pod, podStatus, SyncPod)
@@ -2371,8 +2421,10 @@ func (kl *Kubelet) SyncPod(ctx context.Context, updateType kubetypes.SyncPodType
 		}
 	}
 
-	// Ensure the pod is being probed
-	kl.probeManager.SyncPod(ctx, pod)
+	if !utilfeature.DefaultFeatureGate.Enabled(features.ContainerScopedProbes) {
+		// Legacy status generation must run before creating startup workers.
+		kl.probeManager.SyncPod(ctx, pod, podStatus)
+	}
 
 	restartingAllContainers := false
 	if utilfeature.DefaultFeatureGate.Enabled(features.RestartAllContainersOnContainerExits) {
@@ -2424,9 +2476,12 @@ func (kl *Kubelet) SyncPod(ctx context.Context, updateType kubetypes.SyncPodType
 
 	for _, r := range result.SyncResults {
 		if r.Action == kubecontainer.ResizePodInPlace && r.Error != nil {
-			// If the condition already exists, the observedGeneration does not get updated.
-			if generation, updated := kl.statusManager.SetPodResizeInProgressCondition(pod.UID, v1.PodReasonError, r.Message, pod.Generation); updated {
-				msg := events.PodResizeErrorMsg(logger, pod, generation, r.Message)
+			// This creates the condition if it doesn't exist, e.g. if the runtime failed to update the
+			// pod cgroup for a resize the kubelet didn't consider in progress. ResizeStarted is not
+			// emitted for it on purpose: the error is the first thing to report about the resize. The
+			// error is ignored if a newer resize was allocated while the runtime actuated this one.
+			if updated, _ := kl.statusManager.SetPodResizeInProgressCondition(pod.UID, v1.PodReasonError, r.Message, allocatedGeneration); updated {
+				msg := events.PodResizeErrorMsg(logger, pod, allocatedGeneration, r.Message)
 				kl.recorder.WithLogger(logger).Eventf(pod, v1.EventTypeWarning, events.ResizeError, "%s", msg)
 			}
 		}
@@ -3048,6 +3103,8 @@ func (kl *Kubelet) HandlePodAdditions(ctx context.Context, pods []*v1.Pod) {
 	start := kl.clock.Now()
 	logger := klog.FromContext(ctx)
 	sortPodsForAdmission(pods, kl.allocationManager.HasPodAllocatedResources)
+	// Backfill the resize conditions before any pod worker syncs the pods and updates them.
+	kl.statusManager.BackfillPodResizeConditions(pods)
 	var pendingAllocations []types.UID
 	for _, pod := range pods {
 		// Always add the pod to the pod manager. Kubelet relies on the pod
@@ -3110,7 +3167,6 @@ func (kl *Kubelet) HandlePodAdditions(ctx context.Context, pods []*v1.Pod) {
 			StartTime:  start,
 		})
 	}
-	kl.statusManager.BackfillPodResizeConditions(pods)
 	// Admitted pods with DeletionTimestamp set are still pushed here so RetryPendingAllocations
 	// clears any backfilled PodResizePending condition with DeferredResizeResolutionTerminated.
 	for _, uid := range pendingAllocations {
