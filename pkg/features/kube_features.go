@@ -151,6 +151,12 @@ const (
 	// Adds support for using ML-DSA signed certificate signing request data in the CertificateSigningRequest spec.request field.
 	CertificateSigningRequestMLDSA featuregate.Feature = "CertificateSigningRequestMLDSA"
 
+	// owner: @AkihiroSuda
+	// kep: https://kep.k8s.io/5714
+	//
+	// Enables specifying whether containers use the host cgroup namespace.
+	CgroupNamespacesSupport featuregate.Feature = "CgroupNamespacesSupport"
+
 	// owner: @Divya063 @chrishenzie
 	// kep: https://kep.k8s.io/5474
 	//
@@ -649,6 +655,12 @@ const (
 	// Enables a userspace TCP proxy in the nftables kube-proxy backend that
 	// serves localhost NodePort services on IPv4 and IPv6.
 	KubeProxyNFTablesLocalhostNodePorts featuregate.Feature = "KubeProxyNFTablesLocalhostNodePorts"
+
+	// owner: @stlaz
+	// kep: https://kep.k8s.io/6283
+	//
+	// Add a signer for Pod/Service serving certificates
+	KubeServingCertificatesSigner featuregate.Feature = "KubeServingCertificatesSigner"
 
 	// owner: @tallclair
 	//
@@ -1287,6 +1299,12 @@ const (
 	// Enables support for graceful shutdown windows node.
 	WindowsGracefulNodeShutdown featuregate.Feature = "WindowsGracefulNodeShutdown"
 
+	// owner: @ajaysundark
+	// kep: https://kep.k8s.io/5359
+	//
+	// Enables explicit container-level and pod-level swap limit configuration via resources.limits.swap.
+	WorkloadControlledSwap featuregate.Feature = "WorkloadControlledSwap"
+
 	// owner: @PannagaRao
 	// kep: https://kep.k8s.io/6276
 	// alpha: v1.38
@@ -1384,6 +1402,10 @@ var defaultVersionedKubernetesFeatureGates = map[featuregate.Feature]featuregate
 	CertificateSigningRequestMLDSA: {
 		{Version: version.MustParse("1.38"), Default: false, PreRelease: featuregate.Beta},
 		{Version: version.MustParse("1.38"), Default: true, PreRelease: featuregate.Beta, MinCompatibilityVersion: version.MustParse("1.38")},
+	},
+
+	CgroupNamespacesSupport: {
+		{Version: version.MustParse("1.38"), Default: false, PreRelease: featuregate.Alpha},
 	},
 
 	CgroupOptions: {
@@ -1748,6 +1770,10 @@ var defaultVersionedKubernetesFeatureGates = map[featuregate.Feature]featuregate
 		{Version: version.MustParse("1.38"), Default: true, PreRelease: featuregate.Beta},
 	},
 
+	KubeServingCertificatesSigner: {
+		{Version: version.MustParse("1.38"), Default: false, PreRelease: featuregate.Alpha},
+	},
+
 	KubeletAllocatedPodsEndpoint: {
 		{Version: version.MustParse("1.37"), Default: false, PreRelease: featuregate.Alpha},
 	},
@@ -1950,10 +1976,12 @@ var defaultVersionedKubernetesFeatureGates = map[featuregate.Feature]featuregate
 	PodLevelResources: {
 		{Version: version.MustParse("1.32"), Default: false, PreRelease: featuregate.Alpha},
 		{Version: version.MustParse("1.34"), Default: true, PreRelease: featuregate.Beta},
+		{Version: version.MustParse("1.38"), Default: true, PreRelease: featuregate.GA, LockToDefault: true}, // remove in 1.41
 	},
 
 	PodLevelResourcesFixDefaulting: {
 		{Version: version.MustParse("1.37"), Default: true, PreRelease: featuregate.Beta},
+		{Version: version.MustParse("1.38"), Default: true, PreRelease: featuregate.GA, LockToDefault: true}, // remove in 1.41
 	},
 
 	PodLevelResourcesFixInitContainerLimits: {
@@ -1962,6 +1990,7 @@ var defaultVersionedKubernetesFeatureGates = map[featuregate.Feature]featuregate
 
 	PodLevelResourcesFixKubeletQOSClass: {
 		{Version: version.MustParse("1.37"), Default: true, PreRelease: featuregate.Beta},
+		{Version: version.MustParse("1.38"), Default: true, PreRelease: featuregate.GA, LockToDefault: true}, // remove in 1.41
 	},
 
 	PodLogsQuerySplitStreams: {
@@ -2221,6 +2250,10 @@ var defaultVersionedKubernetesFeatureGates = map[featuregate.Feature]featuregate
 	WindowsGracefulNodeShutdown: {
 		{Version: version.MustParse("1.32"), Default: false, PreRelease: featuregate.Alpha},
 		{Version: version.MustParse("1.34"), Default: true, PreRelease: featuregate.Beta},
+	},
+
+	WorkloadControlledSwap: {
+		{Version: version.MustParse("1.38"), Default: false, PreRelease: featuregate.Alpha},
 	},
 
 	WorkloadWithDeployment: {
@@ -2508,6 +2541,8 @@ var defaultKubernetesFeatureGateDependencies = map[featuregate.Feature][]feature
 
 	CertificateSigningRequestMLDSA: {},
 
+	CgroupNamespacesSupport: {},
+
 	CgroupOptions: {},
 
 	ChangeContainerStatusOnKubeletRestart: {},
@@ -2653,6 +2688,8 @@ var defaultKubernetesFeatureGateDependencies = map[featuregate.Feature][]feature
 	KubeProxyIPVS: {},
 
 	KubeProxyNFTablesLocalhostNodePorts: {},
+
+	KubeServingCertificatesSigner: {ClusterTrustBundle, PodCertificateRequest},
 
 	KubeletAllocatedPodsEndpoint: {},
 
@@ -2844,6 +2881,8 @@ var defaultKubernetesFeatureGateDependencies = map[featuregate.Feature][]feature
 	WindowsCPUAndMemoryAffinity: {},
 
 	WindowsGracefulNodeShutdown: {GracefulNodeShutdown},
+
+	WorkloadControlledSwap: {},
 
 	WorkloadWithDeployment: {GenericWorkload},
 

@@ -118,6 +118,12 @@
     preRelease: Beta
     version: "1.38"
     minCompatibilityVersion: "1.38"
+- name: CgroupNamespacesSupport
+  versionedSpecs:
+  - default: false
+    lockToDefault: false
+    preRelease: Alpha
+    version: "1.38"
 - name: CgroupOptions
   versionedSpecs:
   - default: false
@@ -1246,6 +1252,12 @@
     lockToDefault: false
     preRelease: Beta
     version: "1.38"
+- name: KubeServingCertificatesSigner
+  versionedSpecs:
+  - default: false
+    lockToDefault: false
+    preRelease: Alpha
+    version: "1.38"
 - name: LeaderElectionRecovery
   versionedSpecs:
   - default: false
@@ -1601,12 +1613,20 @@
     lockToDefault: false
     preRelease: Beta
     version: "1.34"
+  - default: true
+    lockToDefault: true
+    preRelease: GA
+    version: "1.38"
 - name: PodLevelResourcesFixDefaulting
   versionedSpecs:
   - default: true
     lockToDefault: false
     preRelease: Beta
     version: "1.37"
+  - default: true
+    lockToDefault: true
+    preRelease: GA
+    version: "1.38"
 - name: PodLevelResourcesFixInitContainerLimits
   versionedSpecs:
   - default: true
@@ -1619,6 +1639,10 @@
     lockToDefault: false
     preRelease: Beta
     version: "1.37"
+  - default: true
+    lockToDefault: true
+    preRelease: GA
+    version: "1.38"
 - name: PodLogsQuerySplitStreams
   versionedSpecs:
   - default: false
@@ -2292,6 +2316,12 @@
     lockToDefault: false
     preRelease: Beta
     version: "1.34"
+- name: WorkloadControlledSwap
+  versionedSpecs:
+  - default: false
+    lockToDefault: false
+    preRelease: Alpha
+    version: "1.38"
 - name: WorkloadWithDeployment
   versionedSpecs:
   - default: false

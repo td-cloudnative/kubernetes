@@ -28,6 +28,7 @@ import (
 
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
+	"k8s.io/apimachinery/pkg/util/version"
 	utilfeature "k8s.io/apiserver/pkg/util/feature"
 	featuregatetesting "k8s.io/component-base/featuregate/testing"
 	"k8s.io/klog/v2/ktesting"
@@ -968,6 +969,9 @@ func TestResourceConfigForPod(t *testing.T) {
 
 	for _, testCase := range testCases {
 		t.Run(testCase.description, func(t *testing.T) {
+			if !testCase.podLevelResourcesEnabled {
+				featuregatetesting.SetFeatureGateEmulationVersionDuringTest(t, utilfeature.DefaultFeatureGate, version.MustParse("1.37"))
+			}
 			featuregatetesting.SetFeatureGateDuringTest(t, utilfeature.DefaultFeatureGate, pkgfeatures.PodLevelResources, testCase.podLevelResourcesEnabled)
 			featuregatetesting.SetFeatureGateDuringTest(t, utilfeature.DefaultFeatureGate, pkgfeatures.DRANodeAllocatableResources, testCase.draNodeAllocatableResourcesEnabled)
 			actual := ResourceConfigForPod(testCase.pod, testCase.enforceCPULimits, testCase.quotaPeriod, false, kubeletconfig.NoneMemoryReservationPolicy)
@@ -1725,6 +1729,9 @@ func TestIsPodEligibleForSwap(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			if tc.plrEnabled != nil {
+				if !*tc.plrEnabled {
+					featuregatetesting.SetFeatureGateEmulationVersionDuringTest(t, utilfeature.DefaultFeatureGate, version.MustParse("1.37"))
+				}
 				featuregatetesting.SetFeatureGateDuringTest(t, utilfeature.DefaultFeatureGate, pkgfeatures.PodLevelResources, *tc.plrEnabled)
 			}
 			elig, req := IsPodEligibleForSwap(tc.pod)
@@ -2080,6 +2087,9 @@ func TestApplyPodLevelSwapConfig(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
+			if !tc.plrEnabled {
+				featuregatetesting.SetFeatureGateEmulationVersionDuringTest(t, utilfeature.DefaultFeatureGate, version.MustParse("1.37"))
+			}
 			featuregatetesting.SetFeatureGateDuringTest(t, utilfeature.DefaultFeatureGate, pkgfeatures.PodLevelResources, tc.plrEnabled)
 			rc := &ResourceConfig{Unified: tc.initialUnified}
 			ApplyPodLevelSwapConfig(logger, tc.pod, rc, tc.swapBehavior, tc.nodeTotalMemory, tc.totalPodsSwapAvailable, tc.isCgroup2, tc.swapControllerAvailable)
@@ -2297,6 +2307,9 @@ func TestIsContainerEligibleForSwap(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
+			if !tc.plrEnabled {
+				featuregatetesting.SetFeatureGateEmulationVersionDuringTest(t, utilfeature.DefaultFeatureGate, version.MustParse("1.37"))
+			}
 			featuregatetesting.SetFeatureGateDuringTest(t, utilfeature.DefaultFeatureGate, pkgfeatures.PodLevelResources, tc.plrEnabled)
 			if got := IsContainerEligibleForSwap(tc.pod, tc.container); got != tc.expected {
 				t.Fatalf("IsContainerEligibleForSwap() = %t, want %t", got, tc.expected)
@@ -2390,4 +2403,53 @@ func TestCheckSwapControllerAvailability(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestResourceConfigForPodSwap(t *testing.T) {
+	pod := &v1.Pod{
+		Spec: v1.PodSpec{
+			Resources: &v1.ResourceRequirements{
+				Limits: v1.ResourceList{
+					v1.ResourceMemory: resource.MustParse("1Gi"),
+					v1.ResourceSwap:   resource.MustParse("512Mi"),
+				},
+			},
+			Containers: []v1.Container{
+				{Resources: getResourceRequirements(getResourceList("100m", "512Mi"), getResourceList("200m", "1Gi"))},
+			},
+		},
+	}
+
+	t.Run("sets memory.swap.max when PodLevelResources and WorkloadControlledSwap are enabled", func(t *testing.T) {
+		featuregatetesting.SetFeatureGateDuringTest(t, utilfeature.DefaultFeatureGate, pkgfeatures.PodLevelResources, true)
+		featuregatetesting.SetFeatureGateDuringTest(t, utilfeature.DefaultFeatureGate, pkgfeatures.WorkloadControlledSwap, true)
+
+		rc := ResourceConfigForPod(pod, true, QuotaPeriod, false, kubeletconfig.NoneMemoryReservationPolicy)
+		expected := strconv.FormatInt(512*1024*1024, 10)
+		if got := rc.Unified[Cgroup2MaxSwapFilename]; got != expected {
+			t.Fatalf("expected Unified[%q] = %q, got %q", Cgroup2MaxSwapFilename, expected, got)
+		}
+	})
+
+	t.Run("omits memory.swap.max when WorkloadControlledSwap is disabled", func(t *testing.T) {
+		featuregatetesting.SetFeatureGateDuringTest(t, utilfeature.DefaultFeatureGate, pkgfeatures.PodLevelResources, true)
+		featuregatetesting.SetFeatureGateDuringTest(t, utilfeature.DefaultFeatureGate, pkgfeatures.WorkloadControlledSwap, false)
+
+		rc := ResourceConfigForPod(pod, true, QuotaPeriod, false, kubeletconfig.NoneMemoryReservationPolicy)
+		if _, found := rc.Unified[Cgroup2MaxSwapFilename]; found {
+			t.Fatalf("expected Unified[%q] to be omitted when WorkloadControlledSwap is disabled, got %v", Cgroup2MaxSwapFilename, rc.Unified)
+		}
+	})
+
+	t.Run("podContainerManager strips memory.swap.max on NoSwap or missing swap controller", func(t *testing.T) {
+		pcmNoSwap := &podContainerManagerImpl{memorySwapBehavior: "NoSwap", getSwapControllerAvailable: func() bool { return true }}
+		if pcmNoSwap.isNodeSwapEnabled() {
+			t.Fatalf("expected isNodeSwapEnabled() == false when memorySwapBehavior is NoSwap")
+		}
+
+		pcmSwapNoController := &podContainerManagerImpl{memorySwapBehavior: "WorkloadControlledSwap", getSwapControllerAvailable: func() bool { return false }}
+		if pcmSwapNoController.isNodeSwapEnabled() {
+			t.Fatalf("expected isNodeSwapEnabled() == false when swap controller is unavailable")
+		}
+	})
 }
