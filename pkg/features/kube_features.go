@@ -455,7 +455,7 @@ const (
 	// owner: @natasha41575
 	// kep: https://kep.k8s.io/6395
 	//
-	// Allow dynamically adding and removing node-local ephemeral volumes and container volumeMounts on running pods.
+	// Allow dynamically adding and removing node-local ephemeral volumes on running pods.
 	DynamicNodeLocalEphemeralVolumes featuregate.Feature = "DynamicNodeLocalEphemeralVolumes"
 
 	// owner: @nispriha
@@ -862,6 +862,12 @@ const (
 	// The recommendation is to enable it on a need basis for debugging purposes and disabling otherwise.
 	NodeLogQuery featuregate.Feature = "NodeLogQuery"
 
+	// owner: @QiWang19 @sohankunkerkar
+	// kep: https://kep.k8s.io/2570
+	//
+	// Enables Soft and Hard node memory reservation policies.
+	NodeMemoryReservationPolicy featuregate.Feature = "NodeMemoryReservationPolicy"
+
 	// owner: @sanposhiho, @wojtek-t
 	// kep: https://kep.k8s.io/5278
 	//
@@ -882,6 +888,13 @@ const (
 	//
 	// Enables relisting individual pods on-demand.
 	PLEGOnDemandRelist featuregate.Feature = "PLEGOnDemandRelist"
+
+	// owner: @BhargaviGudi
+	// kep: https://kep.k8s.io/6063
+	//
+	// Enables per-pod PID limits via spec.resources.limits.pids.
+	// Depends on the PodLevelResources feature gate.
+	PerPodPIDLimit featuregate.Feature = "PerPodPIDLimit"
 
 	// owner: @ArvindParekh
 	// kep: https://kep.k8s.io/5541
@@ -1727,6 +1740,7 @@ var defaultVersionedKubernetesFeatureGates = map[featuregate.Feature]featuregate
 	InPlacePodLevelResourcesVerticalScaling: {
 		{Version: version.MustParse("1.35"), Default: false, PreRelease: featuregate.Alpha},
 		{Version: version.MustParse("1.36"), Default: true, PreRelease: featuregate.Beta},
+		{Version: version.MustParse("1.38"), Default: true, PreRelease: featuregate.GA, LockToDefault: true}, // remove in 1.41
 	},
 
 	InPlacePodVerticalScalingExclusiveCPUs: {
@@ -1923,6 +1937,10 @@ var defaultVersionedKubernetesFeatureGates = map[featuregate.Feature]featuregate
 		{Version: version.MustParse("1.36"), Default: true, PreRelease: featuregate.GA, LockToDefault: true}, // remove in 1.39, locked to default in 1.36
 	},
 
+	NodeMemoryReservationPolicy: {
+		{Version: version.MustParse("1.38"), Default: false, PreRelease: featuregate.Alpha},
+	},
+
 	NominatedNodeNameForExpectation: {
 		{Version: version.MustParse("1.34"), Default: false, PreRelease: featuregate.Alpha},
 		{Version: version.MustParse("1.35"), Default: true, PreRelease: featuregate.Beta},
@@ -1935,6 +1953,10 @@ var defaultVersionedKubernetesFeatureGates = map[featuregate.Feature]featuregate
 	PLEGOnDemandRelist: {
 		{Version: version.MustParse("1.36"), Default: true, PreRelease: featuregate.Beta},
 		{Version: version.MustParse("1.37"), Default: true, PreRelease: featuregate.GA, LockToDefault: true}, // remove in v1.40
+	},
+
+	PerPodPIDLimit: {
+		{Version: version.MustParse("1.38"), Default: false, PreRelease: featuregate.Alpha},
 	},
 
 	PersistentVolumeClaimUnusedSinceTime: {
@@ -2749,11 +2771,18 @@ var defaultKubernetesFeatureGateDependencies = map[featuregate.Feature][]feature
 
 	NodeLogQuery: {},
 
+	NodeMemoryReservationPolicy: {MemoryQoS},
+
 	NominatedNodeNameForExpectation: {},
 
 	OpportunisticBatching: {},
 
 	PLEGOnDemandRelist: {},
+
+	// PodLevelResourcesFixKubeletQOSClass is required so that a pod-level
+	// pids limit cannot alter the pod's QOS class through the legacy
+	// pod-level QOS derivation path.
+	PerPodPIDLimit: {PodLevelResources},
 
 	PersistentVolumeClaimUnusedSinceTime: {},
 

@@ -17,11 +17,13 @@ limitations under the License.
 package allocation
 
 import (
+	"cmp"
 	"context"
 	"fmt"
+	"strconv"
 
 	v1 "k8s.io/api/core/v1"
-	apiequality "k8s.io/apimachinery/pkg/api/equality"
+	"k8s.io/apimachinery/pkg/api/resource"
 	utilfeature "k8s.io/apiserver/pkg/util/feature"
 	resourcehelper "k8s.io/component-helpers/resource"
 	"k8s.io/klog/v2"
@@ -29,6 +31,7 @@ import (
 	v1qos "k8s.io/kubernetes/pkg/apis/core/v1/helper/qos"
 	"k8s.io/kubernetes/pkg/features"
 	"k8s.io/kubernetes/pkg/kubelet/cm"
+	cmqos "k8s.io/kubernetes/pkg/kubelet/cm/qos"
 	kubecontainer "k8s.io/kubernetes/pkg/kubelet/container"
 	"k8s.io/kubernetes/pkg/kubelet/lifecycle"
 	"k8s.io/kubernetes/pkg/kubelet/metrics"
@@ -68,34 +71,36 @@ func (h *podResizesAdmitHandler) Admit(ctx context.Context, attrs *lifecycle.Pod
 	if disallowed, msg := h.disallowContainerChangesForPodLevelExclusiveResources(pod, allocatedPod); disallowed {
 		logger.V(3).Info(msg, "pod", format.Pod(pod))
 		if attrs.Update.Resize {
-			metrics.PodInfeasibleResizes.WithLabelValues("guaranteed_pod_level_resources_exclusive_allocation").Inc()
+			recordInfeasibleResize("guaranteed_pod_level_resources_exclusive_allocation", isContainerResizeRequested(pod, allocatedPod), isPodResizeRequested(pod, allocatedPod))
 		}
 		return lifecycle.PodAdmitResult{Admit: false, Reason: v1.PodReasonInfeasible, Message: msg, RejectionType: lifecycle.RejectionInfeasible}
 	}
 	if !attrs.Update.Resize {
 		return lifecycle.PodAdmitResult{Admit: true}
 	}
+	containerResizeRequested := isContainerResizeRequested(pod, allocatedPod)
+	podResizeRequested := isPodResizeRequested(pod, allocatedPod)
 	if resizable, msg, reason := IsInPlacePodVerticalScalingAllowed(pod); !resizable {
 		// If there is a pending resize but the resize is not allowed, always use the allocated resources.
-		metrics.PodInfeasibleResizes.WithLabelValues(reason).Inc()
+		recordInfeasibleResize(reason, containerResizeRequested, podResizeRequested)
 		return lifecycle.PodAdmitResult{Admit: false, Reason: v1.PodReasonInfeasible, Message: msg, RejectionType: lifecycle.RejectionInfeasible}
 	}
 	if resizeNotAllowed, msg := disallowResizeForSwappableContainers(h.containerRuntime, pod, allocatedPod); resizeNotAllowed {
 		// If this resize involve swap recalculation, set as infeasible, as IPPR with swap is not supported for beta.
-		metrics.PodInfeasibleResizes.WithLabelValues("swap_limitation").Inc()
+		recordInfeasibleResize("swap_limitation", containerResizeRequested, podResizeRequested)
 		return lifecycle.PodAdmitResult{Admit: false, Reason: v1.PodReasonInfeasible, Message: msg, RejectionType: lifecycle.RejectionInfeasible}
 	}
-	if !apiequality.Semantic.DeepEqual(pod.Spec.Resources, allocatedPod.Spec.Resources) {
+	if podResizeRequested {
 		if resizable, msg, reason := IsInPlacePodLevelResourcesVerticalScalingAllowed(pod); !resizable {
 			// If there is a pending pod-level resources resize but the resize is not allowed, always use the allocated resources.
-			metrics.PodInfeasibleResizes.WithLabelValues(reason).Inc()
+			recordInfeasibleResize(reason, containerResizeRequested, podResizeRequested)
 			return lifecycle.PodAdmitResult{Admit: false, Reason: v1.PodReasonInfeasible, Message: msg, RejectionType: lifecycle.RejectionInfeasible}
 		}
 	}
 
 	if disallowed, msg, reason := disallowResizeForMemoryBackedVolumes(pod, allocatedPod, h.containerManager.GetNodeConfig().CgroupVersion); disallowed {
 		logger.V(3).Info(msg, "pod", format.Pod(pod))
-		metrics.PodInfeasibleResizes.WithLabelValues(reason).Inc()
+		recordInfeasibleResize(reason, containerResizeRequested, podResizeRequested)
 		return lifecycle.PodAdmitResult{Admit: false, Reason: v1.PodReasonInfeasible, Message: msg, RejectionType: lifecycle.RejectionInfeasible}
 	}
 
@@ -105,22 +110,40 @@ func (h *podResizesAdmitHandler) Admit(ctx context.Context, attrs *lifecycle.Pod
 			if cpuMode == cm.ResourceAllocationModeExclusive && h.guaranteedPodResourceResizeRequired(pod, allocatedPod, v1.ResourceCPU) {
 				msg := fmt.Sprintf("Resize is infeasible for Guaranteed Pods when CPU allocation mode is %s", cpuMode)
 				logger.V(3).Info(msg, "pod", format.Pod(pod))
-				metrics.PodInfeasibleResizes.WithLabelValues("guaranteed_pod_cpu_manager_static_policy").Inc()
+				recordInfeasibleResize("guaranteed_pod_cpu_manager_static_policy", containerResizeRequested, podResizeRequested)
 				return lifecycle.PodAdmitResult{Admit: false, Reason: v1.PodReasonInfeasible, Message: msg, RejectionType: lifecycle.RejectionInfeasible}
 			}
+		} else if cpuMode := h.resourceManager.AllocationMode(v1.ResourceCPU); cpuMode == cm.ResourceAllocationModeExclusive && exclusiveCPUsResizeRequiredForPodLevelResources(pod, allocatedPod) {
+			msg := fmt.Sprintf("Resize of exclusive CPUs is infeasible for Guaranteed Pods with pod-level resources when CPU allocation mode is %s", cpuMode)
+			logger.V(3).Info(msg, "pod", format.Pod(pod))
+			recordInfeasibleResize("guaranteed_pod_level_resources_exclusive_cpus", containerResizeRequested, podResizeRequested)
+			return lifecycle.PodAdmitResult{Admit: false, Reason: v1.PodReasonInfeasible, Message: msg, RejectionType: lifecycle.RejectionInfeasible}
+		} else if cpuMode == cm.ResourceAllocationModeExclusive && exclusiveCPUsContainerAddedOrRemoved(pod, allocatedPod) {
+			msg := fmt.Sprintf("Adding or removing containers with exclusive CPUs is infeasible for Guaranteed Pods when CPU allocation mode is %s", cpuMode)
+			logger.V(3).Info(msg, "pod", format.Pod(pod))
+			recordInfeasibleResize("guaranteed_pod_exclusive_cpus_container_change", containerResizeRequested, podResizeRequested)
+			return lifecycle.PodAdmitResult{Admit: false, Reason: v1.PodReasonInfeasible, Message: msg, RejectionType: lifecycle.RejectionInfeasible}
 		}
 		if !utilfeature.DefaultFeatureGate.Enabled(features.InPlacePodVerticalScalingExclusiveMemory) {
 			memMode := h.resourceManager.AllocationMode(v1.ResourceMemory)
 			if memMode == cm.ResourceAllocationModeExclusive && h.guaranteedPodResourceResizeRequired(pod, allocatedPod, v1.ResourceMemory) {
 				msg := fmt.Sprintf("Resize is infeasible for Guaranteed Pods when memory allocation mode is %s", memMode)
 				logger.V(3).Info(msg, "pod", format.Pod(pod))
-				metrics.PodInfeasibleResizes.WithLabelValues("guaranteed_pod_memory_manager_static_policy").Inc()
+				recordInfeasibleResize("guaranteed_pod_memory_manager_static_policy", containerResizeRequested, podResizeRequested)
 				return lifecycle.PodAdmitResult{Admit: false, Reason: v1.PodReasonInfeasible, Message: msg, RejectionType: lifecycle.RejectionInfeasible}
 			}
 		}
 	}
 
 	return lifecycle.PodAdmitResult{Admit: true}
+}
+
+func recordInfeasibleResize(reason string, containerResources, podResources bool) {
+	metrics.PodInfeasibleResizes.WithLabelValues(
+		reason,
+		strconv.FormatBool(containerResources),
+		strconv.FormatBool(podResources),
+	).Inc()
 }
 
 func disallowResizeForMemoryBackedVolumes(desiredPod, allocatedPod *v1.Pod, cgroupVersion int) (bool, string, string) {
@@ -285,6 +308,85 @@ func (h *podResizesAdmitHandler) disallowContainerChangesForPodLevelExclusiveRes
 	return false, ""
 }
 
+// exclusiveCPUsResizeRequiredForPodLevelResources returns whether the resize changes the number of
+// exclusive CPUs of a Guaranteed pod with pod-level resources or of any of its containers, which
+// includes moving them between the shared and the exclusive pool. The static CPU manager policy
+// allocates exclusive CPUs for such a pod only when the pod is admitted and skips its resizes, so
+// the allocation would no longer match the pod.
+func exclusiveCPUsResizeRequiredForPodLevelResources(pod, allocatedPod *v1.Pod) bool {
+	if !resourcehelper.IsPodLevelResourcesSet(pod) {
+		return false
+	}
+	if !resourcehelper.IsPodLevelResourcesSet(allocatedPod) {
+		// The static policy skips container-level resize allocation as soon as pod-level
+		// resources are set, even when PodLevelResourceManagers is disabled.
+		for container := range podutil.ContainerIter(&allocatedPod.Spec, podutil.InitContainers|podutil.Containers) {
+			if containerExclusiveCPUs(container) > 0 {
+				return true
+			}
+		}
+	}
+	if !utilfeature.DefaultFeatureGate.Enabled(features.PodLevelResourceManagers) || !resourcehelper.IsPodLevelResourcesSet(pod) {
+		return false
+	}
+	if podLevelExclusiveCPUs(pod) != podLevelExclusiveCPUs(allocatedPod) {
+		return true
+	}
+	for pair := range podutil.ContainerPairs(pod, allocatedPod, podutil.InitContainers|podutil.Containers) {
+		// Adding or removing a container is covered by disallowContainerChangesForPodLevelExclusiveResources.
+		if pair.New == nil || pair.Old == nil {
+			continue
+		}
+		if containerExclusiveCPUs(pair.New) != containerExclusiveCPUs(pair.Old) {
+			return true
+		}
+	}
+	return false
+}
+
+// exclusiveCPUsContainerAddedOrRemoved returns whether a container with exclusive CPUs is added to
+// or removed from a Guaranteed pod. On a pod update, the static CPU manager policy only resizes the
+// containers that have exclusive CPUs already. It rejects an added container as a move from the
+// shared to the exclusive pool, and it doesn't release the CPUs of a removed container as part of
+// the update.
+// TODO(KEP-5972): Allow this once the static policy can allocate and release exclusive CPUs when
+// containers are added or removed.
+func exclusiveCPUsContainerAddedOrRemoved(pod, allocatedPod *v1.Pod) bool {
+	for pair := range podutil.ContainerPairs(pod, allocatedPod, podutil.InitContainers|podutil.Containers) {
+		if (pair.New == nil || pair.Old == nil) && containerExclusiveCPUs(cmp.Or(pair.New, pair.Old)) > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+// podLevelExclusiveCPUs returns the number of exclusive CPUs that the static CPU manager policy
+// allocates to a Guaranteed pod for its pod-level resources, which it only does with the pod scope
+// of the topology manager.
+func podLevelExclusiveCPUs(pod *v1.Pod) int64 {
+	if pod.Spec.Resources == nil {
+		return 0
+	}
+	return integralCPUs(pod.Spec.Resources.Requests[v1.ResourceCPU])
+}
+
+// containerExclusiveCPUs returns the number of exclusive CPUs that the static CPU manager policy
+// allocates to a container of a Guaranteed pod, with or without pod-level resources.
+func containerExclusiveCPUs(container *v1.Container) int64 {
+	if !cmqos.IsContainerEquivalentQOSGuaranteed(container) {
+		return 0
+	}
+	return integralCPUs(container.Resources.Requests[v1.ResourceCPU])
+}
+
+// integralCPUs returns the number of CPUs if it is integral, and 0 otherwise.
+func integralCPUs(cpus resource.Quantity) int64 {
+	if cpus.Value()*1000 != cpus.MilliValue() {
+		return 0
+	}
+	return cpus.Value()
+}
+
 func (h *podResizesAdmitHandler) guaranteedPodResourceResizeRequired(pod, allocatedPod *v1.Pod, resourceName v1.ResourceName) bool {
 	// Adding or removing a container that requests the resource changes the allocation like a
 	// resize does.
@@ -311,31 +413,17 @@ func (h *podResizesAdmitHandler) guaranteedPodResourceResizeRequired(pod, alloca
 	return false
 }
 
-// FindVolume returns the volume with the given name from the slice, checking idxHint first for 1:1 common-case alignment.
-func FindVolume(volumes []v1.Volume, name string, idxHint int) *v1.Volume {
-	if len(volumes) > idxHint && volumes[idxHint].Name == name {
-		return &volumes[idxHint]
-	}
-	for i := range volumes {
-		if volumes[i].Name == name {
-			return &volumes[i]
-		}
-	}
-	return nil
-}
-
 // IsMemoryBackedVolumeResizeRequested returns true if any of the pod's memory-backed emptyDir volumes has its size limit changed.
 func IsMemoryBackedVolumeResizeRequested(desiredPod, allocatedPod *v1.Pod) bool {
-	for i, vol := range desiredPod.Spec.Volumes {
-		if !VolHasMemoryBackedEmptyDir(&vol) {
+	for pair := range podutil.VolumePairs(desiredPod, allocatedPod) {
+		if pair.New == nil || pair.Old == nil {
 			continue
 		}
-		allocVol := FindVolume(allocatedPod.Spec.Volumes, vol.Name, i)
-		if allocVol == nil || !VolHasMemoryBackedEmptyDir(allocVol) {
+		if !VolHasMemoryBackedEmptyDir(pair.New) || !VolHasMemoryBackedEmptyDir(pair.Old) {
 			continue
 		}
-		hasLimit, hasAllocLimit := VolHasMemoryBackedEmptyDirSizeLimit(&vol), VolHasMemoryBackedEmptyDirSizeLimit(allocVol)
-		if hasLimit != hasAllocLimit || (hasLimit && !vol.EmptyDir.SizeLimit.Equal(*allocVol.EmptyDir.SizeLimit)) {
+		hasLimit, hasAllocLimit := VolHasMemoryBackedEmptyDirSizeLimit(pair.New), VolHasMemoryBackedEmptyDirSizeLimit(pair.Old)
+		if hasLimit != hasAllocLimit || (hasLimit && !pair.New.EmptyDir.SizeLimit.Equal(*pair.Old.EmptyDir.SizeLimit)) {
 			return true
 		}
 	}

@@ -273,9 +273,14 @@ func (m *manager) retryPendingAllocations(ctx context.Context, trigger string) [
 			newPendingAllocations = append(newPendingAllocations, uid)
 		default:
 			logger.V(4).Info("Pod allocation successfully updated", "pod", klog.KObj(pod))
-			successfulAllocations = append(successfulAllocations, pod)
-			if isDeferred {
-				metrics.PodDeferredAcceptedResizes.WithLabelValues(trigger).Inc()
+			// TODO: Non-resize rejections are still marked Deferred or Infeasible under the
+			// PodResizePending condition when DynamicContainers or DynamicNodeLocalEphemeralVolumes
+			// is enabled; revisit how non-resize allocation rejections are reported.
+			if allocated {
+				successfulAllocations = append(successfulAllocations, pod)
+				if isDeferred {
+					metrics.PodDeferredAcceptedResizes.WithLabelValues(trigger).Inc()
+				}
 			}
 		}
 
@@ -622,15 +627,18 @@ func (m *manager) handlePendingAllocation(ctx context.Context, pod *v1.Pod) (lif
 		return lifecycle.PodAdmitResult{Admit: true}, false, nil
 	}
 
-	resizeRequested := isResizeRequested(pod, allocatedPod)
+	containerResizeRequested := isContainerResizeRequested(pod, allocatedPod)
+	podResizeRequested := isPodResizeRequested(pod, allocatedPod)
+	resizeRequested := containerResizeRequested || podResizeRequested || IsMemoryBackedVolumeResizeRequested(pod, allocatedPod)
 	dynamicContainers := utilfeature.DefaultFeatureGate.Enabled(features.DynamicContainers)
-	if !resizeRequested && !dynamicContainers {
+	dynamicVolumes := utilfeature.DefaultFeatureGate.Enabled(features.DynamicNodeLocalEphemeralVolumes)
+	if !resizeRequested && !dynamicContainers && !dynamicVolumes {
 		m.statusManager.ClearPodResizePendingCondition(pod.UID, metrics.DeferredResizeResolutionReverted)
 	}
 
 	// Desired pod != allocated pod. Can we update the allocation to the desired pod?
 	allocatedPods := slices.DeleteFunc(m.getAllocatedPods(m.podProvider.GetActivePods()), func(p *v1.Pod) bool { return p.UID == pod.UID })
-	result := m.canAdmitPod(ctx, &lifecycle.PodAdmitAttributes{
+	attrs := &lifecycle.PodAdmitAttributes{
 		Pod:       pod,
 		OtherPods: allocatedPods,
 		Operation: lifecycle.UpdateOperation,
@@ -638,12 +646,23 @@ func (m *manager) handlePendingAllocation(ctx context.Context, pod *v1.Pod) (lif
 			AllocatedPod: allocatedPod,
 			Resize:       resizeRequested,
 		},
-	})
+	}
+	// Every path that does not reach the commit point completes the transaction
+	// as failed, including a rejection, which is not an error.
+	committed := false
+	defer func() {
+		if !committed {
+			m.completeAdmit(ctx, attrs, lifecycle.AdmitFailure)
+		}
+	}()
+	result := m.canAdmitPod(ctx, attrs)
 	if result.Admit {
 		// Update pod resource allocation checkpoint
 		if err := m.SetAllocatedPod(logger, pod); err != nil {
 			return lifecycle.PodAdmitResult{}, false, err
 		}
+		committed = true
+		m.completeAdmit(ctx, attrs, lifecycle.AdmitSuccess)
 		resolution := metrics.DeferredResizeResolutionAccepted
 		if !resizeRequested {
 			// Any resize that was pending has been reverted, even if other changes were allocated.
@@ -659,10 +678,14 @@ func (m *manager) handlePendingAllocation(ctx context.Context, pod *v1.Pod) (lif
 		return result, true, nil
 	}
 
-	// With DynamicContainers, a blocked change that isn't a resize (e.g. an image update, or adding a
-	// container without resources) is reported too, so that it doesn't go unnoticed.
+	// With DynamicContainers or DynamicNodeLocalEphemeralVolumes, a blocked change that isn't a
+	// resize (e.g. an image update, adding a container without resources, or a dynamic volume
+	// change) is reported too, so that it doesn't go unnoticed.
 	// TODO(KEP-5972): Revisit reporting blocked changes that aren't resizes as PodResizePending.
-	if resizeRequested || dynamicContainers {
+	// TODO(KEP-6395): Also report rejected dynamic volume changes (e.g. by NodeDeclaredFeatures
+	// when DynamicNodeLocalEphemeralVolumes is disabled), and revisit reporting non-resize changes
+	// as PodResizePending.
+	if resizeRequested || dynamicContainers || dynamicVolumes {
 		// TODO: Distinguish resource shortages, which scheduler preemption can resolve, from other
 		// deferred rejections in the pod status.
 		reason := v1.PodReasonDeferred
@@ -670,7 +693,7 @@ func (m *manager) handlePendingAllocation(ctx context.Context, pod *v1.Pod) (lif
 			reason = v1.PodReasonInfeasible
 			// podResizesAdmitHandler counts its own rejections with a more specific reason.
 			if resizeRequested && result.Reason != v1.PodReasonInfeasible {
-				metrics.PodInfeasibleResizes.WithLabelValues(result.Reason).Inc()
+				recordInfeasibleResize(result.Reason, containerResizeRequested, podResizeRequested)
 			}
 		}
 		if m.statusManager.SetPodResizePendingCondition(pod.UID, reason, result.Message, pod.Generation) {
@@ -693,14 +716,15 @@ func containerHasResources(c *v1.Container) bool {
 	return len(c.Resources.Requests) > 0 || len(c.Resources.Limits) > 0
 }
 
-// isResizeRequested returns whether the desired pod asks for a change to the resources of its
-// containers, to its pod-level resources, or to the size limit of one of its memory-backed emptyDir
-// volumes. With DynamicContainers, adding or removing a main container that has resources is a
-// resize too. Any other field that is gated on allocation can differ too, but that is not a resize.
-func isResizeRequested(desired, allocated *v1.Pod) bool {
-	if !apiequality.Semantic.DeepEqual(desired.Spec.Resources, allocated.Spec.Resources) {
-		return true
-	}
+// isPodResizeRequested returns whether the desired pod asks for a change to its pod-level resources.
+func isPodResizeRequested(desired, allocated *v1.Pod) bool {
+	return !apiequality.Semantic.DeepEqual(desired.Spec.Resources, allocated.Spec.Resources)
+}
+
+// isContainerResizeRequested returns whether the desired pod asks for a change to the resources of
+// its containers. With DynamicContainers, adding or removing a main container that has resources is
+// a container resize too.
+func isContainerResizeRequested(desired, allocated *v1.Pod) bool {
 	// TODO(KEP-5972): Report rejected container additions and removals (e.g. by NodeDeclaredFeatures
 	// when DynamicContainers is disabled) as PodResizePending, and consider classifying them as
 	// resizes only when the effective pod-level resources change. The add/remove constraints (swap,
@@ -716,7 +740,7 @@ func isResizeRequested(desired, allocated *v1.Pod) bool {
 			return true
 		}
 	}
-	return IsMemoryBackedVolumeResizeRequested(desired, allocated)
+	return false
 }
 
 // canAdmitPod determines if a pod can be admitted, and gives a reason if it
@@ -753,6 +777,17 @@ func (m *manager) canAdmitPod(ctx context.Context, attrs *lifecycle.PodAdmitAttr
 	}
 
 	return lifecycle.PodAdmitResult{Admit: true}
+}
+
+// completeAdmit completes the admission in every admit handler that implements
+// lifecycle.PodAdmitTransactionalHandler, whether its Admit was called, called in
+// dry run, or not called.
+func (m *manager) completeAdmit(ctx context.Context, attrs *lifecycle.PodAdmitAttributes, result lifecycle.AdmitResult) {
+	for _, podAdmitHandler := range m.admitHandlers {
+		if tx, ok := podAdmitHandler.(lifecycle.PodAdmitTransactionalHandler); ok {
+			tx.CompleteAdmit(ctx, attrs, result)
+		}
+	}
 }
 
 func (m *manager) getAllocatedPods(activePods []*v1.Pod) []*v1.Pod {

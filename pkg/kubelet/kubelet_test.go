@@ -352,7 +352,16 @@ func newTestKubeletWithImageList(
 	)
 	kubelet.actuatedState = state.NewStateMemory(logger, nil, kuberuntime.KeepOnlyResourceValues)
 	volumeStatsAggPeriod := time.Second * 10
-	kubelet.resourceAnalyzer = serverstats.NewResourceAnalyzer(tCtx, kubelet, volumeStatsAggPeriod, kubelet.recorder)
+	kubelet.resourceAnalyzer = serverstats.NewResourceAnalyzer(
+		tCtx,
+		&allocatedStatsProvider{
+			Provider:   kubelet,
+			podManager: &allocatedPodManager{baseManager: kubelet.podManager, allocationManager: kubelet.allocationManager},
+		},
+		volumeStatsAggPeriod,
+		kubelet.recorder,
+		kubelet.actuatedState,
+	)
 
 	fakeHostStatsProvider := stats.NewFakeHostStatsProvider(&containertest.FakeOS{})
 
@@ -461,7 +470,8 @@ func newTestKubeletWithImageList(
 		volumetest.NewBlockVolumePathHandler(),
 		kubelet.statusManager,
 		0,
-		kubelet.actuatedState)
+		kubelet.actuatedState,
+		nil)
 
 	kubelet.pluginManager = pluginmanager.NewPluginManager(
 		kubelet.getPluginsRegistrationDir(), /* sockDir */
@@ -5335,10 +5345,209 @@ func TestHandlePodAdditionsBackfillsResizeConditionsBeforeSync(t *testing.T) {
 	assert.Equal(t, int64(1), synced[0].ObservedGeneration)
 }
 
+func assertRequestedResizes(t *testing.T, containerSeries, podSeries string) {
+	t.Helper()
+	for _, m := range []struct {
+		name, help, series string
+	}{{
+		name: "kubelet_container_requested_resizes_total",
+		help: `
+			# HELP kubelet_container_requested_resizes_total [ALPHA] Number of requested resizes, counted at the container level. Different resources on the same container are counted separately. The 'requirement' label refers to 'memory' or 'limits'; the 'operation' label can be one of 'add', 'remove', 'increase' or 'decrease'.
+			# TYPE kubelet_container_requested_resizes_total counter
+		`,
+		series: containerSeries,
+	}, {
+		name: "kubelet_pod_requested_resizes_total",
+		help: `
+			# HELP kubelet_pod_requested_resizes_total [ALPHA] Number of requested resizes, counted at the pod level. Different resources on the same pod are counted separately. The 'requirement' label refers to 'requests' or 'limits'; the 'operation' label can be one of 'add', 'remove', 'increase' or 'decrease'.
+			# TYPE kubelet_pod_requested_resizes_total counter
+		`,
+		series: podSeries,
+	}} {
+		expected := ""
+		if m.series != "" {
+			expected = m.help + m.series
+		}
+		require.NoError(t, testutil.GatherAndCompare(legacyregistry.DefaultGatherer, strings.NewReader(expected), m.name), m.name)
+	}
+}
+
+func TestHandlePodUpdates_RecordPodRequestedResizes(t *testing.T) {
+	logger, tCtx := ktesting.NewTestContext(t)
+	metrics.Register()
+
+	resources := func(requests, limits v1.ResourceList) *v1.ResourceRequirements {
+		return &v1.ResourceRequirements{Requests: requests, Limits: limits}
+	}
+	cpuMemory := func(cpu, memory string) v1.ResourceList {
+		list := v1.ResourceList{}
+		if cpu != "" {
+			list[v1.ResourceCPU] = resource.MustParse(cpu)
+		}
+		if memory != "" {
+			list[v1.ResourceMemory] = resource.MustParse(memory)
+		}
+		return list
+	}
+	restartAlways := v1.ContainerRestartPolicyAlways
+
+	for _, tc := range []struct {
+		name       string
+		oldSpec    v1.PodSpec
+		newSpec    v1.PodSpec
+		newLabels  map[string]string
+		addOldPod  bool
+		podSeries  string
+		ctrsSeries string
+	}{{
+		name:      "pod-level resources added",
+		oldSpec:   v1.PodSpec{Containers: []v1.Container{{Name: "c1"}}},
+		newSpec:   v1.PodSpec{Resources: resources(cpuMemory("1", "1Gi"), cpuMemory("2", "")), Containers: []v1.Container{{Name: "c1"}}},
+		addOldPod: true,
+		podSeries: `
+			kubelet_pod_requested_resizes_total{operation="add",requirement="requests",resource="cpu"} 1
+			kubelet_pod_requested_resizes_total{operation="add",requirement="requests",resource="memory"} 1
+			kubelet_pod_requested_resizes_total{operation="add",requirement="limits",resource="cpu"} 1
+		`,
+	}, {
+		name:      "pod-level resources increased and decreased",
+		oldSpec:   v1.PodSpec{Resources: resources(cpuMemory("1", "1Gi"), cpuMemory("2", "2Gi")), Containers: []v1.Container{{Name: "c1"}}},
+		newSpec:   v1.PodSpec{Resources: resources(cpuMemory("2", "512Mi"), cpuMemory("2", "4Gi")), Containers: []v1.Container{{Name: "c1"}}},
+		addOldPod: true,
+		podSeries: `
+			kubelet_pod_requested_resizes_total{operation="increase",requirement="requests",resource="cpu"} 1
+			kubelet_pod_requested_resizes_total{operation="decrease",requirement="requests",resource="memory"} 1
+			kubelet_pod_requested_resizes_total{operation="increase",requirement="limits",resource="memory"} 1
+		`,
+	}, {
+		name:      "pod-level resources removed",
+		oldSpec:   v1.PodSpec{Resources: resources(cpuMemory("1", ""), cpuMemory("", "1Gi")), Containers: []v1.Container{{Name: "c1"}}},
+		newSpec:   v1.PodSpec{Containers: []v1.Container{{Name: "c1"}}},
+		addOldPod: true,
+		podSeries: `
+			kubelet_pod_requested_resizes_total{operation="remove",requirement="requests",resource="cpu"} 1
+			kubelet_pod_requested_resizes_total{operation="remove",requirement="limits",resource="memory"} 1
+		`,
+	}, {
+		name: "pod-level and container resources resized together",
+		oldSpec: v1.PodSpec{
+			Resources:  resources(cpuMemory("1", ""), nil),
+			Containers: []v1.Container{{Name: "c1", Resources: *resources(cpuMemory("500m", ""), nil)}},
+		},
+		newSpec: v1.PodSpec{
+			Resources:  resources(cpuMemory("2", ""), nil),
+			Containers: []v1.Container{{Name: "c1", Resources: *resources(cpuMemory("700m", ""), nil)}},
+		},
+		addOldPod: true,
+		podSeries: `
+			kubelet_pod_requested_resizes_total{operation="increase",requirement="requests",resource="cpu"} 1
+		`,
+		ctrsSeries: `
+			kubelet_container_requested_resizes_total{operation="increase",requirement="requests",resource="cpu"} 1
+		`,
+	}, {
+		name: "sidecar resized",
+		oldSpec: v1.PodSpec{
+			InitContainers: []v1.Container{{Name: "sidecar", RestartPolicy: &restartAlways, Resources: *resources(nil, cpuMemory("", "100Mi"))}},
+			Containers:     []v1.Container{{Name: "c1"}},
+		},
+		newSpec: v1.PodSpec{
+			InitContainers: []v1.Container{{Name: "sidecar", RestartPolicy: &restartAlways, Resources: *resources(nil, cpuMemory("", "50Mi"))}},
+			Containers:     []v1.Container{{Name: "c1"}},
+		},
+		addOldPod: true,
+		ctrsSeries: `
+			kubelet_container_requested_resizes_total{operation="decrease",requirement="limits",resource="memory"} 1
+		`,
+	}, {
+		name: "non-sidecar init container resized",
+		oldSpec: v1.PodSpec{
+			InitContainers: []v1.Container{{Name: "init", Resources: *resources(cpuMemory("100m", ""), nil)}},
+			Containers:     []v1.Container{{Name: "c1"}},
+		},
+		newSpec: v1.PodSpec{
+			InitContainers: []v1.Container{{Name: "init", Resources: *resources(cpuMemory("200m", ""), nil)}},
+			Containers:     []v1.Container{{Name: "c1"}},
+		},
+		addOldPod: true,
+		ctrsSeries: `
+			kubelet_container_requested_resizes_total{operation="increase",requirement="requests",resource="cpu"} 1
+		`,
+	}, {
+		name:      "pod-level resources in another unit",
+		oldSpec:   v1.PodSpec{Resources: resources(cpuMemory("1", "1Gi"), nil), Containers: []v1.Container{{Name: "c1"}}},
+		newSpec:   v1.PodSpec{Resources: resources(cpuMemory("1000m", "1024Mi"), nil), Containers: []v1.Container{{Name: "c1"}}},
+		addOldPod: true,
+	}, {
+		name:      "pod-level resources that aren't resizable",
+		oldSpec:   v1.PodSpec{Resources: resources(v1.ResourceList{v1.ResourceEphemeralStorage: resource.MustParse("1Gi")}, nil), Containers: []v1.Container{{Name: "c1"}}},
+		newSpec:   v1.PodSpec{Resources: resources(v1.ResourceList{v1.ResourceEphemeralStorage: resource.MustParse("2Gi")}, nil), Containers: []v1.Container{{Name: "c1"}}},
+		addOldPod: true,
+	}, {
+		name:      "update that isn't a resize",
+		oldSpec:   v1.PodSpec{Resources: resources(cpuMemory("1", "1Gi"), nil), Containers: []v1.Container{{Name: "c1", Resources: *resources(cpuMemory("500m", ""), nil)}}},
+		newSpec:   v1.PodSpec{Resources: resources(cpuMemory("1", "1Gi"), nil), Containers: []v1.Container{{Name: "c1", Resources: *resources(cpuMemory("500m", ""), nil)}}},
+		newLabels: map[string]string{"updated": "true"},
+		addOldPod: true,
+	}, {
+		// Without a previous version of the pod, there is nothing to compare the resources with.
+		name:    "pod not seen before",
+		oldSpec: v1.PodSpec{Resources: resources(cpuMemory("1", ""), nil), Containers: []v1.Container{{Name: "c1"}}},
+		newSpec: v1.PodSpec{Resources: resources(cpuMemory("2", ""), nil), Containers: []v1.Container{{Name: "c1"}}},
+	}} {
+		t.Run(tc.name, func(t *testing.T) {
+			metrics.ContainerRequestedResizes.Reset()
+			metrics.PodRequestedResizes.Reset()
+
+			testKubelet := newTestKubelet(t, false /* controllerAttachDetachEnabled */)
+			t.Cleanup(func() { testKubelet.Cleanup() })
+			kubelet := testKubelet.kubelet
+
+			oldPod := &v1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "test-pod", UID: "12345"}, Spec: tc.oldSpec}
+			newPod := oldPod.DeepCopy()
+			newPod.Labels = tc.newLabels
+			newPod.Spec = tc.newSpec
+			if tc.addOldPod {
+				kubelet.podManager.AddPod(oldPod)
+			}
+			require.NoError(t, kubelet.allocationManager.SetAllocatedPod(logger, oldPod))
+			kubelet.HandlePodUpdates(tCtx, []*v1.Pod{newPod})
+
+			assertRequestedResizes(t, strings.TrimLeft(tc.ctrsSeries, "\n"), strings.TrimLeft(tc.podSeries, "\n"))
+		})
+	}
+}
+
+func TestHandlePodAdditions_NoRequestedResizes(t *testing.T) {
+	_, tCtx := ktesting.NewTestContext(t)
+	metrics.Register()
+	metrics.ContainerRequestedResizes.Reset()
+	metrics.PodRequestedResizes.Reset()
+
+	testKubelet := newTestKubelet(t, false /* controllerAttachDetachEnabled */)
+	t.Cleanup(func() { testKubelet.Cleanup() })
+	kubelet := testKubelet.kubelet
+
+	requests := v1.ResourceList{v1.ResourceCPU: resource.MustParse("100m"), v1.ResourceMemory: resource.MustParse("100Mi")}
+	pod := &v1.Pod{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-pod", Namespace: "default", UID: "12345"},
+		Spec: v1.PodSpec{
+			Resources:  &v1.ResourceRequirements{Requests: requests, Limits: requests},
+			Containers: []v1.Container{{Name: "c1", Resources: v1.ResourceRequirements{Requests: requests, Limits: requests}}},
+		},
+	}
+	kubelet.HandlePodAdditions(tCtx, []*v1.Pod{pod})
+	// The update that follows the creation of the pod doesn't change its resources.
+	kubelet.HandlePodUpdates(tCtx, []*v1.Pod{pod.DeepCopy()})
+
+	assertRequestedResizes(t, "", "")
+}
+
 func TestHandlePodUpdates_RecordContainerRequestedResizes(t *testing.T) {
 	logger, tCtx := ktesting.NewTestContext(t)
 	metrics.Register()
 	metrics.ContainerRequestedResizes.Reset()
+	metrics.PodRequestedResizes.Reset()
 
 	type expectedMetricsStruct struct {
 		memoryLimitsCounter   map[string]int
@@ -5954,56 +6163,24 @@ func TestHandlePodUpdates_RecordContainerRequestedResizes(t *testing.T) {
 
 			tc.updateExpectedFunc(&expectedMetrics)
 
-			expectedFormat := `
-				# HELP kubelet_container_requested_resizes_total [ALPHA] Number of requested resizes, counted at the container level. Different resources on the same container are counted separately. The 'requirement' label refers to 'memory' or 'limits'; the 'operation' label can be one of 'add', 'remove', 'increase' or 'decrease'.
-				# TYPE kubelet_container_requested_resizes_total counter
-				kubelet_container_requested_resizes_total{operation="add",requirement="requests",resource="memory"} %d
-				kubelet_container_requested_resizes_total{operation="add",requirement="requests",resource="cpu"} %d
-				kubelet_container_requested_resizes_total{operation="add",requirement="limits",resource="memory"} %d
-				kubelet_container_requested_resizes_total{operation="add",requirement="limits",resource="cpu"} %d
-				kubelet_container_requested_resizes_total{operation="decrease",requirement="requests",resource="memory"} %d
-				kubelet_container_requested_resizes_total{operation="decrease",requirement="requests",resource="cpu"} %d
-				kubelet_container_requested_resizes_total{operation="decrease",requirement="limits",resource="memory"} %d
-				kubelet_container_requested_resizes_total{operation="decrease",requirement="limits",resource="cpu"} %d
-				kubelet_container_requested_resizes_total{operation="increase",requirement="requests",resource="memory"} %d
-				kubelet_container_requested_resizes_total{operation="increase",requirement="requests",resource="cpu"} %d
-				kubelet_container_requested_resizes_total{operation="increase",requirement="limits",resource="memory"} %d
-				kubelet_container_requested_resizes_total{operation="increase",requirement="limits",resource="cpu"} %d
-				kubelet_container_requested_resizes_total{operation="remove",requirement="requests",resource="memory"} %d
-				kubelet_container_requested_resizes_total{operation="remove",requirement="requests",resource="cpu"} %d
-				kubelet_container_requested_resizes_total{operation="remove",requirement="limits",resource="memory"} %d
-				kubelet_container_requested_resizes_total{operation="remove",requirement="limits",resource="cpu"} %d
-			`
-
-			expected := fmt.Sprintf(expectedFormat,
-				expectedMetrics.memoryRequestsCounter["add"],
-				expectedMetrics.cpuRequestsCounter["add"],
-				expectedMetrics.memoryLimitsCounter["add"],
-				expectedMetrics.cpuLimitsCounter["add"],
-
-				expectedMetrics.memoryRequestsCounter["decrease"],
-				expectedMetrics.cpuRequestsCounter["decrease"],
-				expectedMetrics.memoryLimitsCounter["decrease"],
-				expectedMetrics.cpuLimitsCounter["decrease"],
-
-				expectedMetrics.memoryRequestsCounter["increase"],
-				expectedMetrics.cpuRequestsCounter["increase"],
-				expectedMetrics.memoryLimitsCounter["increase"],
-				expectedMetrics.cpuLimitsCounter["increase"],
-
-				expectedMetrics.memoryRequestsCounter["remove"],
-				expectedMetrics.cpuRequestsCounter["remove"],
-				expectedMetrics.memoryLimitsCounter["remove"],
-				expectedMetrics.cpuLimitsCounter["remove"],
-			)
-
-			// Omit lines from the expected metrics string where the count is "0"
-			re := regexp.MustCompile("(?m)[\r\n]+^.*} 0.*$")
-			expected = re.ReplaceAllString(expected, "")
-
-			require.NoError(t, testutil.GatherAndCompare(
-				legacyregistry.DefaultGatherer, strings.NewReader(expected), "kubelet_container_requested_resizes_total",
-			))
+			// Container resizes increment only the container metric, leaving the pod-level metric empty.
+			var containerSeries strings.Builder
+			for _, op := range []string{"add", "decrease", "increase", "remove"} {
+				for _, c := range []struct {
+					resource, requirement string
+					counter               map[string]int
+				}{
+					{"memory", "requests", expectedMetrics.memoryRequestsCounter},
+					{"cpu", "requests", expectedMetrics.cpuRequestsCounter},
+					{"memory", "limits", expectedMetrics.memoryLimitsCounter},
+					{"cpu", "limits", expectedMetrics.cpuLimitsCounter},
+				} {
+					if count := c.counter[op]; count > 0 {
+						fmt.Fprintf(&containerSeries, "kubelet_container_requested_resizes_total{operation=%q,requirement=%q,resource=%q} %d\n", op, c.requirement, c.resource, count)
+					}
+				}
+			}
+			assertRequestedResizes(t, containerSeries.String(), "")
 		})
 	}
 }
@@ -7482,7 +7659,6 @@ func TestHandlePodUpdates_ResizeTerminatingPods(t *testing.T) {
 }
 
 func TestAllocatedPodManager(t *testing.T) {
-	featuregatetesting.SetFeatureGateDuringTest(t, utilfeature.DefaultFeatureGate, features.InPlacePodVerticalScalingMemoryBackedVolumes, true)
 	logger, _ := ktesting.NewTestContext(t)
 	testKubelet := newTestKubelet(t, false)
 	defer testKubelet.Cleanup()
@@ -7493,7 +7669,27 @@ func TestAllocatedPodManager(t *testing.T) {
 		allocationManager: kl.allocationManager,
 	}
 
-	// Pod without a memory-backed emptyDir should bypass UpdatePodFromAllocation and return the desired pod directly.
+	// Unallocated pod falls back to returning the desired pod as-is.
+	unallocatedPod := &v1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			UID:       "pod-unallocated",
+			Name:      "pod-unallocated",
+			Namespace: "default",
+		},
+		Spec: v1.PodSpec{
+			Containers: []v1.Container{{Name: "c1"}},
+		},
+	}
+	kl.podManager.SetPods([]*v1.Pod{unallocatedPod})
+	gotPod, found := apm.GetPodByUID(unallocatedPod.UID)
+	require.True(t, found)
+	assert.Same(t, unallocatedPod, gotPod)
+
+	// Allocated pod returns the allocated view regardless of feature gates, including across
+	// kubelet feature-gate rollback.
+	featuregatetesting.SetFeatureGateDuringTest(t, utilfeature.DefaultFeatureGate, features.InPlacePodVerticalScalingMemoryBackedVolumes, false)
+	featuregatetesting.SetFeatureGateDuringTest(t, utilfeature.DefaultFeatureGate, features.DynamicNodeLocalEphemeralVolumes, false)
+
 	podWithoutMemVol := &v1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
 			UID:       "pod-no-mem-vol",
@@ -7523,15 +7719,28 @@ func TestAllocatedPodManager(t *testing.T) {
 	}
 	require.NoError(t, kl.allocationManager.SetAllocatedPod(logger, podWithoutMemVol))
 
-	desiredPodWithoutMemVol := podWithoutMemVol.DeepCopy()
-	desiredPodWithoutMemVol.Spec.Containers[0].Resources.Limits[v1.ResourceMemory] = resource.MustParse("200Mi")
-	kl.podManager.SetPods([]*v1.Pod{desiredPodWithoutMemVol})
+	desiredWithDynVol := podWithoutMemVol.DeepCopy()
+	desiredWithDynVol.Spec.Volumes = append(desiredWithDynVol.Spec.Volumes, v1.Volume{
+		Name: "dyn-secret",
+		VolumeSource: v1.VolumeSource{
+			Secret: &v1.SecretVolumeSource{SecretName: "my-secret"},
+		},
+	})
+	kl.podManager.SetPods([]*v1.Pod{desiredWithDynVol})
 
-	gotPod, found := apm.GetPodByUID(podWithoutMemVol.UID)
+	gotPod, found = apm.GetPodByUID(podWithoutMemVol.UID)
 	require.True(t, found)
-	assert.Same(t, desiredPodWithoutMemVol, gotPod)
+	require.Len(t, gotPod.Spec.Volumes, 1)
+	assert.Equal(t, "disk-vol", gotPod.Spec.Volumes[0].Name)
 
-	// Pod with a memory-backed emptyDir should consult UpdatePodFromAllocation and return the allocated pod.
+	asp := &allocatedStatsProvider{Provider: kl, podManager: apm}
+	gotByName, found := asp.GetPodByName(podWithoutMemVol.Namespace, podWithoutMemVol.Name)
+	require.True(t, found)
+	require.Len(t, gotByName.Spec.Volumes, 1)
+	assert.Equal(t, "disk-vol", gotByName.Spec.Volumes[0].Name)
+	require.Len(t, asp.GetPods(), 1)
+	assert.Equal(t, "disk-vol", asp.GetPods()[0].Spec.Volumes[0].Name)
+	// Pod with a memory-backed emptyDir also returns the allocated SizeLimit.
 	size100Mi := resource.MustParse("100Mi")
 	size200Mi := resource.MustParse("200Mi")
 	podWithMemVol := &v1.Pod{
@@ -7758,4 +7967,198 @@ func TestAllocatedStatusPodManager(t *testing.T) {
 	gotPod, found = spm.GetPodByUID(desiredPod.UID)
 	require.True(t, found)
 	assert.Same(t, desiredPod, gotPod)
+}
+
+func TestSyncTerminatedPodClearsDynamicVolumeStatuses(t *testing.T) {
+	featuregatetesting.SetFeatureGateDuringTest(t, utilfeature.DefaultFeatureGate, features.DynamicNodeLocalEphemeralVolumes, true)
+	tCtx := ktesting.Init(t)
+	logger := klog.FromContext(tCtx)
+
+	testKubelet := newTestKubelet(t, false /* controllerAttachDetachEnabled */)
+	defer testKubelet.Cleanup()
+	kl := testKubelet.kubelet
+
+	pod := podWithUIDNameNs("pod-term-dyn-vol", "pod-term-dyn-vol", "default")
+	pod.Spec = v1.PodSpec{
+		RestartPolicy: v1.RestartPolicyNever,
+		Containers: []v1.Container{
+			{
+				Name:  "c1",
+				Image: "busybox",
+				VolumeMounts: []v1.VolumeMount{
+					{Name: "vol-img", MountPath: "/mnt/img"},
+					{Name: "vol-pending", MountPath: "/mnt/pending"},
+				},
+			},
+		},
+		Volumes: []v1.Volume{
+			{
+				Name: "vol-img",
+				VolumeSource: v1.VolumeSource{
+					Image: &v1.ImageVolumeSource{Reference: "registry.k8s.io/pause:3.10"},
+				},
+			},
+			{
+				Name: "vol-pending",
+				VolumeSource: v1.VolumeSource{
+					EmptyDir: &v1.EmptyDirVolumeSource{},
+				},
+			},
+		},
+	}
+	kl.podManager.SetPods([]*v1.Pod{pod})
+
+	initialActuated := pod.DeepCopy()
+	initialActuated.Spec.Volumes = nil
+	require.NoError(t, kl.actuatedState.SetPod(logger, initialActuated))
+	require.NoError(t, kl.actuatedState.SetPodVolume(logger, pod.UID, pod.Spec.Volumes[0]))
+
+	stoppedPodStatus := &kubecontainer.PodStatus{
+		ID:        pod.UID,
+		Name:      pod.Name,
+		Namespace: pod.Namespace,
+		ContainerStatuses: []*kubecontainer.Status{
+			{
+				ID:       kubecontainer.ContainerID{Type: "test", ID: "c1-id"},
+				Name:     "c1",
+				State:    kubecontainer.ContainerStateExited,
+				ExitCode: 0,
+			},
+		},
+	}
+
+	// Before SyncTerminatedPod cleans up actuatedState, a terminal status generation
+	// reports still-actuated dynamic volumes as Unmounting and omits unmounted ones.
+	beforeUnmount := kl.generateAPIPodStatus(tCtx, pod, stoppedPodStatus, TerminatedPod)
+	assert.Equal(t, v1.PodSucceeded, beforeUnmount.Phase)
+	assert.Equal(t, []v1.PodVolumeStatus{
+		{Name: "vol-img", HostPhase: v1.PodVolumeHostUnmounting},
+	}, beforeUnmount.VolumeStatuses)
+
+	require.NoError(t, kl.SyncTerminatedPod(tCtx, pod, stoppedPodStatus))
+
+	finalStatus, found := kl.statusManager.GetPodStatus(pod.UID)
+	require.True(t, found)
+	assert.Equal(t, v1.PodSucceeded, finalStatus.Phase)
+	assert.Empty(t, finalStatus.VolumeStatuses)
+
+	vols, _ := kl.actuatedState.GetPodVolumes(pod.UID)
+	assert.Empty(t, vols)
+
+	// After a feature-gate rollback, SyncTerminatedPod must still clean up any leftover
+	// actuatedState volume entries written before the gate was disabled.
+	require.NoError(t, kl.actuatedState.SetPodVolume(logger, pod.UID, pod.Spec.Volumes[0]))
+	featuregatetesting.SetFeatureGateDuringTest(t, utilfeature.DefaultFeatureGate, features.DynamicNodeLocalEphemeralVolumes, false)
+	require.NoError(t, kl.SyncTerminatedPod(tCtx, pod, stoppedPodStatus))
+	volsAfterRollback, _ := kl.actuatedState.GetPodVolumes(pod.UID)
+	assert.Empty(t, volsAfterRollback, "SyncTerminatedPod must remove leftover actuated volumes even when gate is disabled")
+}
+
+func TestGenerateAPIPodStatus_ClearedActuatedVolumeMountsNotRestoredFromOldStatus(t *testing.T) {
+	featuregatetesting.SetFeatureGateDuringTest(t, utilfeature.DefaultFeatureGate, features.DynamicNodeLocalEphemeralVolumes, true)
+	tCtx := ktesting.Init(t)
+	logger := klog.FromContext(tCtx)
+
+	testKubelet := newTestKubelet(t, false /* controllerAttachDetachEnabled */)
+	defer testKubelet.Cleanup()
+	kl := testKubelet.kubelet
+
+	pod := podWithUIDNameNs("pod-cleared-mounts", "pod-cleared-mounts", "default")
+	pod.Spec = v1.PodSpec{
+		RestartPolicy: v1.RestartPolicyOnFailure,
+		Volumes:       []v1.Volume{{Name: "vol-static", VolumeSource: v1.VolumeSource{EmptyDir: &v1.EmptyDirVolumeSource{}}}},
+		Containers: []v1.Container{
+			{
+				Name:         "c1",
+				Image:        "busybox",
+				VolumeMounts: []v1.VolumeMount{{Name: "vol-static", MountPath: "/mnt/static"}},
+			},
+		},
+	}
+	kl.podManager.SetPods([]*v1.Pod{pod})
+
+	// Seed old API status carrying VolumeMounts for c1 and removed container c-removed.
+	kl.statusManager.SetPodStatus(logger, pod, v1.PodStatus{
+		Phase: v1.PodRunning,
+		ContainerStatuses: []v1.ContainerStatus{
+			{
+				Name:         "c1",
+				ContainerID:  "test://c1-old",
+				State:        v1.ContainerState{Running: &v1.ContainerStateRunning{}},
+				VolumeMounts: []v1.VolumeMountStatus{{Name: "vol-static", MountPath: "/mnt/static"}},
+			},
+			{
+				Name:         "c-removed",
+				ContainerID:  "test://c-removed",
+				State:        v1.ContainerState{Running: &v1.ContainerStateRunning{}},
+				VolumeMounts: []v1.VolumeMountStatus{{Name: "vol-dyn", MountPath: "/mnt/dyn"}},
+			},
+		},
+	})
+
+	exitedZeroStatus := &kubecontainer.PodStatus{
+		ID:        pod.UID,
+		Name:      pod.Name,
+		Namespace: pod.Namespace,
+		ContainerStatuses: []*kubecontainer.Status{
+			{
+				ID:       kubecontainer.ContainerID{Type: "test", ID: "c1-old"},
+				Name:     "c1",
+				State:    kubecontainer.ContainerStateExited,
+				ExitCode: 0,
+			},
+			{
+				ID:       kubecontainer.ContainerID{Type: "test", ID: "c-removed"},
+				Name:     "c-removed",
+				State:    kubecontainer.ContainerStateExited,
+				ExitCode: 0,
+			},
+		},
+	}
+
+	// Case 1: Resource-only checkpoint entry (Image == "", e.g. V1 migration before InitializeActuatedPod)
+	// builds c1's VolumeMounts from pod.Spec while immediately dropping c-removed's VolumeMounts on exit.
+	require.NoError(t, kl.actuatedState.SetPod(logger, pod.DeepCopy()))
+	preSetContainerStatus := kl.generateAPIPodStatus(tCtx, pod, exitedZeroStatus, SyncPod)
+	require.Len(t, preSetContainerStatus.ContainerStatuses, 2)
+	assert.Equal(t, "c-removed", preSetContainerStatus.ContainerStatuses[0].Name)
+	assert.Empty(t, preSetContainerStatus.ContainerStatuses[0].VolumeMounts)
+	assert.Equal(t, "c1", preSetContainerStatus.ContainerStatuses[1].Name)
+	assert.Len(t, preSetContainerStatus.ContainerStatuses[1].VolumeMounts, 1)
+
+	// Case 2: Even while SetContainer still records VolumeMounts for c-removed (before reconcileNonRunningActuatedContainers
+	// clears them), generateAPIPodStatus omits VolumeMounts on exited c-removed while keeping c1's mounts.
+	require.NoError(t, kl.actuatedState.SetContainer(logger, pod.UID, podutil.Containers, pod.Spec.Containers[0]))
+	require.NoError(t, kl.actuatedState.SetContainer(logger, pod.UID, podutil.Containers, v1.Container{
+		Name:         "c-removed",
+		Image:        "busybox",
+		VolumeMounts: []v1.VolumeMount{{Name: "vol-dyn", MountPath: "/mnt/dyn"}},
+	}))
+	afterClearStatus := kl.generateAPIPodStatus(tCtx, pod, exitedZeroStatus, SyncPod)
+	assert.Equal(t, v1.PodSucceeded, afterClearStatus.Phase)
+	require.Len(t, afterClearStatus.ContainerStatuses, 2)
+	assert.Equal(t, "c-removed", afterClearStatus.ContainerStatuses[0].Name)
+	assert.Empty(t, afterClearStatus.ContainerStatuses[0].VolumeMounts, "exited removed container must not report VolumeMounts")
+	assert.Equal(t, "c1", afterClearStatus.ContainerStatuses[1].Name)
+	assert.Len(t, afterClearStatus.ContainerStatuses[1].VolumeMounts, 1)
+}
+
+func TestSyncLoopIteration_VolumePodSync(t *testing.T) {
+	tCtx := ktesting.Init(t)
+	testKubelet := newTestKubelet(t, false /* controllerAttachDetachEnabled */)
+	defer testKubelet.Cleanup()
+	kl := testKubelet.kubelet
+	kl.volumeSyncCh = make(chan struct{}, 1)
+
+	pod := podWithUIDNameNsSpec("vol-sync-uid", "vol-sync-pod", "default", v1.PodSpec{
+		Containers: []v1.Container{{Name: "c1", Image: "busybox"}},
+	})
+	kl.podManager.SetPods([]*v1.Pod{pod})
+
+	kl.enqueueVolumePodSync(pod.UID)
+	kl.enqueueVolumePodSync(pod.UID)
+
+	ok := kl.syncLoopIteration(tCtx, make(chan kubetypes.PodUpdate), kl, make(chan time.Time), make(chan time.Time), make(chan *pleg.PodLifecycleEvent))
+	require.True(t, ok)
+	testKubelet.fakeRuntime.AssertStartedPods([]string{string(pod.UID)})
 }

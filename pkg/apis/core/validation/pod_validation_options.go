@@ -47,12 +47,18 @@ type PodValidationOptions struct {
 	AllowOnlyRecursiveSELinuxChangePolicy bool
 	// Indicates whether PodLevelResources feature is enabled or disabled.
 	PodLevelResourcesEnabled bool
+	// Allow pod-level PID limits (spec.resources.limits.pids).
+	AllowPodPIDLimit bool
 	// Indicates whether InPlacePodLevelResourcesVerticalScaling feature is enabled
 	// or disabled.
 	InPlacePodLevelResourcesVerticalScalingEnabled bool
 	// Indicates whether InPlacePodVerticalScalingMemoryBackedVolumes feature is enabled
 	// or disabled.
 	InPlacePodVerticalScalingMemoryBackedVolumesEnabled bool
+	// Indicates whether DynamicContainers feature is enabled or disabled.
+	DynamicContainersEnabled bool
+	// Indicates whether DynamicNodeLocalEphemeralVolumes feature is enabled or disabled.
+	DynamicNodeLocalEphemeralVolumesEnabled bool
 	// Allow invalid label-value in RequiredNodeSelector
 	AllowInvalidLabelValueInRequiredNodeAffinity bool
 	// Allow feature of MatchLabelKeys in TopologySpreadConstraints
@@ -200,11 +206,14 @@ func GetValidationOptionsFromPodSpecAndMeta(podSpec, oldPodSpec *core.PodSpec, p
 		AllowNamespacedSysctlsForHostNetAndHostIPC:          false,
 		AllowNonLocalProjectedTokenPath:                     false,
 		PodLevelResourcesEnabled:                            utilfeature.DefaultFeatureGate.Enabled(features.PodLevelResources),
+		AllowPodPIDLimit:                                    utilfeature.DefaultFeatureGate.Enabled(features.PerPodPIDLimit),
 		AllowInvalidLabelValueInRequiredNodeAffinity:        false,
 		AllowMatchLabelKeysInPodTopologySpread:              utilfeature.DefaultFeatureGate.Enabled(features.MatchLabelKeysInPodTopologySpread),
 		AllowMatchLabelKeysInPodTopologySpreadSelectorMerge: utilfeature.DefaultFeatureGate.Enabled(features.MatchLabelKeysInPodTopologySpreadSelectorMerge),
 		InPlacePodLevelResourcesVerticalScalingEnabled:      utilfeature.DefaultFeatureGate.Enabled(features.InPlacePodLevelResourcesVerticalScaling),
 		InPlacePodVerticalScalingMemoryBackedVolumesEnabled: utilfeature.DefaultFeatureGate.Enabled(features.InPlacePodVerticalScalingMemoryBackedVolumes),
+		DynamicContainersEnabled:                            utilfeature.DefaultFeatureGate.Enabled(features.DynamicContainers),
+		DynamicNodeLocalEphemeralVolumesEnabled:             utilfeature.DefaultFeatureGate.Enabled(features.DynamicNodeLocalEphemeralVolumes),
 		OldPodViolatesMatchLabelKeysValidation:              false,
 		OldPodViolatesLegacyMatchLabelKeysValidation:        false,
 		AllowContainerRestartPolicyRules:                    utilfeature.DefaultFeatureGate.Enabled(features.ContainerRestartRules),
@@ -257,6 +266,9 @@ func GetValidationOptionsFromPodSpecAndMeta(podSpec, oldPodSpec *core.PodSpec, p
 				}
 			}
 		}
+
+		// If old pod already has a PID limit, allow it even if the gate is now off
+		opts.AllowPodPIDLimit = opts.AllowPodPIDLimit || podPIDLimitInUse(oldPodSpec)
 
 		opts.AllowContainerRestartPolicyRules = opts.AllowContainerRestartPolicyRules || podutil.ContainerRestartRulesInUse(oldPodSpec)
 		opts.AllowRestartAllContainers = opts.AllowRestartAllContainers || restartAllContainersActionInUse(oldPodSpec)
@@ -380,6 +392,15 @@ func hasMLDSAPodCertificateProjection(volumes []core.Volume) bool {
 	}
 
 	return false
+}
+
+// podPIDLimitInUse returns true if the pod spec has a pid limit set at the pod level.
+func podPIDLimitInUse(podSpec *core.PodSpec) bool {
+	if podSpec == nil || podSpec.Resources == nil {
+		return false
+	}
+	_, ok := podSpec.Resources.Limits[core.ResourcePID]
+	return ok
 }
 
 // GetValidationOptionsFromPodTemplate will return pod validation options for specified template.

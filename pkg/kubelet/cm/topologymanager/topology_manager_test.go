@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 
@@ -307,14 +308,16 @@ func TestAdmit(t *testing.T) {
 	singleNumaPolicy := NewSingleNumaNodePolicy(numaInfo, opts)
 
 	tcases := []struct {
-		name                  string
-		result                lifecycle.PodAdmitResult
-		qosClass              v1.PodQOSClass
-		policy                Policy
-		hp                    []HintProvider
-		expected              bool
-		expectedReason        string
-		expectedRejectionType lifecycle.RejectionType
+		name                         string
+		result                       lifecycle.PodAdmitResult
+		qosClass                     v1.PodQOSClass
+		policy                       Policy
+		hp                           []HintProvider
+		operation                    lifecycle.Operation
+		expected                     bool
+		expectedReason               string
+		expectedRejectionType        lifecycle.RejectionType
+		ipprExclusiveCPUsFeatureGate bool
 	}{
 		{
 			name:     "QOSClass set as BestEffort. None Policy. No Hints.",
@@ -577,6 +580,71 @@ func TestAdmit(t *testing.T) {
 			expectedRejectionType: lifecycle.RejectionBlocked,
 		},
 		{
+			name:     "QOSClass set as Guaranteed. Restricted Policy. No Preferred affinity. Pod update.",
+			qosClass: v1.PodQOSGuaranteed,
+			policy:   restrictedPolicy,
+			hp: []HintProvider{
+				&mockHintProvider{
+					th: map[string][]TopologyHint{
+						"resource": {
+							{
+								NUMANodeAffinity: NewTestBitMask(0, 1),
+								Preferred:        false,
+							},
+						},
+					},
+				},
+			},
+			operation:             lifecycle.UpdateOperation,
+			expected:              false,
+			expectedReason:        ErrorTopologyAffinity,
+			expectedRejectionType: lifecycle.RejectionBlocked,
+		},
+		{
+			name:     "QOSClass set as Guaranteed. Restricted Policy. No Preferred affinity. Pod update. InPlacePodVerticalScalingExclusiveCPUs enabled",
+			qosClass: v1.PodQOSGuaranteed,
+			policy:   restrictedPolicy,
+			hp: []HintProvider{
+				&mockHintProvider{
+					th: map[string][]TopologyHint{
+						"resource": {
+							{
+								NUMANodeAffinity: NewTestBitMask(0, 1),
+								Preferred:        false,
+							},
+						},
+					},
+				},
+			},
+			operation:                    lifecycle.UpdateOperation,
+			expected:                     false,
+			expectedReason:               ErrorTopologyAffinity,
+			expectedRejectionType:        lifecycle.RejectionInfeasible,
+			ipprExclusiveCPUsFeatureGate: true,
+		},
+		{
+			name:     "QOSClass set as Guaranteed. single-numa-node Policy. Preferred affinity on two NUMA nodes. Pod update. InPlacePodVerticalScalingExclusiveCPUs enabled",
+			qosClass: v1.PodQOSGuaranteed,
+			policy:   singleNumaPolicy,
+			hp: []HintProvider{
+				&mockHintProvider{
+					th: map[string][]TopologyHint{
+						"resource": {
+							{
+								NUMANodeAffinity: NewTestBitMask(0, 1),
+								Preferred:        true,
+							},
+						},
+					},
+				},
+			},
+			operation:                    lifecycle.UpdateOperation,
+			expected:                     false,
+			expectedReason:               ErrorTopologyAffinity,
+			expectedRejectionType:        lifecycle.RejectionInfeasible,
+			ipprExclusiveCPUsFeatureGate: true,
+		},
+		{
 			name:     "QOSClass set as Guaranteed. single-numa-node Policy. Allocation rejected by the HintProvider",
 			qosClass: v1.PodQOSGuaranteed,
 			policy:   singleNumaPolicy,
@@ -653,6 +721,7 @@ func TestAdmit(t *testing.T) {
 	for _, tc := range tcases {
 		t.Run(tc.name, func(t *testing.T) {
 			tCtx := ktesting.Init(t)
+			featuregatetesting.SetFeatureGateDuringTest(t, utilfeature.DefaultFeatureGate, features.InPlacePodVerticalScalingExclusiveCPUs, tc.ipprExclusiveCPUsFeatureGate)
 
 			ctnScopeManager := manager{}
 			ctnScopeManager.scope = NewContainerScope(tc.policy)
@@ -676,7 +745,8 @@ func TestAdmit(t *testing.T) {
 			}
 
 			podAttr := lifecycle.PodAdmitAttributes{
-				Pod: pod,
+				Pod:       pod,
+				Operation: tc.operation,
 			}
 
 			// Container scope Admit
@@ -701,6 +771,46 @@ func TestAdmit(t *testing.T) {
 			}
 			if !podActual.Admit && podActual.RejectionType != tc.expectedRejectionType {
 				t.Errorf("Error occurred, expected RejectionType in result to be %v got %v", tc.expectedRejectionType, podActual.RejectionType)
+			}
+		})
+	}
+}
+
+func TestTopologyAffinityErrorRejectionType(t *testing.T) {
+	tcases := []struct {
+		name                         string
+		operation                    lifecycle.Operation
+		expected                     lifecycle.RejectionType
+		ipprExclusiveCPUsFeatureGate bool
+	}{{
+		name:      "pod add is blocked",
+		operation: lifecycle.AddOperation,
+		expected:  lifecycle.RejectionBlocked,
+	}, {
+		name:                         "pod add is blocked with InPlacePodVerticalScalingExclusiveCPUs enabled",
+		operation:                    lifecycle.AddOperation,
+		expected:                     lifecycle.RejectionBlocked,
+		ipprExclusiveCPUsFeatureGate: true,
+	}, {
+		name:      "pod update is blocked",
+		operation: lifecycle.UpdateOperation,
+		expected:  lifecycle.RejectionBlocked,
+	}, {
+		name:                         "pod update is infeasible with InPlacePodVerticalScalingExclusiveCPUs enabled",
+		operation:                    lifecycle.UpdateOperation,
+		expected:                     lifecycle.RejectionInfeasible,
+		ipprExclusiveCPUsFeatureGate: true,
+	}}
+
+	for _, tc := range tcases {
+		t.Run(tc.name, func(t *testing.T) {
+			featuregatetesting.SetFeatureGateDuringTest(t, utilfeature.DefaultFeatureGate, features.InPlacePodVerticalScalingExclusiveCPUs, tc.ipprExclusiveCPUsFeatureGate)
+
+			if actual := NewTopologyAffinityError(tc.operation).RejectionType(); actual != tc.expected {
+				t.Errorf("Expected TopologyAffinityError RejectionType to be %v got %v", tc.expected, actual)
+			}
+			if actual := NewPodLevelTopologyAffinityError("", tc.operation).RejectionType(); actual != tc.expected {
+				t.Errorf("Expected PodLevelTopologyAffinityError RejectionType to be %v got %v", tc.expected, actual)
 			}
 		})
 	}
@@ -934,6 +1044,64 @@ func TestAdmitDryRun(t *testing.T) {
 			}
 			if hint := tc.scope.GetAffinity(tCtx.Logger(), string(pod.UID), "c1"); hint.NUMANodeAffinity != nil {
 				t.Errorf("Expected no stored topology hint in dry run, got %v", hint)
+			}
+		})
+	}
+}
+
+// mockAdmitTransactionalHintProvider is a HintProvider implementing AdmitTransactionalHintProvider
+// that records its calls, prefixed with its name, in a slice shared by providers.
+type mockAdmitTransactionalHintProvider struct {
+	mockHintProvider
+	name  string
+	calls *[]string
+}
+
+func (m *mockAdmitTransactionalHintProvider) CompleteAdmit(_ context.Context, _ *v1.Pod, operation lifecycle.Operation, result lifecycle.AdmitResult) {
+	*m.calls = append(*m.calls, fmt.Sprintf("%s:Complete(%s, %s)", m.name, operation, result))
+}
+
+func TestCompleteAdmit(t *testing.T) {
+	tcases := []struct {
+		name      string
+		operation lifecycle.Operation
+		result    lifecycle.AdmitResult
+		expected  []string
+	}{
+		{
+			name:      "success",
+			operation: lifecycle.UpdateOperation,
+			result:    lifecycle.AdmitSuccess,
+			expected:  []string{"first:Complete(update, success)", "second:Complete(update, success)"},
+		},
+		{
+			name:      "failure",
+			operation: lifecycle.UpdateOperation,
+			result:    lifecycle.AdmitFailure,
+			expected:  []string{"first:Complete(update, failure)", "second:Complete(update, failure)"},
+		},
+		{
+			name:      "the operation is passed to the providers",
+			operation: lifecycle.AddOperation,
+			result:    lifecycle.AdmitSuccess,
+			expected:  []string{"first:Complete(add, success)", "second:Complete(add, success)"},
+		},
+	}
+
+	for _, tc := range tcases {
+		t.Run(tc.name, func(t *testing.T) {
+			logger, ctx := ktesting.NewTestContext(t)
+			var calls []string
+			m := &manager{scope: NewNoneScope()}
+			m.AddHintProvider(logger, &mockAdmitTransactionalHintProvider{name: "first", calls: &calls})
+			// A provider that does not implement AdmitTransactionalHintProvider is skipped.
+			m.AddHintProvider(logger, &mockHintProvider{})
+			m.AddHintProvider(logger, &mockAdmitTransactionalHintProvider{name: "second", calls: &calls})
+
+			m.CompleteAdmit(ctx, &lifecycle.PodAdmitAttributes{Pod: &v1.Pod{}, Operation: tc.operation}, tc.result)
+
+			if !slices.Equal(calls, tc.expected) {
+				t.Errorf("Expected calls %v, got %v", tc.expected, calls)
 			}
 		})
 	}
